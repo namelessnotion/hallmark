@@ -1,0 +1,42 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require_relative "../lib/hallmark"
+
+USAGE = <<~TEXT
+  Usage:
+    hallmark check FILE...    run the analyses declared in FILEs; exit 1 on any counterexample
+    hallmark model FILE       print the Alloy model generated for FILE
+    hallmark install-alloy    download Alloy #{Hallmark::ALLOY_VERSION} and verify its checksum
+    hallmark version
+
+  Environment: HALLMARK_ALLOY_JAR, HALLMARK_JAVA, HALLMARK_SCOPE, HALLMARK_TIMEOUT, HALLMARK_SOLVER
+TEXT
+
+def load_analyses(files)
+  abort USAGE if files.empty?
+  files.each { |file| load File.expand_path(file) }
+  abort "No `Hallmark.analyze` blocks found in #{files.join(", ")}" if Hallmark.analyses.empty?
+  Hallmark.analyses
+end
+
+begin
+  case ARGV.shift
+  when "check"
+    reports = load_analyses(ARGV).map(&:run)
+    puts reports.map(&:to_s).join("\n\n")
+    exit(reports.all?(&:clean?) ? 0 : 1)
+  when "model"
+    load_analyses(ARGV).each { |analysis| puts Hallmark::ModelBuilder.new(analysis).source }
+  when "install-alloy"
+    puts Hallmark::AlloyInstaller.new.install
+  when "version", "--version", "-v"
+    puts "hallmark #{Hallmark::VERSION} (Alloy #{Hallmark::ALLOY_VERSION})"
+  else
+    puts USAGE
+    exit 2
+  end
+rescue Hallmark::Error => e
+  warn "hallmark: #{e.message}"
+  exit 2
+end

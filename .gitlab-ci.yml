@@ -1,0 +1,22 @@
+# Alloy 6.2 targets Java 17; Debian bookworm ships openjdk-17.
+image: ruby:3.4-bookworm
+
+variables:
+  HALLMARK_ALLOY_JAR: "$CI_PROJECT_DIR/.cache/hallmark/alloy-6.2.0.jar"
+  BUNDLE_PATH: "$CI_PROJECT_DIR/.cache/bundle"
+
+cache:
+  key:
+    files: [hallmark.gemspec, Gemfile]
+  paths: [.cache/]
+
+test:
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends openjdk-17-jre-headless
+    - bundle install --jobs 4
+    - bundle exec exe/hallmark install-alloy
+  script:
+    - bundle exec rake test
+    # The fixed example must stay clean; the original must keep failing.
+    - bundle exec exe/hallmark check examples/medium_clone/hallmark_fixed.rb
+    - "! bundle exec exe/hallmark check examples/medium_clone/hallmark.rb"

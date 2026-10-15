@@ -1,0 +1,170 @@
+<alloy builddate="2025-01-09T08:17:18.350Z">
+
+<instance bitwidth="4" maxseq="5" mintrace="-1" maxtrace="-1" command="Check safe_UsersController_update_write for 5" filename="" tracelength="1" looplength="1">
+
+<sig label="seq/Int" ID="0" parentID="1" builtin="yes">
+</sig>
+
+<sig label="Int" ID="1" parentID="2" builtin="yes">
+</sig>
+
+<sig label="String" ID="3" parentID="2" builtin="yes">
+</sig>
+
+<sig label="catalog/Read" ID="4" parentID="5" one="yes">
+   <atom label="catalog/Read$0"/>
+</sig>
+
+<sig label="catalog/Write" ID="6" parentID="5" one="yes">
+   <atom label="catalog/Write$0"/>
+</sig>
+
+<sig label="catalog/Op" ID="5" parentID="2" abstract="yes">
+</sig>
+
+<sig label="catalog/Anonymous" ID="7" parentID="8" one="yes">
+   <atom label="catalog/Anonymous$0"/>
+</sig>
+
+<sig label="catalog/User" ID="9" parentID="8">
+   <atom label="catalog/User$0"/>
+   <atom label="catalog/User$1"/>
+</sig>
+
+<field label="assigned" ID="10" parentID="9">
+   <tuple> <atom label="catalog/User$0"/> <atom label="catalog/Admin$0"/> </tuple>
+   <tuple> <atom label="catalog/User$0"/> <atom label="catalog/Role$0"/> </tuple>
+   <tuple> <atom label="catalog/User$0"/> <atom label="catalog/Role$1"/> </tuple>
+   <types> <type ID="9"/> <type ID="11"/> </types>
+</field>
+
+<sig label="catalog/Principal" ID="8" parentID="2" abstract="yes">
+</sig>
+
+<sig label="catalog/Admin" ID="12" parentID="11" one="yes">
+   <atom label="catalog/Admin$0"/>
+</sig>
+
+<sig label="catalog/Role" ID="11" parentID="2">
+   <atom label="catalog/Role$0"/>
+   <atom label="catalog/Role$1"/>
+   <atom label="catalog/Role$2"/>
+   <atom label="catalog/Role$3"/>
+</sig>
+
+<field label="inherits" ID="13" parentID="11">
+   <types> <type ID="11"/> <type ID="11"/> </types>
+</field>
+
+<sig label="this/UserProfile" ID="14" parentID="15">
+   <atom label="UserProfile$0"/>
+</sig>
+
+<sig label="this/Post" ID="16" parentID="15">
+   <atom label="Post$0"/>
+   <atom label="Post$1"/>
+   <atom label="Post$2"/>
+   <atom label="Post$3"/>
+</sig>
+
+<sig label="catalog/Resource" ID="15" parentID="2" abstract="yes">
+</sig>
+
+<field label="owner" ID="17" parentID="15">
+   <tuple> <atom label="Post$0"/> <atom label="catalog/User$0"/> </tuple>
+   <tuple> <atom label="Post$1"/> <atom label="catalog/User$0"/> </tuple>
+   <tuple> <atom label="Post$2"/> <atom label="catalog/User$0"/> </tuple>
+   <tuple> <atom label="Post$3"/> <atom label="catalog/User$0"/> </tuple>
+   <tuple> <atom label="UserProfile$0"/> <atom label="catalog/User$0"/> </tuple>
+   <types> <type ID="15"/> <type ID="9"/> </types>
+</field>
+
+<sig label="catalog/Grant" ID="18" parentID="2">
+   <atom label="catalog/Grant$0"/>
+</sig>
+
+<field label="role" ID="19" parentID="18">
+   <tuple> <atom label="catalog/Grant$0"/> <atom label="catalog/Role$2"/> </tuple>
+   <types> <type ID="18"/> <type ID="11"/> </types>
+</field>
+
+<field label="op" ID="20" parentID="18">
+   <tuple> <atom label="catalog/Grant$0"/> <atom label="catalog/Write$0"/> </tuple>
+   <types> <type ID="18"/> <type ID="5"/> </types>
+</field>
+
+<field label="res" ID="21" parentID="18">
+   <tuple> <atom label="catalog/Grant$0"/> <atom label="UserProfile$0"/> </tuple>
+   <types> <type ID="18"/> <type ID="15"/> </types>
+</field>
+
+<sig label="catalog/Conflict" ID="22" parentID="2">
+   <atom label="catalog/Conflict$0"/>
+   <atom label="catalog/Conflict$1"/>
+   <atom label="catalog/Conflict$2"/>
+   <atom label="catalog/Conflict$3"/>
+   <atom label="catalog/Conflict$4"/>
+</sig>
+
+<field label="a" ID="23" parentID="22">
+   <tuple> <atom label="catalog/Conflict$0"/> <atom label="catalog/Role$1"/> </tuple>
+   <tuple> <atom label="catalog/Conflict$1"/> <atom label="catalog/Role$1"/> </tuple>
+   <tuple> <atom label="catalog/Conflict$2"/> <atom label="catalog/Role$1"/> </tuple>
+   <tuple> <atom label="catalog/Conflict$3"/> <atom label="catalog/Role$1"/> </tuple>
+   <tuple> <atom label="catalog/Conflict$4"/> <atom label="catalog/Role$0"/> </tuple>
+   <types> <type ID="22"/> <type ID="11"/> </types>
+</field>
+
+<field label="b" ID="24" parentID="22">
+   <tuple> <atom label="catalog/Conflict$0"/> <atom label="catalog/Role$3"/> </tuple>
+   <tuple> <atom label="catalog/Conflict$1"/> <atom label="catalog/Role$3"/> </tuple>
+   <tuple> <atom label="catalog/Conflict$2"/> <atom label="catalog/Role$3"/> </tuple>
+   <tuple> <atom label="catalog/Conflict$3"/> <atom label="catalog/Role$3"/> </tuple>
+   <tuple> <atom label="catalog/Conflict$4"/> <atom label="catalog/Admin$0"/> </tuple>
+   <types> <type ID="22"/> <type ID="11"/> </types>
+</field>
+
+<sig label="catalog/CanAssign" ID="25" parentID="2">
+   <atom label="catalog/CanAssign$0"/>
+   <atom label="catalog/CanAssign$1"/>
+   <atom label="catalog/CanAssign$2"/>
+</sig>
+
+<field label="by" ID="26" parentID="25">
+   <tuple> <atom label="catalog/CanAssign$0"/> <atom label="catalog/Role$3"/> </tuple>
+   <tuple> <atom label="catalog/CanAssign$1"/> <atom label="catalog/Role$2"/> </tuple>
+   <tuple> <atom label="catalog/CanAssign$2"/> <atom label="catalog/Role$2"/> </tuple>
+   <types> <type ID="25"/> <type ID="11"/> </types>
+</field>
+
+<field label="gives" ID="27" parentID="25">
+   <tuple> <atom label="catalog/CanAssign$0"/> <atom label="catalog/Role$1"/> </tuple>
+   <tuple> <atom label="catalog/CanAssign$1"/> <atom label="catalog/Role$0"/> </tuple>
+   <tuple> <atom label="catalog/CanAssign$2"/> <atom label="catalog/Admin$0"/> </tuple>
+   <types> <type ID="25"/> <type ID="11"/> </types>
+</field>
+
+<sig label="univ" ID="2" builtin="yes">
+</sig>
+
+<sig label="catalog/Public" ID="28">
+   <atom label="Post$0"/>
+   <atom label="Post$1"/>
+   <atom label="Post$2"/>
+   <atom label="Post$3"/>
+   <type ID="15"/>
+</sig>
+
+<skolem label="$safe_UsersController_update_write_p" ID="29">
+   <tuple> <atom label="catalog/User$1"/> </tuple>
+   <types> <type ID="8"/> </types>
+</skolem>
+
+<skolem label="$safe_UsersController_update_write_r" ID="30">
+   <tuple> <atom label="UserProfile$0"/> </tuple>
+   <types> <type ID="14"/> </types>
+</skolem>
+
+</instance>
+
+</alloy>
