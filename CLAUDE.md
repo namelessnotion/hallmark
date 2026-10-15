@@ -145,13 +145,77 @@ Checked Oct 15, 2026 against each app's Gemfile on its default branch:
 | Library | Candidate | Why | Notes |
 | --- | --- | --- | --- |
 | Pundit | [Forem](https://github.com/forem/forem) | Pundit plus Rolify, Rails 8.0; exercises role mapping | Large codebase; start with one area (articles, comments) |
-| Pundit (alternates) | [HCB](https://github.com/hackclub/hcb) (Rails 8.1), [Mastodon](https://github.com/mastodon/mastodon) (Rails 8.1), [Gumroad](https://github.com/antiwork/gumroad) (Rails 7.1), [rubygems.org](https://github.com/rubygems/rubygems.org) (Rails 8.1) | All list `pundit` in their Gemfiles | HCB's users belong to several organizations, which suits the tenant-aware DSL; confirm by reading its models |
+| Pundit (alternates) | [HCB](https://github.com/hackclub/hcb) (Rails 8.1), [Mastodon](https://github.com/mastodon/mastodon) (Rails 8.1), [rubygems.org](https://github.com/rubygems/rubygems.org) (Rails 8.1) | All list `pundit` in their Gemfiles | HCB's users belong to several organizations, which suits the tenant-aware DSL; confirm by reading its models |
 | DeclarativePolicy | [GitLab](https://gitlab.com/gitlab-org/gitlab) | The only substantial public user; group and project memberships with inheritance | Huge; scope it to one slice, such as `ProjectPolicy` and `IssuePolicy` |
-| Action Policy | Not found | No open-source application using it turned up (searched the gem's README, ecosyste.ms, libraries.io, and the Gemfiles of likely apps) | Open question for Anthony, see below |
+| Action Policy | [Gumroad](https://github.com/antiwork/gumroad) with its Pundit policies ported to Action Policy (decided Oct 15, 2026) | No open-source app uses Action Policy, and a port keeps real app logic | See "Porting Gumroad to Action Policy" below |
 
 Before building the gate for a target, confirm the app still uses the library
 (`grep` its Gemfile.lock and `app/policies`), and record the commit you test
 against so results are reproducible.
+
+Target apps live outside this repository, as separate checkouts or forks
+pinned to a commit. Never copy their code into Hallmark: Forem, Mastodon and
+HCB are AGPL-3.0, GitLab mixes MIT with its proprietary `ee/` directory, and
+Hallmark's own license is not chosen yet. Short excerpts in docs, with a
+link to the source, are fine.
+
+### Porting Gumroad to Action Policy
+
+Policy folders compared Oct 15, 2026 by sparse checkout of each default branch:
+
+| App | Policy files | Lines | Pundit scope classes | Policy specs | License |
+| --- | --- | --- | --- | --- | --- |
+| Gumroad (`e184d51`) | 69 | 1,720 | 0 | 56 | MIT |
+| Mastodon (`a4be641`) | 48 | 1,017 | 0 | 43 | AGPL-3.0 |
+| Forem (`d8b2ba5`) | 40 | 1,565 | 3 | not counted | AGPL-3.0 |
+| HCB (`7d0b932`) | 96 | 3,748 | 3 | not counted | AGPL-3.0 |
+| rubygems.org (`a271c27`) | 61 | 1,401 | 59 | not counted | MIT |
+
+Why Gumroad:
+- **No scope classes.** Action Policy's migration guide says Pundit scope
+  classes have no automatic path; Gumroad has none.
+- **It exercises the tenant-aware work phase 1 builds.** Policies get a
+  context with both `user` and `seller` (the account being acted for), and
+  users hold per-seller roles: `role_owner_for?`, `role_admin_for?`,
+  `role_marketing_for?`, `role_support_for?`, `role_accountant_for?`. One user
+  can be a team member of several sellers. Some rules check that the record
+  belongs to the current seller (`LinkPolicy#update?` returns false when
+  `record.user != seller`) and others check only the role, which is the
+  current-org confusion check (M2 in the plan) on real code.
+- **56 policy specs** to prove the port kept behavior, and an MIT license.
+
+Mastodon is the fallback: the smallest policy set and also scope-free, but
+its read rules depend on visibility, follows, mentions and blocks, which the
+catalog does not cover yet, so it would pull catalog work into phase 1.
+
+Gumroad specifics seen in `app/policies/application_policy.rb`: the
+constructor takes `(context, record)` and reads `context.user` and
+`context.seller`; it raises `Pundit::NotAuthorizedError` when there is no user
+unless the policy calls `allow_anonymous_user_access!`; and
+`when_record_available` skips record checks when authorizing a class. In
+Action Policy, `user` and `seller` become two authorization context entries
+(`authorize :user` and `authorize :seller`), and the anonymous-access rule
+can become a pre-check.
+
+Steps, following the [official migration guide](https://actionpolicy.evilmartians.io/guide/pundit_migration):
+
+1. Fork Gumroad (for example to `gitlab.com/namelessnotion/gumroad-action-policy`)
+   at the commit you will test against; record it here.
+2. Guide phase 1: replace `include Pundit` with Action Policy in the
+   controllers, add the `authorize(record, rule = nil)` shim that forwards to
+   `authorize!`, and add `policy` and `policy_scope` helpers. In
+   `ApplicationPolicy`, include `ActionPolicy::Policy::Core`, declare the
+   `user` and `seller` context, and replace the constructor.
+3. Get Gumroad's existing policy specs passing by swapping
+   `require "pundit/rspec"` for `require "action_policy/rspec/pundit_syntax"`
+   and adapting how specs build the context. Passing specs are the evidence
+   that the port kept behavior.
+4. Guide phase 2: inherit from `ActionPolicy::Base`, replace raises of
+   `Pundit::NotAuthorizedError`, and move view helpers to `allowed_to?` and
+   `authorized`.
+5. Differential check, a free test of the adapters: run Hallmark on the
+   original Pundit Gumroad and on the port at the same commit. Findings must
+   match; any difference is a bug in one of the two adapters.
 
 Suggested order:
 
@@ -177,12 +241,7 @@ Suggested order:
 
 ## Open questions (Anthony decides; do not choose)
 
-- The Action Policy target. Options: an app Anthony knows of (including a
-  private one), a small purpose-built Rails app with seeded authorization
-  bugs (proves the adapter, but not that Hallmark finds real bugs), or a
-  Pundit app's policies ported to Action Policy. Ask before building one.
-- Final pick among the Pundit candidates.
-
+- Final pick among the Pundit candidates (Forem is the working choice).
 - License: Apache-2.0 (matches Alloy) or MIT. Until then the README says all
   rights are reserved; do not add a LICENSE file.
 - First-class adapter: Action Policy, Pundit or DeclarativePolicy.
