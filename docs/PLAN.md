@@ -13,7 +13,7 @@ The recommended direction:
 - **Build on SPACE, change the fact source.** Near and Jackson's SPACE (ICSE 2016) already proved the idea: a small catalog of access control patterns in Alloy found 23 real bugs in Rails apps. Hallmark keeps the catalog and swaps fragile symbolic execution for policy-code extraction plus runtime observation.
 - **Alloy 6.2 in a JVM sidecar.** The gem manages a long-lived Java process speaking JSON over stdio, so it works on CRuby. An in-process JRuby 10 backend comes later behind the same interface.
 - **Never solve on the request path.** Requests only append cheap authorization events; verification runs in CI, in a staging shadow mode, or in a sampled background worker.
-- **First target:** Rails 8.x with Pundit, Action Policy or DeclarativePolicy, with roles from Rolify, an enum column, or per-organization memberships, where one user can hold different roles in several orgs. graphql-ruby schemas, including field-level authorization, are in v1 too.
+- **First target:** Rails apps (any version) using Pundit, Action Policy or DeclarativePolicy, with roles from Rolify, an enum column, or per-organization memberships, where one user can hold different roles in several orgs. graphql-ruby schemas, including field-level authorization, are in v1 too.
 
 **Name:** Hallmark. A hallmark is the stamp that certifies what an alloy is made of, as this tool certifies an access policy. "Assay" (already a RubyGems assertion library) and "Warden" (the Rack auth gem Devise sits on) were ruled out.
 
@@ -530,7 +530,7 @@ A working spike in two weeks, a usable gem by week 6. Weeks are estimates for on
 | Phase | Weeks | Delivers | Exit gate | Status |
 | --- | --- | --- | --- | --- |
 | 0. Spike | 1 to 2 | CLI backend, `catalog.als`, one demo app | MediumClone bugs reproduced | Done Oct 15, 2026 |
-| 1. Core gem | 3 to 6 | Sidecar shim, tenant-aware DSL, collectors, RSpec matchers | 2 Rails 8 apps, each check under 10 s | Next |
+| 1. Core gem | 3 to 6 | Sidecar shim, tenant-aware DSL, collectors, RSpec matchers | 3 apps, one per library (Pundit, Action Policy, DeclarativePolicy), each check under 10 s | Next |
 | 2. Extractor | 7 to 10 | Prism guards, drift reports, SARIF, GraphQL schema walk | Bug yield compared with SPACE | |
 | 3. Runtime | 11 to 14 | Shadow and sampled modes, GraphQL tracing, revocation checks | Hot-path budget met in benchmark | |
 | 4. Hardening | 15 on | JRuby backend, native-image, field-level rules, CI integrations | | |
@@ -548,7 +548,7 @@ The biggest risk is overclaiming: a bounded check that finds nothing is evidence
 | Runtime only sees exercised paths | Untested actions go unchecked | Static extraction and route enumeration come before runtime collection |
 | JVM required in CI or ops | Adoption friction for Ruby teams | Sidecar is a dev and CI dependency first; native-image later removes the JRE |
 | Temporal checks grow fast | Slow or timed-out revocation checks | Keep traces short (6 to 10 steps) and scope small |
-| SPACE's numbers come from 2016-era apps | Bug yield may differ on Rails 8 code | Re-run on a modern app set in phase 2 and publish the comparison |
+| SPACE's numbers come from 2016-era apps | Bug yield may differ on modern Rails code | Re-run on a modern app set in phase 2 and publish the comparison |
 | Current org resolved in many places | Subdomain, path, header and jobs disagree; cross-tenant bugs slip between them | Collectors record which source set the org; jobs must carry it explicitly; scope always includes 2 or more orgs |
 | GraphQL query shapes are unbounded | Runtime coverage of nested paths is thin; trace volume is high | Reachability comes from the static schema graph, bounded by Alloy scope; runtime events are deduplicated by field path |
 
@@ -557,6 +557,7 @@ Open questions:
 - [ ] Reserve hallmark on RubyGems: a lookup on Oct 14 returned not found; confirm with gem search -e hallmark and push a placeholder release. Hallmark Cards dominates web search, so docs and the repo should say "Hallmark for Ruby".
 - [ ] Action Policy or Pundit as the first-class adapter? Action Policy is cheaper (instrumentation is built in); Pundit has more installs. DeclarativePolicy is also in v1 and translates most exactly, so it may be the best first target for the static extractor.
 - [x] Include graphql-ruby field authorization in v1? Decided Oct 14: yes, see the GraphQL section.
+- [ ] Phase 1 target apps, one per library. Pundit: Forem (Pundit plus Rolify), with HCB, Mastodon, Gumroad and rubygems.org as alternates. DeclarativePolicy: a slice of GitLab. Action Policy: no open-source application found; use one Anthony knows of, a purpose-built app with seeded bugs, or a Pundit app's policies ported over. Candidates and reasoning are in `CLAUDE.md`.
 - [ ] License: Apache-2.0 to match Alloy, or MIT?
 - [ ] Does any target app need JRuby, or can the JRuby backend wait until after phase 4?
 - [ ] Tenancy style: v1 assumes shared tables with an org foreign key. Does any target app use schema-per-tenant (Apartment-style), which hides the org from the data layer?

@@ -134,8 +134,26 @@ check safe_<Action>_<op> for <scope>
 
 ## Next work: phase 1 (core gem)
 
-Exit gate from the plan: Hallmark runs on 2 Rails 8 apps with each check under
-10 seconds. Suggested order:
+Exit gate: Hallmark runs on three apps, one per authorization library
+(Pundit, Action Policy, DeclarativePolicy), with each check under 10 seconds.
+Any Rails version is fine; Rails 8 is not required.
+
+### Target apps
+
+Checked Oct 15, 2026 against each app's Gemfile on its default branch:
+
+| Library | Candidate | Why | Notes |
+| --- | --- | --- | --- |
+| Pundit | [Forem](https://github.com/forem/forem) | Pundit plus Rolify, Rails 8.0; exercises role mapping | Large codebase; start with one area (articles, comments) |
+| Pundit (alternates) | [HCB](https://github.com/hackclub/hcb) (Rails 8.1), [Mastodon](https://github.com/mastodon/mastodon) (Rails 8.1), [Gumroad](https://github.com/antiwork/gumroad) (Rails 7.1), [rubygems.org](https://github.com/rubygems/rubygems.org) (Rails 8.1) | All list `pundit` in their Gemfiles | HCB's users belong to several organizations, which suits the tenant-aware DSL; confirm by reading its models |
+| DeclarativePolicy | [GitLab](https://gitlab.com/gitlab-org/gitlab) | The only substantial public user; group and project memberships with inheritance | Huge; scope it to one slice, such as `ProjectPolicy` and `IssuePolicy` |
+| Action Policy | Not found | No open-source application using it turned up (searched the gem's README, ecosyste.ms, libraries.io, and the Gemfiles of likely apps) | Open question for Anthony, see below |
+
+Before building the gate for a target, confirm the app still uses the library
+(`grep` its Gemfile.lock and `app/policies`), and record the commit you test
+against so results are reproducible.
+
+Suggested order:
 
 1. **Sidecar solver.** A small Java project (for example `solver/`) built
    against the `org.alloytools` 6.2.0 artifacts, speaking line-delimited
@@ -157,10 +175,13 @@ Exit gate from the plan: Hallmark runs on 2 Rails 8 apps with each check under
    thread.
 4. **RSpec matchers:** `satisfy_catalog`, `have_no_counterexample(:rule?)`.
 
-Before step 1 or the gate, ask Anthony which two Rails 8 apps to use as
-targets; that is not decided.
-
 ## Open questions (Anthony decides; do not choose)
+
+- The Action Policy target. Options: an app Anthony knows of (including a
+  private one), a small purpose-built Rails app with seeded authorization
+  bugs (proves the adapter, but not that Hallmark finds real bugs), or a
+  Pundit app's policies ported to Action Policy. Ask before building one.
+- Final pick among the Pundit candidates.
 
 - License: Apache-2.0 (matches Alloy) or MIT. Until then the README says all
   rights are reserved; do not add a LICENSE file.
