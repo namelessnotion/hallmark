@@ -5,7 +5,7 @@
 # and profiles. The guards below are what its controllers actually enforce;
 # see README.md in this folder for the controller filters they come from.
 #
-# Run: exe/hallmark check examples/medium_clone/hallmark.rb
+# Run: bin/hallmark check examples/medium_clone/hallmark.rb
 
 Hallmark.analyze "MediumClone" do
   map do

@@ -22,7 +22,7 @@ ones. In phase 0 the guards are written by hand. Phase 2 extracts them from
 controller filters and policy classes.
 
 ```console
-$ exe/hallmark check examples/medium_clone/hallmark.rb
+$ bin/hallmark check examples/medium_clone/hallmark.rb
 Hallmark 0.0.1, MediumClone, Alloy 6.2.0, scope 5
 
 FAIL  UsersController#update (write User)

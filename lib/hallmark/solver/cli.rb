@@ -24,6 +24,14 @@ module Hallmark
       end
 
       def check(model)
+        Dir.mktmpdir("hallmark-out") { |output| solve_into(model, output) }
+      end
+
+      # Solves `model` and leaves Alloy's raw output (receipt.json plus one
+      # XML instance per counterexample) in `output`, which Alloy recreates.
+      # Used by `check`, and by `rake fixtures:regenerate` to refresh the
+      # captured run the unit tests decode.
+      def solve_into(model, output)
         unless File.file?(jar)
           raise SolverError, "Alloy jar not found at #{jar}; run `hallmark install-alloy` or set HALLMARK_ALLOY_JAR"
         end
@@ -32,17 +40,15 @@ module Hallmark
           FileUtils.cp(CATALOG_PATH, File.join(dir, "catalog.als"))
           model_path = File.join(dir, "model.als")
           File.write(model_path, model.source)
-          output = File.join(dir, "out")
 
           stdout, stderr, status = run(command(model_path, output))
-          receipt_path = File.join(output, "receipt.json")
-          unless status.success? && File.file?(receipt_path)
+          unless status.success? && File.file?(File.join(output, "receipt.json"))
             details = [stderr, stdout].join("\n").lines.reject { |line| line.start_with?("Picked up") }.join.strip
             raise SolverError, "Alloy exited with status #{status.exitstatus}:\n#{details}"
           end
-
-          Receipt.load(output)
         end
+
+        Receipt.load(output)
       end
 
       private

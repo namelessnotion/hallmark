@@ -4,7 +4,7 @@
 #   UsersController: add :update to the :correct_user filter
 #   PostsController: require sign-in for :update and check the post's author
 #
-# Run: exe/hallmark check examples/medium_clone/hallmark_fixed.rb
+# Run: bin/hallmark check examples/medium_clone/hallmark_fixed.rb
 
 Hallmark.analyze "MediumClone (fixed)" do
   map do

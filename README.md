@@ -34,8 +34,8 @@ graphql-ruby. The models for those live in `research/models`.
 
 ```bash
 bundle install
-exe/hallmark install-alloy        # downloads Alloy 6.2.0 and verifies its SHA-256
-exe/hallmark check examples/medium_clone/hallmark.rb
+bin/hallmark install-alloy        # downloads Alloy 6.2.0 and verifies its SHA-256
+bin/hallmark check examples/medium_clone/hallmark.rb
 ```
 
 ```text
@@ -86,7 +86,7 @@ reported, and the report suggests the `grant` line if the access is intended.
 Guards: `none`, `logged_in`, `owner`, `admin`, `role(:name)`,
 `public_record`, combined with `&`, `|` and `~` (not).
 
-`exe/hallmark model FILE` prints the generated Alloy model, which is the
+`bin/hallmark model FILE` prints the generated Alloy model, which is the
 best way to see exactly what is being checked.
 
 ## How it works
@@ -110,7 +110,7 @@ best way to see exactly what is being checked.
 | `HALLMARK_JAVA` | Java executable | `java` |
 | `HALLMARK_SCOPE` | atoms per type in each check (2 or more) | `5` |
 | `HALLMARK_TIMEOUT` | seconds per solver run | `120` |
-| `HALLMARK_SOLVER` | Alloy solver name | `SAT4J` |
+| `HALLMARK_SOLVER` | Alloy solver: `SAT4J`, or the bundled native `minisat` or `glucose` | `SAT4J` |
 
 The same settings are available in Ruby through `Hallmark.configure`.
 
@@ -119,17 +119,20 @@ The same settings are available in Ruby through `Hallmark.configure`.
 ```text
 data/hallmark/catalog.als   the pattern catalog shipped with the gem
 lib/hallmark/               mapping, guards, model builder, solver, decoder
-exe/hallmark                command-line interface
+bin/hallmark                command-line interface (also the gem executable)
 examples/medium_clone/      the SPACE paper's example, buggy and fixed
 research/models/            hand-written models for memberships, GraphQL,
                             DeclarativePolicy, revocation and role config
 test/                       unit tests (no Java) and integration tests
+docs/PLAN.md                the design plan and roadmap
+CLAUDE.md                   working notes for contributors and coding agents
 ```
 
 ## Development
 
 ```bash
 bundle exec rake test
+bundle exec rake fixtures:regenerate   # after changing the catalog or model builder
 ```
 
 Unit tests decode a captured Alloy run in `test/fixtures` and need no Java.

@@ -14,9 +14,9 @@ test:
   before_script:
     - apt-get update -qq && apt-get install -y -qq --no-install-recommends openjdk-17-jre-headless
     - bundle install --jobs 4
-    - bundle exec exe/hallmark install-alloy
+    - bundle exec bin/hallmark install-alloy
   script:
     - bundle exec rake test
     # The fixed example must stay clean; the original must keep failing.
-    - bundle exec exe/hallmark check examples/medium_clone/hallmark_fixed.rb
-    - "! bundle exec exe/hallmark check examples/medium_clone/hallmark.rb"
+    - bundle exec bin/hallmark check examples/medium_clone/hallmark_fixed.rb
+    - "! bundle exec bin/hallmark check examples/medium_clone/hallmark.rb"
