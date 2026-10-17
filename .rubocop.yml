@@ -1,0 +1,59 @@
+plugins:
+  - rubocop-minitest
+  - rubocop-rake
+
+AllCops:
+  NewCops: enable
+  SuggestExtensions: false
+  Exclude:
+    - "test/fixtures/**/*"
+    - "vendor/**/*"
+    - ".cache/**/*"
+
+Style/StringLiterals:
+  EnforcedStyle: double_quotes
+
+Style/StringLiteralsInInterpolation:
+  EnforcedStyle: double_quotes
+
+# `op` (read or write) is a domain term; `p` and `r` mirror the Alloy quantifiers.
+Naming/MethodParameterName:
+  AllowedNames: [op, p, r]
+
+# The defaults flag most of the model builder and report renderers, which read
+# best as one method each. These limits catch real growth without forcing splits.
+Metrics/AbcSize:
+  Max: 32
+  Exclude: ["test/**/*"]
+
+# ModelBuilder renders one model section per method and Finding one phrase
+# of the explanation per method; splitting either scatters one output over files.
+Metrics/ClassLength:
+  Max: 180
+  Exclude: ["test/**/*"]
+
+# Guard#to_alloy and #to_s are one `case` over every guard kind. A lookup
+# table would read better, but Sorbet's strict mode flakily rejects hash
+# constants even with a `T.let` in the RBI (seen Oct 15, 2026).
+Metrics/CyclomaticComplexity:
+  Max: 13
+
+Metrics/MethodLength:
+  Max: 20
+  Exclude: ["test/**/*"]
+
+Metrics/ParameterLists:
+  CountKeywordArgs: false
+
+# Tests assert several facts about one generated model or report.
+Minitest/MultipleAssertions:
+  Max: 6
+
+# Tests keep a setup line next to the assertion it feeds.
+Minitest/EmptyLineBeforeAssertionMethods:
+  Enabled: false
+
+# RSpec's matcher protocol names `does_not_match?`, and matchers read as
+# English after `expect(...).to`.
+Naming/PredicatePrefix:
+  AllowedMethods: [does_not_match?, have_no_counterexample]

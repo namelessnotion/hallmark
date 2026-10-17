@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "rake/testtask"
+require "rubocop/rake_task"
 
 Rake::TestTask.new(:test) do |t|
   t.libs << "test" << "lib"
@@ -16,17 +17,34 @@ namespace :alloy do
   end
 end
 
-namespace :fixtures do
-  desc "Re-run the MediumClone example through Alloy and refresh test/fixtures/medium_clone"
-  task :regenerate do
+namespace :sidecar do
+  desc "Build the solver sidecar jar from solver/src (needs a JDK 17+ and the Alloy jar)"
+  task :install do
     require_relative "lib/hallmark"
-    load File.expand_path("examples/medium_clone/hallmark.rb", __dir__)
-    model = Hallmark::ModelBuilder.new(Hallmark.analyses.last).build
-    output = File.expand_path("test/fixtures/medium_clone", __dir__)
-    receipt = Hallmark::Solver::CLI.new.solve_into(model, output)
-    found = receipt.commands.values.count(&:counterexample?)
-    puts "Wrote #{output} (#{receipt.commands.size} checks, #{found} counterexamples)"
+    puts Hallmark::SidecarInstaller.new.install
   end
 end
 
-task default: :test
+namespace :fixtures do
+  desc "Re-run the buggy examples through Alloy and refresh test/fixtures/<example>"
+  task :regenerate do
+    require_relative "lib/hallmark"
+    %w[medium_clone storefront].each do |example|
+      load File.expand_path("examples/#{example}/hallmark.rb", __dir__)
+      model = Hallmark::ModelBuilder.new(Hallmark.analyses.last).build
+      output = File.expand_path("test/fixtures/#{example}", __dir__)
+      receipt = Hallmark::Solver::CLI.new.solve_into(model, output)
+      found = receipt.commands.values.count(&:counterexample?)
+      puts "Wrote #{output} (#{receipt.commands.size} checks, #{found} counterexamples)"
+    end
+  end
+end
+
+RuboCop::RakeTask.new
+
+desc "Type-check lib/ against the signatures in rbi/"
+task :typecheck do
+  sh "bundle exec srb tc"
+end
+
+task default: %i[test rubocop typecheck]

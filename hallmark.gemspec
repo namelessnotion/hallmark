@@ -22,7 +22,9 @@ Gem::Specification.new do |spec|
   spec.metadata["source_code_uri"] = spec.homepage
   spec.metadata["rubygems_mfa_required"] = "true"
 
-  spec.files = Dir["lib/**/*.rb", "data/**/*.als", "bin/*", "README.md"]
+  # rbi/ carries the Sorbet signatures; srb and Tapioca pick it up from installed gems.
+  # solver/ is the sidecar's Java source; `hallmark install-sidecar` builds it on the user's machine.
+  spec.files = Dir["lib/**/*.rb", "rbi/**/*.rbi", "data/**/*.als", "solver/**/*.java", "bin/*", "README.md"]
   spec.bindir = "bin"
   spec.executables = ["hallmark"]
   spec.require_paths = ["lib"]

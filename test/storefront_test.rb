@@ -1,0 +1,82 @@
+# frozen_string_literal: true
+
+require "test_helper"
+
+# Tenant-aware checks on a Gumroad-shaped store, using the real Alloy jar:
+# current-tenant confusion (M2 in docs/PLAN.md) and its fix, plus the other
+# membership flaws the shipped catalog can express.
+class StorefrontTest < Minitest::Test
+  def test_reproduces_current_tenant_confusion
+    solver = require_solver!
+    report = load_example("storefront/hallmark.rb").run(solver: solver)
+
+    assert_equal(["LinksController#update"], report.findings.map { |finding| finding.exposure.action })
+    assert_equal ["LinksController#edit", "Admin::LinksController#update"], report.verified.map(&:action)
+
+    finding = report.findings.fetch(0)
+    refute_predicate finding, :anonymous?
+    assert_predicate finding, :cross_tenant?
+    assert_empty finding.record_tenant.roles
+  end
+
+  def test_fixed_version_has_no_counterexamples
+    solver = require_solver!
+    report = load_example("storefront/hallmark_fixed.rb").run(solver: solver)
+
+    assert_predicate report, :clean?
+    assert_equal 3, report.verified.size
+  end
+
+  # Scope 2 still finds M2: the builder raises Principal to 3 so that two
+  # tenants, each a User, fit beside Anonymous.
+  def test_current_tenant_confusion_shows_at_the_minimum_scope
+    solver = require_solver!
+    Hallmark.configure { |config| config.scope = 2 }
+    report = load_example("storefront/hallmark.rb").run(solver: solver)
+
+    assert_predicate report.findings.fetch(0), :cross_tenant?
+  end
+
+  def organizations(&)
+    Hallmark::Analysis.build("Organizations") do
+      map do
+        tenant "Organization", membership: "Membership", member: :user, roles: :role
+        resource "Project", tenant: :organization, owner: :creator
+        grant :admin, :write, "Project"
+      end
+      instance_eval(&)
+    end
+  end
+
+  # The same flaw where tenants are organizations, not users
+  def test_current_tenant_confusion_with_organizations
+    solver = require_solver!
+    report = organizations do
+      writes "ProjectsController#update", "Project", guard: role(:admin, tenant: :current)
+      writes "ProjectsController#destroy", "Project", guard: role(:admin, tenant: :current) & in_current_tenant
+    end.run(solver: solver)
+
+    assert_equal ["ProjectsController#destroy"], report.verified.map(&:action)
+    finding = report.findings.fetch(0)
+    assert_predicate finding, :cross_tenant?
+    assert_match(/in the current tenant Organization\$\d .* in tenant Organization\$\d, where they hold/,
+                 finding.message)
+  end
+
+  # M1: an admin role held anywhere, and M3: ownership after leaving the tenant
+  def test_unscoped_roles_and_ownership_outliving_membership
+    solver = require_solver!
+    report = organizations do
+      writes "ProjectsController#archive", "Project", guard: role(:admin, tenant: :any)
+      writes "ProjectsController#rename", "Project", guard: logged_in & owner
+      writes "ProjectsController#move", "Project", guard: role(:admin, tenant: :record)
+    end.run(solver: solver)
+
+    assert_equal ["ProjectsController#move"], report.verified.map(&:action)
+    findings = report.findings.to_h { |finding| [finding.exposure.action, finding] }
+    assert_empty findings.fetch("ProjectsController#archive").record_tenant.roles
+    rename = findings.fetch("ProjectsController#rename")
+    assert_predicate rename, :own_record?
+    assert_empty rename.record_tenant.roles
+  end
+end

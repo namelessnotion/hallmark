@@ -6,49 +6,97 @@ module catalog
 --
 -- Each pattern whitelists one common, intended kind of access. An
 -- application exposure that no pattern allows is reported as a bug.
+--
+-- Tenancy is a dimension of every pattern, not one more pattern: when a
+-- record lives in a tenant, roles count only if held in that tenant.
 
 abstract sig Op {}
 one sig Read, Write extends Op {}
 
 abstract sig Principal {}
 one sig Anonymous extends Principal {}
-sig User extends Principal { assigned: set Role }
+sig User extends Principal { assigned: set Role }   -- roles held outside any tenant
 
 sig Role { inherits: set Role }          -- a senior role inherits its juniors
 one sig Admin extends Role {}
+sig PlatformRole in Role {}              -- intended access across every tenant
 
-abstract sig Resource { owner: lone User }
+-- The account a record lives in and memberships are scoped to. When the
+-- app's tenants are themselves users (a Gumroad seller), `user` is that user.
+sig Tenant { user: lone User }
+
+-- A user's roles in one tenant, never globally
+sig Membership { member: one User, within: one Tenant, roles: set Role }
+fact OneMembershipPerUserAndTenant {
+  all u: User, t: Tenant | lone m: Membership | m.member = u and m.within = t
+}
+
+abstract sig Resource { owner: lone User, tenant: lone Tenant }
 sig Public in Resource {}
 
 sig Grant { role: one Role, op: one Op, res: set Resource }
 
+-- One user's explicit permission on one record, held outside any role or
+-- tenant, such as a collaborator on another seller's product.
+sig Permit { holder: one User, ops: set Op, target: one Resource }
+
 fun effective[p: Principal]: set Role { p.assigned.*inherits }
+
+fun membershipIn[p: Principal, t: Tenant]: set Membership { member.p & within.t }
+pred memberOf[p: Principal, t: Tenant] { some membershipIn[p, t] }
+fun rolesIn[p: Principal, t: Tenant]: set Role { membershipIn[p, t].roles.*inherits }
+fun rolesAnywhere[p: Principal]: set Role { (member.p).roles.*inherits }
+
+-- The roles that count for a record: those held in its tenant, or those held
+-- outside any tenant when the record has none.
+fun rolesFor[p: Principal, r: Resource]: set Role {
+  some r.tenant implies rolesIn[p, r.tenant] else effective[p]
+}
 
 pred authenticated[p: Principal] { p in User }
 
 -- A guard with no condition at all
 pred unguarded {}
 
--- Pattern: ownership. A signed-in user may read and write what they own.
-pred owns[p: Principal, r: Resource] { authenticated[p] and r.owner = p }
+-- The Admin role held outside any tenant (the guard `admin`)
+pred isAdmin[p: Principal] { Admin in effective[p] }
+
+-- Pattern: ownership. A signed-in user may read and write what they own,
+-- while they remain a member of the record's tenant.
+pred owns[p: Principal, r: Resource] {
+  authenticated[p] and r.owner = p and (no r.tenant or memberOf[p, r.tenant])
+}
 
 -- Pattern: public objects. Anyone may read a public record.
 pred publicRead[o: Op, r: Resource] { o = Read and r in Public }
 
--- Pattern: administrators. The Admin role may do anything.
-pred isAdmin[p: Principal] { Admin in effective[p] }
+-- Pattern: administrators. The Admin role may do anything to the records
+-- of the tenant it is held in (or anything at all, held outside tenants).
+pred administers[p: Principal, r: Resource] { Admin in rolesFor[p, r] }
 
--- Pattern: explicit permission. A grant to one of the user's roles.
+-- Pattern: platform staff. A declared platform role may do anything in
+-- any tenant, such as the app vendor's support staff.
+pred platformStaff[p: Principal] { some effective[p] & PlatformRole }
+
+-- Pattern: explicit permission. A grant to one of the user's roles in the
+-- record's tenant.
 pred granted[p: Principal, o: Op, r: Resource] {
   authenticated[p]
-  some g: Grant | g.role in effective[p] and g.op = o and r in g.res
+  some g: Grant | g.role in rolesFor[p, r] and g.op = o and r in g.res
+}
+
+-- Pattern: explicit permission on a record. A user may perform the ops a
+-- permit on that record gives them.
+pred permitted[p: Principal, o: Op, r: Resource] {
+  some x: Permit | x.holder = p and x.target = r and o in x.ops
 }
 
 -- User profiles are modeled as resources owned by the user they describe,
 -- so the ownership pattern covers "users may edit their own profile".
 
 pred allowed[p: Principal, o: Op, r: Resource] {
-  owns[p, r] or publicRead[o, r] or isAdmin[p] or granted[p, o, r]
+  owns[p, r] or publicRead[o, r] or administers[p, r] or platformStaff[p] or granted[p, o, r]
+    or permitted[p, o, r]
 }
 
 -- Structural checks over the application's role configuration

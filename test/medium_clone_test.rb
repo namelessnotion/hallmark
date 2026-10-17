@@ -78,6 +78,6 @@ class MediumCloneTest < Minitest::Test
 
     report = analysis.run(solver: solver)
     assert_equal ["ModerationController#hide"], report.verified.map(&:action)
-    assert_equal ["ModerationController#pin"], report.findings.map { |f| f.exposure.action }
+    assert_equal(["ModerationController#pin"], report.findings.map { |f| f.exposure.action })
   end
 end

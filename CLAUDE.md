@@ -9,75 +9,158 @@ Jackson's SPACE (ICSE 2016).
   encodings for memberships, GraphQL and DeclarativePolicy, the roadmap and
   open questions. Read the relevant section before starting work on a phase.
 - `README.md` is the user-facing description of what exists today.
+- `CONTEXT.md` is the glossary (tenant, entry point, rule, stamp, assay,
+  hallmark and the rest); use its terms and avoid the ones it lists.
+- `docs/adr/` records hard-to-reverse decisions and why.
 
 ## Status
 
-Phase 0 (spike) is done. Phase 1 is next; see "Next work" below.
+Phase 0 (spike) is done. Phase 1's deliverables are built: step 1
+(tenant-aware catalog and DSL), step 2 (collectors, stamp store, Railtie),
+step 3 (solver sidecar) and step 4 (RSpec matchers). Its exit gate, Hallmark
+on three real apps, is still open and is the next work. See "Next work"
+below. The first real-app run (original Gumroad on Pundit, Oct 16, 2026, not
+a gate app) is in "First run on original Gumroad" below.
 
 Built:
+
 - `data/hallmark/catalog.als`: SPACE's patterns (ownership, public objects,
-  authentication, explicit permission, user profiles, administrators) plus
-  structural role checks
+  authentication, explicit permission, user profiles, administrators),
+  platform staff, and structural role checks. Tenancy is a dimension of
+  every pattern: `Tenant`, `Membership`, a tenant on every record, roles
+  counted in the record's tenant (`rolesFor`). The encoding is described in
+  `docs/PLAN.md` ("The shipped encoding").
 - Mapping and guard DSL with `grant`; model builder; Alloy 6.2 command-line
   backend; witness decoder; text report; `bin/hallmark` CLI; jar installer
 - `examples/medium_clone`: reproduces both bugs from the SPACE paper's
   Figure 2, and the fixed version verifies (the phase 0 exit gate)
+- Tenant-aware mapping: `tenant` (with `membership:`, `member:`, `roles:`
+  and `self:`), `current_tenant`, `platform_role`, `resource ..., tenant:`;
+  class constants or strings (constants only where the app is loaded: the
+  Railtie and the matchers; `bin/hallmark` stops with an error naming the
+  class). Guards: `role(:x, tenant: :current | :record | :any)` and
+  `in_current_tenant`.
+- `examples/storefront`: a Gumroad-shaped store (the seller is a User,
+  products have tenant :user and no owner) reproducing M2, current-tenant
+  confusion; the fixed version verifies
+- Collectors (`lib/hallmark/collectors/`): Action Policy (prepended
+  `apply_r` plus the `action_policy.authorize` subscription), Pundit
+  (prepended `authorize`, and `permit` in policy specs), DeclarativePolicy (prepended `allowed?`), and an
+  `around_action` flagging unchecked entry points (threat 10). Each is loaded
+  only when its library is. Facts are read through mapping readers
+  (`principal from:/roles:`, `tenant roles_in:`, `current_tenant`).
+- `StampStore` (queue plus flusher thread, JSONL in `tmp/hallmark/`),
+  `StampSet`, `Inference` (guards from allow-stamps, entry point exposures,
+  op convention, `rule ..., op:/guard:` overrides), `Coverage` (the "not
+  observed" section) and a Railtie that, in the test environment, loads
+  `config/hallmark.rb` in `after_initialize` (once Rails autoloads app
+  classes; moved there Oct 16, 2026) and installs the collectors. With the
+  collectors off it does not load the file. `docs/PLAN.md` ("The shipped
+  collectors") has the details and known limits.
+- `Hallmark.configure { |c| c.map { ... } }` holds the app's mapping; an
+  analysis starts from it, and `hallmark check config/hallmark.rb` infers
+  exposures from the recorded stamps.
+- Solver sidecar (`solver/src/hallmark/solver/`, Java 17, plain `javac`
+  against the Alloy dist jar; `Hallmark::Solver::Sidecar` plus
+  `Solver::ChildProcess`): line-delimited JSON-RPC (`version`, `load`,
+  `check`, `eval`, `unload`), witnesses as `{fields, skolems}` that
+  `Receipt::Instance` reads directly. Opt-in with `c.solver = :sidecar` or
+  `HALLMARK_SOLVER=sidecar`; the CLI stays the default and the cross-check.
+  Timeouts, out-of-memory and crashes are unknown (`Report#unknown`), and the
+  sidecar restarts for the next check; a failed restart or model load makes
+  the rest of the run unknown and keeps the verdicts so far. `docs/PLAN.md` ("The shipped
+  sidecar") has the protocol, choices and timings.
+- RSpec matchers (`lib/hallmark/rspec.rb`, loaded by `require
+  "hallmark/rspec"`): `satisfy_catalog` and `have_no_counterexample(:rule?)`,
+  on `Hallmark::RuleCheck`, which checks each rule's guard as its own check
+  named after the rule. The sidecar by default, the CLI when it is not built.
+  The `:hallmark` tag sets the subject and runs tagged groups last.
+  `examples/storefront/link_policy_spec.rb` runs both on the buggy and fixed
+  Storefront. `docs/PLAN.md` ("The shipped matchers") has the choices.
 
 Not built yet, but designed and validated as hand-written models in
 `research/models` (see its README for each check's expected result):
-memberships across organizations, graphql-ruby, DeclarativePolicy, stale
-access after revocation, role-configuration checks.
+tenancy flaws M4 to M6 (invitations, list scopes, Rolify grants), graphql-ruby,
+DeclarativePolicy, stale access after revocation, role-configuration checks.
 
-The spike's DSL uses class names as strings and hand-written guards. The
-`Hallmark.configure` / `c.map` sketch in `docs/PLAN.md` ("Ruby API sketch") is
-the target design, not current behavior.
+Parts of the `docs/PLAN.md` "Ruby API sketch" are still design only:
+`role_hierarchy`, `conflicts` and `c.restrict` (`c.solver` is built, with
+`:cli` and `:sidecar`; `permits:` is built as `resource ..., permits:`, the
+explicit permission on one record, for Gumroad's collaborators).
 
 ## Commands
 
 ```bash
 bundle install
 bin/hallmark install-alloy                 # Alloy 6.2.0 to ~/.cache/hallmark, SHA-256 verified; needs Java 17+
-bundle exec rake test                      # 25 tests; the 5 integration tests skip without the jar
+bin/hallmark install-sidecar               # also builds the sidecar jar (javac + jar from a JDK 17+); no extra download
+bundle exec rake test                      # 199 tests; the 18 integration tests skip without the jar or sidecar
+bundle exec rubocop                        # lint
+bundle exec srb tc                         # type-check lib/ against rbi/; `rake` runs tests, rubocop, then this
 bin/hallmark check examples/medium_clone/hallmark.rb    # exits 1 (two counterexamples, expected)
 bin/hallmark check examples/medium_clone/hallmark_fixed.rb
+bin/hallmark check examples/storefront/hallmark.rb      # exits 1 (M2, current-tenant confusion, expected)
+bin/hallmark check examples/storefront/hallmark_fixed.rb
+HALLMARK_SOLVER=sidecar bin/hallmark check examples/storefront/hallmark.rb   # same findings via the sidecar
+bundle exec rspec examples/storefront/link_policy_spec.rb   # the matchers, buggy and fixed; passes (sidecar if built)
 bin/hallmark model FILE                    # print the generated Alloy model; the fastest way to debug
-bundle exec rake fixtures:regenerate       # refresh test/fixtures/medium_clone from a real run
+bundle exec rake fixtures:regenerate       # refresh test/fixtures/{medium_clone,storefront} from a real run
 java -jar ~/.cache/hallmark/alloy-6.2.0.jar exec -c '*' research/models/tenancy.als
 ```
 
 Run `rake fixtures:regenerate` after changing `catalog.als`, the model
-builder's output, or `examples/medium_clone/hallmark.rb`, then rerun the tests:
+builder's output, or an example's `hallmark.rb`, then rerun the tests:
 `test/report_test.rb` asserts specific witness atoms (such as `User$1`) that
 can shift when the model changes. Solver output is deterministic for a given
 model; a regeneration with no model change only touches the receipt's
 timestamp, so revert that.
 
 Settings come from the environment (`HALLMARK_ALLOY_JAR`, `HALLMARK_JAVA`,
-`HALLMARK_SCOPE`, `HALLMARK_TIMEOUT`, `HALLMARK_SOLVER`) or `Hallmark.configure`.
-`HALLMARK_SOLVER=minisat` or `glucose` uses the native solvers bundled in the
-jar (including darwin/arm64); the default is SAT4J, pure Java.
+`HALLMARK_SCOPE`, `HALLMARK_TIMEOUT`, `HALLMARK_SOLVER`, `HALLMARK_SAT_SOLVER`,
+`HALLMARK_SIDECAR_JAR`, `HALLMARK_SIDECAR_HEAP`, `HALLMARK_STAMPS`,
+`HALLMARK_MODE`, `HALLMARK_RUN`) or `Hallmark.configure`.
+`HALLMARK_SOLVER` picks the backend (`cli`, the default, or `sidecar`);
+until Oct 15, 2026 it named the SAT solver, and a SAT solver name there now
+raises with a pointer to `HALLMARK_SAT_SOLVER`. `HALLMARK_SAT_SOLVER=minisat`
+or `glucose` uses the native solvers bundled in the jar (including
+darwin/arm64), with either backend; the default is SAT4J, pure Java.
+`HALLMARK_TIMEOUT` bounds a whole CLI run, or one check in the sidecar.
 
 ## How the code fits together
 
 ```text
-Hallmark.analyze block
+Test suite, Railtie installs collectors              lib/hallmark/railtie.rb, collectors.rb, collectors/*
+  -> each decision: Collectors::Facts reads facts via the mapping -> Stamp
+  -> StampStore: queue, flusher thread, tmp/hallmark/*.jsonl  stamp_store.rb, stamp.rb
+Hallmark.analyze block (`stamps` loads a StampSet: Inference builds the exposures and Coverage)
   -> Analysis (Mapping + Exposures, each with a Guard)       lib/hallmark/analysis.rb, mapping.rb, guard.rb
   -> ModelBuilder: Alloy source, one assert + check per exposure   model_builder.rb
-  -> Solver::CLI#check: `java -jar alloy.jar exec --type xml`      solver/cli.rb
-  -> Receipt: verdicts from receipt.json, witnesses from XML       receipt.rb
+  -> Hallmark.solver (c.solver)                                    solver.rb
+     Solver::CLI#check: `java -jar alloy.jar exec --type xml`      solver/cli.rb
+     Solver::Sidecar#check: JSON-RPC to a long-lived JVM           solver/sidecar.rb, child_process.rb, solver/src/
+  -> Receipt: verdict per check (counterexample, none, unknown);  receipt.rb
+     CLI witnesses from XML, sidecar witnesses as JSON tuples
   -> Report and Finding: witness explained in app terms            report.rb, finding.rb
+
+RSpec: require "hallmark/rspec"                                    lib/hallmark/rspec.rb
+  -> matcher finds the mapping (let, configuration, config/hallmark.rb) and the stamps
+  -> RuleCheck: one exposure per rule ("LinkPolicy#update?"), one Analysis per matcher   rule_check.rb
+  -> Hallmark::RSpec.solver (sidecar unless c.solver chosen), closed after the suite
+  -> RuleCheck::Result#lines: Report.finding_lines, so the wording matches `hallmark check`
 ```
 
 Every exposure becomes:
 
 ```alloy
-pred allows_<Action>_<op>[p: Principal, r: <Sig>] { <guard> }
-assert safe_<Action>_<op> { all p: Principal, r: <Sig> | allows_...[p, r] implies allowed[p, <Op>, r] }
-check safe_<Action>_<op> for <scope>
+pred allows_<Action>_<op>_<Resource>[p: Principal, r: <Sig>] { <guard> }
+assert safe_<Action>_<op>_<Resource> { all p: Principal, r: <Sig> | allows_...[p, r] implies allowed[p, <Op>, r] }
+check safe_<Action>_<op>_<Resource> for <scope>
 ```
 
-`Finding` reads the witness from the skolems `$safe_<Action>_<op>_p` and
-`_r`, so keep the quantified variables named `p` and `r`.
+In a tenant-aware analysis the predicate and the quantifier also take
+`cur: Tenant`, the current tenant, between `p` and `r`. `Finding` reads the
+witness from the skolems `$safe_<Action>_<op>_<Resource>_p`, `_r` and `_cur`, so keep
+the quantified variables named `p`, `r` and `cur`.
 
 ## Alloy facts learned building phase 0
 
@@ -88,7 +171,7 @@ check safe_<Action>_<op> for <scope>
 - Atoms from an opened module carry its name (`catalog/User$0`); atoms of
   signatures in the main model do not (`Post$0`). `Naming.atom` strips it.
 - Two commands with the same name collide in `receipt.json` (the last wins).
-  `Analysis` rejects duplicate action and op pairs for this reason.
+  `Analysis` rejects a duplicate action, op and resource for this reason.
 - `exec --force` deletes and recreates the output directory. Never point it at
   a directory holding anything else.
 - Syntax errors exit 1 with the message on stderr. The JVM may print
@@ -101,16 +184,54 @@ check safe_<Action>_<op> for <scope>
   mapping option must become a fact (ownership, publicity, grants); otherwise
   checks report spurious counterexamples. `grant` exists because without it a
   role-guarded action could never pass.
-- Scope must be 2 or more. Tenancy checks need at least 2 `Org` atoms: the
-  current-org confusion bug (M2 in the plan) is invisible with 1.
+- Scope must be 2 or more. Tenancy checks need at least 2 tenant atoms: the
+  current-tenant confusion bug (M2 in the plan) is invisible with 1.
+- `for N` bounds top-level signatures, and `Principal` includes Anonymous,
+  so scope 2 leaves one `User`. When tenants are users that also means one
+  tenant, so `ModelBuilder#scope_clause` emits `for 2 but 3 Principal`.
+- Which counterexample the solver returns is arbitrary among the valid ones.
+  Adding tenancy to the catalog flipped MediumClone's `PostsController#update`
+  witness from Anonymous to a signed-in user; `no Tenant and no Membership`
+  (equivalent to `no Tenant`) flipped it back. `test/medium_clone_test.rb`
+  asserts the anonymous witness, so any catalog change can break it without a
+  real regression.
+- An expression can branch: `F implies E1 else E2` (used by `rolesFor`).
+  Avoid overloading a field name across signatures; `member.p` and
+  `within.t` stay unambiguous because each name has one owner.
 - The jar targets Java 17 (class file version 61). Bump `ALLOY_VERSION` and
   `AlloyInstaller::SHA256` together.
 - The Java API lives in `edu.mit.csail.sdg.parser.CompUtil`,
   `edu.mit.csail.sdg.translator.{TranslateAlloyToKodkod, A4Options, A4Solution}`
   and `edu.mit.csail.sdg.alloy4.A4Reporter` (the old `alloy4compiler` packages
   are gone). Maven Central publishes Alloy 6.2.0 under `org.alloytools`.
-- A CLI run of the six MediumClone checks takes about 2 s, almost all JVM
-  start. That is the cost the phase 1 sidecar removes.
+- A CLI run of the six MediumClone checks takes about 1 to 2 s, almost all
+  JVM start. A warm sidecar answers a Storefront check in about 35 ms.
+
+## Alloy facts learned building the sidecar
+
+- `alloy exec` solves with `TranslateAlloyToKodkod.execute_commandFromBook`,
+  default `A4Options`, and `SATFactory.find(name)` (case-insensitive; ids
+  `sat4j`, `minisat`, `glucose` and others). `A4Options.solver` is a
+  `SATFactory` now, not the old `SatSolver` enum. Doing the same in the shim
+  gives the CLI's verdicts and witnesses exactly.
+- `A4Tuple.atom(i)` labels atoms as the XML does (`catalog/User$0`), and
+  `getAllSkolems()` gives `$<check>_p` style labels, so one decoder fits both.
+- `parseEverything_fromFile` resolves `open catalog` relative to the model's
+  file; the shim writes both into a scratch directory, as the CLI path does.
+- Kodkod logs every translation step at INFO through slf4j-simple to stderr;
+  the shim sets `org.slf4j.simpleLogger.defaultLogLevel=warn`. JDK 24+ also
+  prints `WARNING:` lines about native access when a native solver loads;
+  the client leaves them out of error messages.
+- Nothing interrupts a running Kodkod or SAT4J solve, so a timed-out check
+  leaves a busy thread; the shim answers and halts, and the client restarts.
+- Pigeonhole and Ramsey R(4,4) at 18 vertices solve in seconds thanks to
+  symmetry breaking. A reliably slow model for timeout tests is R(4,4) at 60
+  vertices, which spends many seconds just translating
+  (`test/sidecar_integration_test.rb`).
+- `Command` has a 15-argument constructor (pos, nameExpr, label, check,
+  overall, bitwidth, maxseq, minprefix, maxprefix, expects, scope,
+  additionalExactScopes, commandKeyword, formula, parent); the shim uses it
+  to override the overall scope.
 
 ## Conventions
 
@@ -123,8 +244,62 @@ check safe_<Action>_<op> for <scope>
   events.
 - Report wording: a passing check means "no counterexample within scope N",
   never "safe" or "verified".
+- `bundle exec rubocop` stays clean. Fix offenses rather than adding inline
+  disables; change `.rubocop.yml` (with a comment saying why) when a cop
+  fights the codebase.
+- Sorbet signatures live only in `rbi/`, mirroring `lib/` file for file
+  (`lib/hallmark/guard.rb` -> `rbi/hallmark/guard.rbi`), so the gem never
+  loads `sorbet-runtime` and users need no Sorbet at all. The gem ships
+  `rbi/`, and `srb` picks it up for apps that bundle Hallmark. In `lib/`:
+  a `# typed: strict` sigil and no `sig`, `extend T::Sig`, `T.let`, `T.must`
+  or any other `T.` call (they raise `NameError` without the runtime).
+  Declare instance variables and non-literal constants with `T.let` in the
+  RBI instead, and handle nil in plain Ruby (`if (x = ...)`, `|| raise`).
+  New or changed methods need their RBI signature in the same change;
+  `srb tc` fails without it. `bin/hallmark` is `# typed: true` with no RBI,
+  so its helpers stay out of the shipped signatures.
+- Never name a method `sig`: Sorbet parses any `x.sig` call as a signature
+  declaration. Hence `alloy_sig` on `Mapping::Resource` and `Mapping::Grant`.
+- Keep constants in `lib/` to literals Sorbet accepts without `T.let`
+  (strings, `%i[...].freeze`). A hash constant with its `T.let` in the RBI
+  fails `srb tc` in some runs and passes in others (seen Oct 15, 2026), which
+  is why `Guard#to_alloy` is a `case` rather than a lookup table.
+- Sorbet checks `lib/`, `rbi/`, `sorbet/rbi/` and `bin/hallmark`
+  (`sorbet/config`). Tests and examples are untyped. `sorbet/rbi/gems/` is
+  generated by Tapioca (added Oct 15, 2026 for the collectors and Railtie):
+  after changing the bundle, run `bundle exec tapioca gems --no-doc` (add
+  `--all` to regenerate everything). `sorbet/tapioca/require.rb` loads Rails
+  and Action Policy's Rails parts first; without it railties, actionpack and
+  `ActionPolicy::Controller` come out empty and `srb tc` fails on unresolved
+  constants.
+- A prepended hook module calls methods its host provides (`record`,
+  `action_name`, `pundit_user`); declare those in the module's RBI.
+- The authorization libraries, actionpack and railties are test
+  dependencies only (Gemfile `:test` group). `lib/hallmark/collectors.rb`
+  requires each hook file only when `defined?` finds its library, and
+  `lib/hallmark.rb` requires the Railtie only when `Rails::Railtie` exists.
+- Collector tests use `test/support/shop.rb` (a Gumroad-shaped shop with the
+  same two rules in each library) and the `collect` test helper, which
+  installs the collectors with a temporary stamp store and returns the
+  StampSet. `test/railtie_test.rb` boots a real Rails app in a child process.
 - Unit tests must run without Java (decode fixtures). Tests that need the jar
-  call `require_solver!`, which skips when it is missing.
+  call `require_solver!`, which skips when it is missing; tests that need the
+  built sidecar also call `require_sidecar!`. Sidecar client tests use
+  `fake_sidecar(mode, state_dir)`, a Ruby process speaking the protocol with
+  verdicts from `test/fixtures` (`test/support/fake_sidecar.rb` lists the
+  misbehaving modes).
+- Matcher tests use `test/support/fixture_solver.rb` (`FixtureSolver`, a
+  backend answering from a verdict table, with counterexamples taken from
+  the captured Storefront witness and renamed to the check), so they need
+  no Java. `test/rspec_run_test.rb` runs RSpec itself in a child process.
+  RSpec is a development dependency only; `lib/hallmark/rspec.rb` installs
+  itself only when `RSpec.configuration` exists, and its RBI keeps RSpec's
+  types `T.untyped` so apps need no RSpec RBIs.
+- The sidecar's Java lives in `solver/src` and depends only on the Alloy dist
+  jar (it carries its own small JSON parser). Keep it Java 17
+  (`--release 17`), and bump `Sidecar::PROTOCOL` on both sides with any
+  protocol change. Changing a `.java` file changes the jar's name, so run
+  `bin/hallmark install-sidecar` again before the integration tests.
 - Prose in docs, comments and commit messages: no em dashes; use commas,
   semicolons or parentheses.
 - When a design decision changes, update `docs/PLAN.md` (roadmap status and
@@ -142,12 +317,52 @@ Any Rails version is fine; Rails 8 is not required.
 
 Checked Oct 15, 2026 against each app's Gemfile on its default branch:
 
-| Library | Candidate | Why | Notes |
-| --- | --- | --- | --- |
-| Pundit | [Forem](https://github.com/forem/forem) | Pundit plus Rolify, Rails 8.0; exercises role mapping | Large codebase; start with one area (articles, comments) |
-| Pundit (alternates) | [HCB](https://github.com/hackclub/hcb) (Rails 8.1), [Mastodon](https://github.com/mastodon/mastodon) (Rails 8.1), [rubygems.org](https://github.com/rubygems/rubygems.org) (Rails 8.1) | All list `pundit` in their Gemfiles | HCB's users belong to several organizations, which suits the tenant-aware DSL; confirm by reading its models |
-| DeclarativePolicy | [GitLab](https://gitlab.com/gitlab-org/gitlab) | The only substantial public user; group and project memberships with inheritance | Huge; scope it to one slice, such as `ProjectPolicy` and `IssuePolicy` |
-| Action Policy | [Gumroad](https://github.com/antiwork/gumroad) with its Pundit policies ported to Action Policy (decided Oct 15, 2026) | No open-source app uses Action Policy, and a port keeps real app logic | See "Porting Gumroad to Action Policy" below |
+| Library             | Candidate                                                                                                                                                                              | Why                                                                              | Notes                                                                                                        |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Pundit              | [Forem](https://github.com/forem/forem)                                                                                                                                                | Pundit plus Rolify, Rails 8.0; exercises role mapping                            | Large codebase; start with one area (articles, comments)                                                     |
+| Pundit (alternates) | [HCB](https://github.com/hackclub/hcb) (Rails 8.1), [Mastodon](https://github.com/mastodon/mastodon) (Rails 8.1), [rubygems.org](https://github.com/rubygems/rubygems.org) (Rails 8.1) | All list `pundit` in their Gemfiles                                              | HCB's users belong to several organizations, which suits the tenant-aware DSL; confirm by reading its models |
+| DeclarativePolicy   | [GitLab](https://gitlab.com/gitlab-org/gitlab)                                                                                                                                         | The only substantial public user; group and project memberships with inheritance | Huge; scope it to one slice, such as `ProjectPolicy` and `IssuePolicy`                                       |
+| Action Policy       | [Gumroad](https://github.com/antiwork/gumroad) with its Pundit policies ported to Action Policy (decided Oct 15, 2026)                                                                 | No open-source app uses Action Policy, and a port keeps real app logic           | See "Porting Gumroad to Action Policy" below                                                                 |
+
+Forem is the Pundit gate app (decided Oct 15, 2026). The Gumroad differential
+check (step 5 below) is a test of the adapters, not a gate app.
+
+### First run on original Gumroad
+
+Oct 16, 2026: original Gumroad (Pundit 2.3.2, Rails 8.1.3.1) at
+`b6c62aacab15d0f22d1002ab831d078a35fb17e7` (`main`, Oct 16, 2026), checked
+out at `~/Repos/gumroad` (not forked). This is the commit the Action Policy
+port should fork from, so the differential check compares the same code.
+Slice: `LinkPolicy` and the ten controllers that authorize a `Link` with it.
+The mapping is `config/hallmark.rb` in that checkout (local only, with a
+Gemfile path entry); the private findings log is
+`~/Repos/hallmark-findings/gumroad.md`, with raw outputs beside it.
+Results and the Hallmark gaps it found: `docs/PLAN.md`, "First real-app run:
+Gumroad (Pundit)".
+
+To rerun: start Gumroad's services (`COMPOSE_PROJECT_NAME=gumroad docker
+compose -f docker/docker-compose-local.yml up -d db redis dynamodb
+elasticsearch minio createbuckets copyfixturefiles`), then in the checkout
+`CI=true DISABLE_SPRING=1 bin/rspec spec/policies/link_policy_spec.rb <the
+controller specs>` (Ruby 3.4.3; `CI=true` because Rails 8's lazy routes break
+Devise's `sign_in` in controller specs without eager loading), then `ruby
+../namelessnotion/hallmark/bin/hallmark check config/hallmark.rb`. The spec
+list is in the findings folder.
+
+Passing the gate, per app (decided Oct 15, 2026):
+
+- a declared slice (Gumroad: `LinkPolicy` and the controllers that call it);
+- every check finishes under 10 s with no unknown;
+- every finding triaged as a real bug, a catalog gap or a mapping error, in a
+  findings log;
+- the tested commit pinned; and
+- at least one confirmed real bug: live at the pinned commit, or a past
+  security fix reproduced at the commit before it. A seeded bug never counts.
+
+Findings logs for third-party apps stay private, outside this repository and
+the public forks. Report a live bug through the project's security policy;
+publish only after a fix or the policy's deadline. Historical bugs may be
+published at once.
 
 Before building the gate for a target, confirm the app still uses the library
 (`grep` its Gemfile.lock and `app/policies`), and record the commit you test
@@ -163,15 +378,16 @@ link to the source, are fine.
 
 Policy folders compared Oct 15, 2026 by sparse checkout of each default branch:
 
-| App | Policy files | Lines | Pundit scope classes | Policy specs | License |
-| --- | --- | --- | --- | --- | --- |
-| Gumroad (`e184d51`) | 69 | 1,720 | 0 | 56 | MIT |
-| Mastodon (`a4be641`) | 48 | 1,017 | 0 | 43 | AGPL-3.0 |
-| Forem (`d8b2ba5`) | 40 | 1,565 | 3 | not counted | AGPL-3.0 |
-| HCB (`7d0b932`) | 96 | 3,748 | 3 | not counted | AGPL-3.0 |
-| rubygems.org (`a271c27`) | 61 | 1,401 | 59 | not counted | MIT |
+| App                      | Policy files | Lines | Pundit scope classes | Policy specs | License  |
+| ------------------------ | ------------ | ----- | -------------------- | ------------ | -------- |
+| Gumroad (`e184d51`)      | 69           | 1,720 | 0                    | 56           | MIT      |
+| Mastodon (`a4be641`)     | 48           | 1,017 | 0                    | 43           | AGPL-3.0 |
+| Forem (`d8b2ba5`)        | 40           | 1,565 | 3                    | not counted  | AGPL-3.0 |
+| HCB (`7d0b932`)          | 96           | 3,748 | 3                    | not counted  | AGPL-3.0 |
+| rubygems.org (`a271c27`) | 61           | 1,401 | 59                   | not counted  | MIT      |
 
 Why Gumroad:
+
 - **No scope classes.** Action Policy's migration guide says Pundit scope
   classes have no automatic path; Gumroad has none.
 - **It exercises the tenant-aware work phase 1 builds.** Policies get a
@@ -181,7 +397,7 @@ Why Gumroad:
   can be a team member of several sellers. Some rules check that the record
   belongs to the current seller (`LinkPolicy#update?` returns false when
   `record.user != seller`) and others check only the role, which is the
-  current-org confusion check (M2 in the plan) on real code.
+  current-tenant confusion check (M2 in the plan) on real code.
 - **56 policy specs** to prove the port kept behavior, and an MIT license.
 
 Mastodon is the fallback: the smallest policy set and also scope-free, but
@@ -196,6 +412,25 @@ unless the policy calls `allow_anonymous_user_access!`; and
 Action Policy, `user` and `seller` become two authorization context entries
 (`authorize :user` and `authorize :seller`), and the anonymous-access rule
 can become a pre-check.
+
+How Gumroad maps (checked Oct 15, 2026 on `main`):
+
+- `Link` is the product model (a legacy name). `link.user` is the seller,
+  which is the product's tenant, not its owner: `resource Link, tenant: :user`.
+- The seller is a `User`: `TeamMembership` has
+  `belongs_to :seller, class_name: "User"`, with roles owner, accountant,
+  admin, marketing and support.
+  `role_owner_for?(seller)` is `seller == self`, so the tenant option
+  `self: :owner` gives each seller an implicit owner membership in itself.
+  `role_admin_for?` includes the owner.
+- `role_admin_for?` raises `ActiveRecord::RecordNotFound` for a non-member
+  instead of returning false. Collectors stamp an exception inside a rule as
+  a deny.
+- `collaborator_for?(product)` (`collaborating_products`) crosses sellers;
+  it maps to the explicit-permission pattern on `Link`:
+  `resource "Link", tenant: :user, permits: ->(user, link) { user.collaborator_for?(link) }`.
+- `is_team_member` is a bit flag for Gumroad staff, checked first by
+  `LinkPolicy#edit?`; it maps to a platform role.
 
 Steps, following the [official migration guide](https://actionpolicy.evilmartians.io/guide/pundit_migration):
 
@@ -217,33 +452,66 @@ Steps, following the [official migration guide](https://actionpolicy.evilmartian
    original Pundit Gumroad and on the port at the same commit. Findings must
    match; any difference is a bug in one of the two adapters.
 
-Suggested order:
+Order (decided Oct 15, 2026; the sidecar moved from first to third because
+one CLI run already costs a single JVM start for all checks, so it is not on
+the gate's critical path):
 
-1. **Sidecar solver.** A small Java project (for example `solver/`) built
-   against the `org.alloytools` 6.2.0 artifacts, speaking line-delimited
-   JSON-RPC over stdio: `load(model_text)`, `check(model_id, command, scope,
-   timeout_ms)`, `eval(...)`. It returns the verdict plus skolems and field
-   tuples in a shape `Receipt::Instance` can read. On the Ruby side, add
-   `Hallmark::Solver::Sidecar` with the same `check(model)` interface as
-   `Solver::CLI`. It spawns and supervises the process, caps the heap,
-   restarts it after a timeout or crash, and reports a timeout as "unknown".
-   Keep `Solver::CLI` as the fallback and as a cross-check in tests.
-2. **Tenant-aware catalog and DSL.** Port `research/models/tenancy.als` into
-   the shipped catalog: memberships, a tenant on every record, the current
-   org. Add `tenant`, `current_tenant` and `platform_role` to the mapping, and
-   enforce at least 2 orgs in scope.
-3. **Collectors and Railtie.** Action Policy (subscribe to
-   `action_policy.authorize`), Pundit and DeclarativePolicy (prepend modules),
-   and an `around_action` that flags actions finishing without any
-   authorization call. Events are small structs flushed off the request
-   thread.
-4. **RSpec matchers:** `satisfy_catalog`, `have_no_counterexample(:rule?)`.
+1. **Tenant-aware catalog and DSL, driven by Gumroad.** Done Oct 15, 2026:
+   the catalog, `tenant`/`current_tenant`/`platform_role`/`resource ...,
+   tenant:`, tenant-aware guards, the 2-tenant scope floor, and
+   `examples/storefront`. Choices made while building it (see `docs/PLAN.md`,
+   "The shipped encoding"): a platform role may do anything in any tenant;
+   in a tenant-aware mapping users hold only platform roles outside tenants;
+   the model checks every current tenant, and `current_tenant` tells the
+   collectors where to read it.
+2. **Collectors, stamp store and Railtie.** Done Oct 15, 2026, with the rule
+   op convention. `test/inferred_findings_test.rb` drives the same rules
+   through Action Policy and Pundit and gets the findings of a hand-written
+   mapping. Choices (see `docs/PLAN.md`, "The shipped collectors"): facts
+   are read through mapping readers, not ActiveRecord hooks; only true facts
+   become guard literals; only enforcing calls tie a rule to an entry point;
+   an unchecked entry point fails the report unless `allow_unchecked`;
+   stamps hold no ids, so no HMAC. Not done: the data-side collector (how
+   the entry point loaded the record), so a rule's cross-tenant allow seen
+   in a policy spec also counts against entry points that scope the record
+   to the current tenant.
+3. **Sidecar solver.** Done Oct 15, 2026. Choices (see `docs/PLAN.md`,
+   "The shipped sidecar"): built with plain `javac` against the Alloy dist
+   jar (no Maven, no new download); jar named by a digest of the sources;
+   protocol version 1 adds `version` and `unload`; the CLI stays the default
+   backend (a one-shot `hallmark check` pays one JVM start either way), so
+   the sidecar is opt-in; the SAT solver setting moved to
+   `HALLMARK_SAT_SOLVER`; the CLI also reports a timeout as every check
+   unknown. Measured on Storefront: about 35 ms per check warm, against
+   about 310 ms per check through the CLI.
+4. **RSpec matchers.** Done Oct 16, 2026. Choices (see `docs/PLAN.md`,
+   "The shipped matchers"): a matcher checks rules, each rule's guard as a
+   check of its own (`RuleCheck`), not entry points; it passes only on no
+   counterexample within scope, and fails with its own message on an
+   unknown and on a rule with nothing to check (not observed: no
+   allow-stamp, no hand-written guard); `satisfy_catalog` covers the rules
+   the stamps show plus hand-written ones; the mapping comes from
+   `let(:hallmark_mapping)`, the configuration or `config/hallmark.rb`, and
+   the stamps from `let(:hallmark_stamps)`, the run being recorded in this
+   process, or the latest run; the sidecar is the default inside RSpec
+   unless `c.solver`/`HALLMARK_SOLVER` chose (`Configuration#solver_chosen?`);
+   the `:hallmark` tag sets the subject to the policy class or name and runs
+   tagged groups last (through RSpec's private ordering registry, since
+   `register_ordering` ignores changes once `--order` is given). Added
+   `rule ..., resource:` for a hand-written guard on a rule no stamp shows.
+
+`bin/hallmark check` exits 1 on any counterexample, else 2 on any unknown,
+else 0 (`Report.exit_code`; errors also exit 2). Exposures are keyed by entry point
+(`docs/adr/0001`); `Exposure#action` becomes the entry point when the
+Railtie lands.
 
 ## Open questions (Anthony decides; do not choose)
 
-- Final pick among the Pundit candidates (Forem is the working choice).
 - License: Apache-2.0 (matches Alloy) or MIT. Until then the README says all
   rights are reserved; do not add a LICENSE file.
 - First-class adapter: Action Policy, Pundit or DeclarativePolicy.
 - Reserving the `hallmark` name on RubyGems.
 - Whether any target app needs JRuby, and whether any uses schema-per-tenant.
+- Whether a confirmed authorization flaw with no security impact counts as
+  a gate app's "confirmed real bug" (the first Gumroad run found one; see the
+  private findings log).

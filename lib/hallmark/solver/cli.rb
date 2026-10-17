@@ -1,3 +1,4 @@
+# typed: strict
 # frozen_string_literal: true
 
 require "fileutils"
@@ -6,9 +7,11 @@ require "tmpdir"
 
 module Hallmark
   module Solver
-    # Runs models through the Alloy 6.2 command line (`alloy exec`). This is
-    # the phase 0 backend: one JVM start per run. Phase 1 replaces it with a
-    # long-lived sidecar behind the same `check(model)` interface.
+    # Runs models through the Alloy 6.2 command line (`alloy exec`): one JVM
+    # start per analysis. The phase 0 backend, kept as the default and as a
+    # cross-check for Solver::Sidecar, which has the same `check(model)`.
+    # `c.timeout` bounds the whole run; when it runs out every check is
+    # unknown.
     class CLI
       attr_reader :jar, :java, :timeout, :solver
 
@@ -16,16 +19,21 @@ module Hallmark
         @jar = config.alloy_jar
         @java = config.java
         @timeout = config.timeout
-        @solver = config.solver
+        @solver = config.sat_solver
       end
 
       def available?
-        File.file?(jar) && java_runs?
+        File.file?(jar) && Solver.java_runs?(java)
       end
 
       def check(model)
         Dir.mktmpdir("hallmark-out") { |output| solve_into(model, output) }
+      rescue Timeout
+        Receipt.unknown(model.checks.keys, "the Alloy run timed out after #{timeout} s")
       end
+
+      # Nothing to stop: each run is its own process.
+      def close; end
 
       # Solves `model` and leaves Alloy's raw output (receipt.json plus one
       # XML instance per counterexample) in `output`, which Alloy recreates.
@@ -61,26 +69,22 @@ module Hallmark
       def run(cmd)
         Open3.popen3(*cmd) do |stdin, stdout, stderr, wait|
           stdin.close
-          out = Thread.new { stdout.read }
-          err = Thread.new { stderr.read }
+          out = Thread.new { drain(stdout) }
+          err = Thread.new { drain(stderr) }
           unless wait.join(timeout)
-            begin
-              Process.kill("KILL", wait.pid)
-            rescue Errno::ESRCH
-              nil
-            end
+            Solver.kill(wait.pid)
             wait.join
-            raise SolverError, "Alloy did not finish within #{timeout}s; lower the scope or raise HALLMARK_TIMEOUT"
+            raise Timeout, "Alloy did not finish within #{timeout}s; lower the scope or raise HALLMARK_TIMEOUT"
           end
           [out.value, err.value, wait.value]
         end
       end
 
-      def java_runs?
-        _out, _err, status = Open3.capture3(java, "-version")
-        status.success?
-      rescue SystemCallError
-        false
+      # A pipe closed under the reader (after a timeout kill) reads as empty.
+      def drain(pipe)
+        pipe.read
+      rescue IOError
+        ""
       end
     end
   end

@@ -1,3 +1,4 @@
+# typed: strict
 # frozen_string_literal: true
 
 module Hallmark
@@ -11,42 +12,105 @@ module Hallmark
   #
   #     writes "PostsController#update", "Post", guard: logged_in & owner
   #   end
+  #
+  # Or, from the stamps a test run recorded (exposures and guards inferred):
+  #
+  #   Hallmark.analyze "Storefront" do
+  #     map { ... }
+  #     stamps "tmp/hallmark"
+  #   end
   class Analysis
-    attr_reader :name, :mapping, :exposures
+    attr_reader :name, :mapping, :exposures, :inference
 
-    def self.build(name, &block)
-      analysis = new(name)
+    # `mapping` starts the analysis from a copy of an existing mapping, such as
+    # the one `Hallmark.configure { |c| c.map { ... } }` declared for the
+    # collectors, so the block's `map` never changes the mapping it was given.
+    def self.build(name, mapping: nil, &block)
+      analysis = new(name, mapping: mapping&.dup)
       Builder.new(analysis).instance_eval(&block) if block
       analysis.validate!
     end
 
-    def initialize(name)
+    def initialize(name, mapping: nil)
       @name = name.to_s
-      @mapping = Mapping.new
+      @mapping = mapping || Mapping.new
       @exposures = []
+      @inference = nil
     end
 
-    def add_exposure(action:, op:, resource:, guard:)
+    def add_exposure(action:, op:, resource:, guard:, basis: nil)
       raise ConfigurationError, "guard for #{action} must be a Hallmark::Guard" unless guard.is_a?(Guard)
 
-      exposure = Exposure.new(action: action.to_s, op: op, resource: resource.to_s, guard: guard)
+      exposure = Exposure.new(action: action.to_s, op: op, resource: Naming.class_name(resource), guard: guard,
+                              basis: basis)
       if @exposures.any? { |existing| existing.check_name == exposure.check_name }
-        raise ConfigurationError, "#{action} #{op}s more than one resource type; split it into separate actions"
+        raise ConfigurationError, "#{action} is declared twice for #{op} #{exposure.resource}"
       end
 
       @exposures << exposure
       exposure
     end
 
+    # Adds the exposures inferred from recorded stamps: a StampSet, or a path
+    # to a JSONL file or a stamp directory. The mapping must be complete
+    # first, since inference reads its resources, rules and roles.
+    def add_stamps(source)
+      raise ConfigurationError, "stamps are declared twice in #{name}" if @inference
+
+      set = source.is_a?(StampSet) ? source : StampSet.load(source.to_s)
+      @mapping.validate!
+      inference = Inference.new(@mapping, set)
+      @inference = inference
+      inference.exposures.each do |exposure|
+        add_exposure(action: exposure.action, op: exposure.op, resource: exposure.resource, guard: exposure.guard,
+                     basis: exposure.basis)
+      end
+      inference
+    end
+
     def validate!
-      @exposures.each { |exposure| @mapping.fetch(exposure.resource) }
+      @mapping.validate!
+      @exposures.each do |exposure|
+        resource = @mapping.fetch(exposure.resource)
+        validate_tenants!(exposure)
+        next unless exposure.guard.permits? && !resource.permits?
+
+        raise ConfigurationError, "the guard for #{exposure.action} reads explicit permissions, but #{resource.name} " \
+                                  "is mapped without `permits:`"
+      end
       @mapping.grants.each { |grant| @mapping.fetch(grant.resource) }
       self
     end
 
-    def run(solver: Solver::CLI.new)
-      receipt = solver.check(ModelBuilder.new(self).build)
-      Report.new(self, receipt)
+    # With no exposures (every observed rule only denied, say) there is
+    # nothing to check, so the solver does not start. Without `solver:` the
+    # run uses the configured backend (`c.solver`).
+    def run(solver: nil)
+      return Report.new(self, Receipt.empty) if @exposures.empty?
+
+      Report.new(self, (solver || Hallmark.solver).check(ModelBuilder.new(self).build))
+    end
+
+    private
+
+    # Without a tenant, guards cannot read one. With a tenant, users hold
+    # only platform roles outside tenants, so any other role checked there
+    # could never be held and the check would pass for no reason.
+    def validate_tenants!(exposure)
+      guard = exposure.guard
+      unless @mapping.tenancy
+        return if guard.tenants.empty?
+
+        raise ConfigurationError,
+              "the guard for #{exposure.action} reads tenants, but the map block declares no `tenant`"
+      end
+
+      stray = guard.roles_outside_tenants - @mapping.platform_roles
+      return if stray.empty?
+
+      raise ConfigurationError, "the guard for #{exposure.action} checks #{stray.join(", ")} outside any tenant, " \
+                                "where users hold only platform roles; pass `tenant:` to the role check " \
+                                "or declare `platform_role`"
     end
 
     # Evaluation context for the DSL block, so guard helpers and declarations
@@ -68,6 +132,12 @@ module Hallmark
 
       def writes(action, resource, guard:)
         @analysis.add_exposure(action: action, op: :write, resource: resource, guard: guard)
+      end
+
+      # Infers exposures from the stamps a test run recorded; declare it
+      # after the map block.
+      def stamps(source = Hallmark.configuration.stamps)
+        @analysis.add_stamps(source)
       end
     end
   end

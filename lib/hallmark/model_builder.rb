@@ -1,17 +1,29 @@
+# typed: strict
 # frozen_string_literal: true
 
 module Hallmark
   # Generates the Alloy model for an analysis: one signature per mapped
   # resource, facts that pin down what the mapping says (who owns what, what
-  # can be public), and one assertion per exposure stating that its guard
-  # only allows what some catalog pattern allows.
+  # can be public, which tenant a record lives in), and one assertion per
+  # exposure stating that its guard only allows what some catalog pattern
+  # allows.
   class ModelBuilder
     Model = Struct.new(:source, :checks, :analysis, keyword_init: true)
+
+    # Current-tenant confusion (M2 in docs/PLAN.md) needs two tenants to show
+    # up; when tenants are users, that takes two users besides Anonymous.
+    MIN_TENANTS = 2
+
+    # Outside tenants users hold only platform roles (`Analysis` rejects
+    # guards that check any other role there), and platform roles are never
+    # held in a membership.
+    ROLES_OUTSIDE_TENANTS = "fact roles_outside_tenants {\n  all u: User | u.assigned in PlatformRole\n  " \
+                            "no Membership.roles & PlatformRole\n}"
 
     def initialize(analysis, scope: Hallmark.configuration.scope)
       @analysis = analysis
       @scope = Integer(scope)
-      raise ConfigurationError, "scope must be at least 2" if @scope < 2
+      raise ConfigurationError, "scope must be at least #{MIN_TENANTS}" if @scope < MIN_TENANTS
     end
 
     def build
@@ -20,7 +32,17 @@ module Hallmark
     end
 
     def source
-      [header, roles, resources, grants, exposures].reject(&:empty?).join("\n\n") << "\n"
+      [header, tenancy, roles, resources, permits, grants, exposures].reject(&:empty?).join("\n\n") << "\n"
+    end
+
+    # The bounds for every check. The tenant scope is the overall scope, which
+    # is never below MIN_TENANTS; when tenants are users, Principal also needs
+    # room for Anonymous plus MIN_TENANTS users.
+    def scope_clause
+      principals = MIN_TENANTS + 1
+      return "for #{@scope}" unless mapping.tenancy&.principals? && @scope < principals
+
+      "for #{@scope} but #{principals} Principal"
     end
 
     private
@@ -34,17 +56,78 @@ module Hallmark
       ALS
     end
 
+    def tenancy
+      tenancy = mapping.tenancy
+      # `no Tenant` already rules out memberships; saying so prunes the search.
+      return "fact no_tenants { no Tenant and no Membership }" unless tenancy
+
+      [tenancy_comment(tenancy), *tenancy_facts(tenancy)].join("\n")
+    end
+
+    def tenancy_comment(tenancy)
+      details = []
+      details << "membership: #{tenancy.membership}.#{tenancy.member}" if tenancy.membership
+      details << "roles from :#{tenancy.roles}"
+      details << "each #{tenancy.name} holds :#{tenancy.self_role} in itself" if tenancy.principals?
+      lines = ["-- tenant: #{tenancy.name} (#{details.join(", ")})"]
+      if (source = mapping.current_tenant_source)
+        lines << "-- current tenant: #{source.is_a?(Proc) ? "from a block" : source}"
+      end
+      lines.join("\n")
+    end
+
+    def tenancy_facts(tenancy)
+      outside = ROLES_OUTSIDE_TENANTS
+      return [outside, "fact tenants_are_not_users { no Tenant.user }"] unless (self_role = tenancy.self_role)
+
+      owner = Naming.role_sig(self_role)
+      [
+        outside,
+        <<~ALS.chomp,
+          fact tenants_are_users {
+            all t: Tenant | one t.user
+            all u: User | lone user.u
+          }
+        ALS
+        <<~ALS.chomp
+          fact #{owner}_is_the_tenant_itself {
+            all t: Tenant | some m: membershipIn[t.user, t] | #{owner} in m.roles
+            all m: Membership | #{owner} in m.roles implies m.member = m.within.user
+          }
+        ALS
+      ]
+    end
+
+    # The mapping names every role, and declares no hierarchy yet
+    # (`role_hierarchy` is not built), so no role inherits another. The
+    # catalog's Admin is held only when some guard checks `admin`.
     def roles
+      sigs = role_names.map { |name| Naming.role_sig(name) }
+      platform = mapping.platform_roles.sort.map { |name| Naming.role_sig(name) }
+      platform_set = platform.empty? ? "no PlatformRole" : "PlatformRole = #{platform.join(" + ")}"
+      lines = sigs.map { |sig| "one sig #{sig} extends Role {}" }
+      lines << "fact platform_roles { #{platform_set} }"
+      lines << "fact declared_roles { Role = #{["Admin", *sigs].join(" + ")} and no inherits }"
+      lines << "fact no_administrators { no assigned.Admin and no roles.Admin }" unless checks_admin?
+      lines.join("\n")
+    end
+
+    def role_names
       names = @analysis.exposures.flat_map { |exposure| exposure.guard.roles }
-      names += mapping.grants.map(&:role)
-      names.uniq.sort.map { |name| "one sig #{Naming.role_sig(name)} extends Role {}" }.join("\n")
+      names += mapping.grants.map(&:role) + mapping.platform_roles
+      names += [mapping.tenancy&.self_role].compact
+      names.uniq.sort
+    end
+
+    def checks_admin?
+      @analysis.exposures.any? { |exposure| exposure.guard.leaves.any? { |leaf| leaf.kind == :admin } }
     end
 
     def grants
       mapping.grants.map do |grant|
-        sig = grant.sig
+        sig = grant.alloy_sig
         op = grant.op == :read ? "Read" : "Write"
-        resource = mapping.fetch(grant.resource).sig
+        resource = mapping.fetch(grant.resource).alloy_sig
         <<~ALS.chomp
           -- grant :#{grant.role}, :#{grant.op}, "#{grant.resource}"
           one sig #{sig} extends Grant {}
@@ -56,24 +139,30 @@ module Hallmark
     def resources
       used = (@analysis.exposures.map(&:resource) + mapping.grants.map(&:resource)).uniq
       mapping.resources.values.select { |resource| used.include?(resource.name) }.map do |resource|
-        [resource_comment(resource), "sig #{resource.sig} extends Resource {}", *resource_facts(resource)].join("\n")
+        declaration = "sig #{resource.alloy_sig} extends Resource {}"
+        [resource_comment(resource), declaration, *resource_facts(resource)].join("\n")
       end.join("\n\n")
     end
 
     def resource_comment(resource)
       details = []
+      details << "tenant: #{resource.tenant}" if resource.tenant
       details << "owner: #{resource.owner}" if resource.owner
       details << "profile of one #{mapping.principal_name}" if resource.kind == :profile
-      if resource.always_public?
-        details << "always public"
-      elsif resource.public?
-        details << "public if #{resource.public_if}"
-      end
+      details << "explicit permissions" if resource.permits?
+      details << publicity(resource)
+      details.compact!
       "-- #{resource.name}#{" (#{details.join(", ")})" unless details.empty?}"
     end
 
+    def publicity(resource)
+      return "always public" if resource.always_public?
+
+      "public if #{resource.public_if}" if resource.public?
+    end
+
     def resource_facts(resource)
-      sig = resource.sig
+      sig = resource.alloy_sig
       facts = []
       if resource.kind == :profile
         facts << "fact #{sig}_describes_one_user { all r: #{sig} | one r.owner }"
@@ -88,23 +177,53 @@ module Hallmark
       elsif !resource.public?
         facts << "fact #{sig}_never_public { no #{sig} & Public }"
       end
-      facts
+      facts + tenant_facts(resource)
+    end
+
+    # Without a tenant in the mapping, `no Tenant` already leaves every
+    # record outside tenants.
+    def tenant_facts(resource)
+      return [] unless mapping.tenancy
+
+      sig = resource.alloy_sig
+      return ["fact #{sig}_in_one_tenant { all r: #{sig} | one r.tenant }"] if resource.tenanted?
+
+      ["fact #{sig}_has_no_tenant { no #{sig} <: tenant }"]
+    end
+
+    # Explicit permissions exist only on resources mapped with `permits:`;
+    # which records hold them, and for whom, is left to the solver.
+    def permits
+      return "fact no_permits { no Permit }" if mapping.resources.values.none?(&:permits?)
+
+      used = (@analysis.exposures.map(&:resource) + mapping.grants.map(&:resource)).uniq
+      without = mapping.resources.values.select { |resource| used.include?(resource.name) && !resource.permits? }
+      without.map { |resource| "fact #{resource.alloy_sig}_has_no_permits { no target.#{resource.alloy_sig} }" }
+             .join("\n")
     end
 
     def exposures
       @analysis.exposures.map { |exposure| exposure_block(exposure) }.join("\n\n")
     end
 
+    # Guards in a tenant-aware model also see the current tenant `cur`, so
+    # each check covers every pairing of the current tenant and the record's.
     def exposure_block(exposure)
-      sig = mapping.fetch(exposure.resource).sig
+      sig = mapping.fetch(exposure.resource).alloy_sig
       op = exposure.op == :read ? "Read" : "Write"
+      params, args =
+        if mapping.tenancy
+          ["p: Principal, cur: Tenant, r: #{sig}", "p, cur, r"]
+        else
+          ["p: Principal, r: #{sig}", "p, r"]
+        end
       <<~ALS.chomp
         -- #{exposure.action}: #{exposure.op} #{exposure.resource}, guard: #{exposure.guard}
-        pred #{exposure.predicate_name}[p: Principal, r: #{sig}] { #{exposure.guard.to_alloy} }
+        pred #{exposure.predicate_name}[#{params}] { #{exposure.guard.to_alloy(op)} }
         assert #{exposure.check_name} {
-          all p: Principal, r: #{sig} | #{exposure.predicate_name}[p, r] implies allowed[p, #{op}, r]
+          all #{params} | #{exposure.predicate_name}[#{args}] implies allowed[p, #{op}, r]
         }
-        check #{exposure.check_name} for #{@scope}
+        check #{exposure.check_name} #{scope_clause}
       ALS
     end
   end
