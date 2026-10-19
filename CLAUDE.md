@@ -346,8 +346,12 @@ the quantified variables named `p`, `r` and `cur`.
   semicolons or parentheses.
 - When a design decision changes, update `docs/PLAN.md` (roadmap status and
   open questions included) in the same change.
-- `.gitlab-ci.yml` (ruby:3.4-bookworm plus openjdk-17) has not run yet; check
-  the first pipeline.
+- `.gitlab-ci.yml` (ruby:3.4-bookworm plus openjdk-17) has run on every push
+  to `main` since Oct 17, 2026 (pipelines 1 to 4), and every pipeline
+  failed. On the latest (`985c800`) `test` passed and `lint` (rubocop, then
+  `srb tc`) failed. Job logs need a GitLab login. `Gemfile.lock` is
+  gitignored, so CI resolves its own rubocop and Sorbet versions; that is a
+  suspect, not a confirmed cause.
 
 ## Phase 2 (extractor)
 
@@ -355,7 +359,7 @@ Planned Oct 19, 2026 (`docs/PLAN.md`, "Phase 2 plan"; bounds in
 `docs/adr/0003`). The GraphQL schema walk and field-level mapping moved to
 phase 3. Steps, in order:
 
-0. Phase 1 loose ends: push `main` and check the first CI pipeline; the
+0. Phase 1 loose ends: fix the failing CI `lint` job (see Conventions); the
    Forem run's report wording.
 1. Extractor core and the Pundit and Action Policy front end
    (`lib/hallmark/extractor/`, `term` in the map block, `hallmark extract`),
