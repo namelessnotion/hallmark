@@ -26,9 +26,10 @@ module Hallmark
     # `expression` reads one condition in controller code the same way, with
     # the controller's names renamed to the policy's (`Canonical`).
     class MethodTranslator
-      # Where translation is: the method being read, its class (for calls to
-      # siblings), the locals in force, and the block it was called with.
-      Frame = Struct.new(:definition, :klass, :locals, :block, keyword_init: true)
+      # Where translation is: the method being read (nil inside a
+      # DeclarativePolicy `condition` block), its file, its class (for calls
+      # to siblings), the locals in force, and the block it was called with.
+      Frame = Struct.new(:definition, :file, :klass, :locals, :block, keyword_init: true)
 
       # A block passed to a helper: its body and the frame it was written in.
       Block = Struct.new(:body, :frame, keyword_init: true)
@@ -69,6 +70,23 @@ module Hallmark
         @aliases = aliases
         enter(method, class_name, locals, nil) { |frame| value(node, frame) }
       ensure
+        @aliases = {}
+      end
+
+      # The guard for a DeclarativePolicy condition's block body, written in
+      # `file` of `class_name`. `key` names the condition for the recursion
+      # guard; `aliases` renames the subject (`"@subject" => "record"`, or
+      # `"record.project"` inside a delegate).
+      def condition(node, file, class_name, resource, key:, aliases:)
+        @resource = resource
+        @aliases = aliases
+        return opaque_named(key, file) if @stack.include?([class_name, key])
+
+        @stack.push([class_name, key])
+        frame = Frame.new(definition: nil, file: file, klass: class_name, locals: {}, block: nil)
+        sequence(statements(node), frame, nil)
+      ensure
+        @stack.pop if @stack.last == [class_name, key]
         @aliases = {}
       end
 
@@ -114,7 +132,7 @@ module Hallmark
 
         @stack.push(key)
         begin
-          yield Frame.new(definition: method, klass: class_name, locals: locals.dup, block: block)
+          yield Frame.new(definition: method, file: method.file, klass: class_name, locals: locals.dup, block: block)
         ensure
           @stack.pop
         end
@@ -225,8 +243,8 @@ module Hallmark
         assigned = frame.locals[node.name.to_s]
         return term(node, frame) unless assigned
 
-        value(assigned[0], Frame.new(definition: frame.definition, klass: frame.klass, locals: assigned[1],
-                                     block: frame.block))
+        value(assigned[0], Frame.new(definition: frame.definition, file: frame.file, klass: frame.klass,
+                                     locals: assigned[1], block: frame.block))
       end
 
       def call(node, frame)
@@ -327,7 +345,8 @@ module Hallmark
         receiver = node.receiver
         return false unless node.name == :call && receiver.is_a?(Prism::LocalVariableReadNode)
 
-        param = frame.definition.node.parameters&.block
+        definition = frame.definition
+        param = definition ? definition.node.parameters&.block : nil
         !param.nil? && param.name.to_s == receiver.name.to_s && !frame.block.nil?
       end
 
@@ -340,6 +359,8 @@ module Hallmark
 
       def super_call(frame)
         method = frame.definition
+        return opaque_named("super", frame.file) unless method
+
         parent = @index.find_method(frame.klass, method.name, after: method.owner)
         return opaque_named("super", method.location) unless parent
 
@@ -351,7 +372,7 @@ module Hallmark
       def render(node, frame) = Canonical.new(frame.locals, @aliases).render(node)
 
       def opaque(node, frame)
-        Guard.new(:opaque, render(node, frame), "#{frame.definition.file}:#{node.location.start_line}")
+        Guard.new(:opaque, render(node, frame), "#{frame.file}:#{node.location.start_line}")
       end
 
       def opaque_named(name, location = nil) = Guard.new(:opaque, name, location)

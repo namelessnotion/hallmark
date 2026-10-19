@@ -40,6 +40,9 @@ module Hallmark
     sig { returns(T::Boolean) }
     def permits?; end
 
+    sig { returns(T::Array[String]) }
+    def flags; end
+
     sig { returns(T::Boolean) }
     def outside_tenants?; end
 
@@ -135,6 +138,9 @@ module Hallmark
 
       sig { returns(Guard) }
       def permitted; end
+
+      sig { params(name: T.any(String, Symbol)).returns(Guard) }
+      def flag(name); end
     end
   end
 end

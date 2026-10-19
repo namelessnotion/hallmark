@@ -16,6 +16,8 @@ module Hallmark
   #                      Pundit::Authorization, and a module wrapping the
   #                      rules on each policy class, for direct calls
   #   DeclarativePolicy  prepends `allowed?` on DeclarativePolicy::Base
+  #   Grape              prepends `run` on Grape::Endpoint to name the entry
+  #                      point (GitLab's REST API)
   #   Action Controller  an `around_action` that flags entry points finishing
   #                      without an authorization call (threat 10)
   #
@@ -138,6 +140,10 @@ module Hallmark
         if defined?(::DeclarativePolicy::Base)
           require_relative "collectors/declarative_policy"
           DeclarativePolicyHook.install
+        end
+        if defined?(::Grape::Endpoint)
+          require_relative "collectors/grape"
+          GrapeHook.install
         end
         return unless defined?(::ActiveSupport.on_load)
 

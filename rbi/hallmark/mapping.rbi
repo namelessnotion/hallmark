@@ -33,6 +33,14 @@ module Hallmark
       sig { returns(Collectors::Source) }
       def permits; end
 
+      # Named boolean attributes for guards read from code
+      sig { returns(T::Array[String]) }
+      def flags; end
+
+      # When a record is public, over its flags; nil when public_if alone says
+      sig { returns(T.nilable(Guard)) }
+      def public_when; end
+
       sig do
         params(
           name: String,
@@ -41,10 +49,13 @@ module Hallmark
           public_if: T.nilable(T.any(Symbol, T::Boolean)),
           tenant: T.nilable(Symbol),
           tenant_optional: T.nilable(T::Boolean),
-          permits: Collectors::Source
+          permits: Collectors::Source,
+          flags: T::Array[String],
+          public_when: T.nilable(Guard)
         ).void
       end
-      def initialize(name:, owner:, kind:, public_if:, tenant:, tenant_optional: nil, permits: nil); end
+      def initialize(name:, owner:, kind:, public_if:, tenant:, tenant_optional: nil, permits: nil, flags: [],
+                     public_when: nil); end
 
       sig { returns(String) }
       def alloy_sig; end
@@ -78,8 +89,12 @@ module Hallmark
       sig { returns(String) }
       def resource; end
 
-      sig { params(role: String, op: Symbol, resource: String).void }
-      def initialize(role:, op:, resource:); end
+      # A guard over the resource's flags limiting the records it covers
+      sig { returns(T.nilable(Guard)) }
+      def condition; end
+
+      sig { params(role: String, op: Symbol, resource: String, condition: T.nilable(Guard)).void }
+      def initialize(role:, op:, resource:, condition: nil); end
 
       sig { returns(String) }
       def alloy_sig; end
@@ -214,8 +229,11 @@ module Hallmark
       @terms = T.let(T.unsafe(nil), T::Hash[String, Guard])
     end
 
-    sig { params(role: T.any(String, Symbol), op: Symbol, resource: T.any(String, Symbol, T::Module[T.anything])).void }
-    def grant(role, op, resource); end
+    sig do
+      params(role: T.any(String, Symbol), op: Symbol, resource: T.any(String, Symbol, T::Module[T.anything]),
+             when: T.nilable(Guard)).void
+    end
+    def grant(role, op, resource, when: nil); end
 
     sig do
       params(name: T.any(String, Symbol, T::Module[T.anything]), from: Collectors::Source, roles: Collectors::Source,
@@ -255,10 +273,13 @@ module Hallmark
         public_if: T.nilable(T.any(Symbol, T::Boolean)),
         tenant: T.nilable(Symbol),
         tenant_optional: T::Boolean,
-        permits: Collectors::Source
+        permits: Collectors::Source,
+        flags: T::Array[T.any(String, Symbol)],
+        public_when: T.nilable(Guard)
       ).returns(Resource)
     end
-    def resource(name, owner: nil, kind: :object, public_if: nil, tenant: nil, tenant_optional: false, permits: nil); end
+    def resource(name, owner: nil, kind: :object, public_if: nil, tenant: nil, tenant_optional: false, permits: nil,
+                 flags: [], public_when: nil); end
 
     sig do
       params(
@@ -297,6 +318,9 @@ module Hallmark
 
     sig { params(source: T.self_type).void }
     def initialize_copy(source); end
+
+    sig { params(key: String, guard: T.nilable(Object), flags: T::Array[String]).void }
+    def validate_public_when!(key, guard, flags); end
 
     sig { params(rule: Rule).void }
     def validate_rule!(rule); end

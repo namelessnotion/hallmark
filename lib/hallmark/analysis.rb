@@ -80,8 +80,13 @@ module Hallmark
                                     "but #{resource.name} is mapped without `permits:`"
         end
         validate_outside_tenants!(exposure, resource)
+        validate_flags!(exposure.guard, resource, "the guard for #{exposure.action}")
       end
-      @mapping.grants.each { |grant| @mapping.fetch(grant.resource) }
+      @mapping.grants.each do |grant|
+        condition = grant.condition
+        resource = @mapping.fetch(grant.resource)
+        validate_flags!(condition, resource, "a grant on #{resource.name}") if condition
+      end
       self
     end
 
@@ -114,6 +119,15 @@ module Hallmark
       raise ConfigurationError, "the guard for #{exposure.action} checks #{stray.join(", ")} outside any tenant, " \
                                 "where users hold only platform roles; pass `tenant:` to the role check " \
                                 "or declare `platform_role`"
+    end
+
+    # A guard may read only the flags its resource declares.
+    def validate_flags!(guard, resource, what)
+      stray = guard.flags - resource.flags
+      return if stray.empty?
+
+      raise ConfigurationError, "#{what} reads flags #{resource.name} does not declare: #{stray.join(", ")}; " \
+                                "add them to its `flags:`"
     end
 
     # Only a record whose tenant is optional can live outside tenants: for

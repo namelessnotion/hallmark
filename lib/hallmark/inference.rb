@@ -39,7 +39,7 @@ module Hallmark
       def entry_points = stamps.select(&:enforced).filter_map(&:entry_point).uniq
     end
 
-    attr_reader :units, :exposures, :coverage, :unchecked, :drift
+    attr_reader :units, :exposures, :coverage, :unchecked, :drift, :extractor
 
     def initialize(mapping, stamp_set, extractor: nil)
       @mapping = mapping
@@ -175,61 +175,6 @@ module Hallmark
       end
       exposures = links.keys.sort.flat_map { |entry_point| exposures_of(entry_point, links.fetch(entry_point)) }
       exposures + route_exposures
-    end
-
-    # Routes no test reached (no stamp, no unchecked request), read from
-    # their controller: an exposure for each rule it authorizes that the
-    # extractor read, with the rule's code guard alone. What cannot be read
-    # is listed under coverage, never failed: the code may authorize in ways
-    # Hallmark does not read.
-    def route_exposures
-      return [] unless (controllers = self.controllers)
-
-      (@routes.map(&:entry_point).uniq - @reached).sort.flat_map do |entry_point|
-        read = controllers.fetch(entry_point)
-        next route_exposures_of(entry_point, read) if read
-
-        @coverage.routes_unread << entry_point
-        []
-      end
-    end
-
-    def route_exposures_of(entry_point, read)
-      return [] if read.verify == :skipped
-
-      unless read.checked
-        @coverage.routes_unchecked << entry_point
-        return []
-      end
-
-      units = read.authorizations.filter_map { |authorization| route_unit(authorization) }
-      @coverage.routes_unresolved << entry_point if units.size < read.authorizations.size
-      units.each { |unit| @coverage.code_only.delete(unit.key) }
-      exposures_of(entry_point, units).each do |exposure|
-        exposure.basis = "no test reached this route, read from code: #{exposure.basis}"
-      end
-    end
-
-    # The unit for an authorize call's rule, reusing the one for its stamps
-    # or code when there is one.
-    def route_unit(authorization)
-      policy = authorization.policy
-      return nil unless policy
-
-      key = "#{policy}##{authorization.rule}"
-      @units.find do |unit|
-        unit.key == key && unit.extracted
-      end || code_unit(@extractor&.fetch(policy, authorization.rule))
-    end
-
-    def code_unit(extracted)
-      resource = extracted&.resource
-      return nil unless extracted && resource && (op = @mapping.op_for(extracted.policy, extracted.rule))
-
-      unit = Unit.new(policy: extracted.policy, rule: extracted.rule, resource: resource, op: op, stamps: [],
-                      extracted: extracted)
-      assign_guard(unit)
-      unit
     end
 
     def exposures_of(entry_point, units)

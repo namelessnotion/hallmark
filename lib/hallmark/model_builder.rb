@@ -128,10 +128,12 @@ module Hallmark
         sig = grant.alloy_sig
         op = grant.op == :read ? "Read" : "Write"
         resource = mapping.fetch(grant.resource).alloy_sig
+        condition = grant.condition
+        records = condition ? "{ r: #{resource} | #{condition.to_alloy} }" : resource
         <<~ALS.chomp
-          -- grant :#{grant.role}, :#{grant.op}, "#{grant.resource}"
+          -- grant :#{grant.role}, :#{grant.op}, "#{grant.resource}"#{", when: #{condition}" if condition}
           one sig #{sig} extends Grant {}
-          fact #{sig}_def { #{sig}.role = #{Naming.role_sig(grant.role)} and #{sig}.op = #{op} and #{sig}.res = #{resource} }
+          fact #{sig}_def { #{sig}.role = #{Naming.role_sig(grant.role)} and #{sig}.op = #{op} and #{sig}.res = #{records} }
         ALS
       end.join("\n\n")
     end
@@ -141,7 +143,14 @@ module Hallmark
       mapping.resources.values.select { |resource| used.include?(resource.name) }.map do |resource|
         declaration = "sig #{resource.alloy_sig} extends Resource {}"
         [resource_comment(resource), declaration, *resource_facts(resource)].join("\n")
-      end.join("\n\n")
+      end.concat(flags).join("\n\n")
+    end
+
+    # The record flags section (`FlagModel`).
+    def flags
+      used = (@analysis.exposures.map(&:resource) + mapping.grants.map(&:resource)).uniq
+      source = FlagModel.new(mapping.resources.values.select { |resource| used.include?(resource.name) }).source
+      source ? [source] : []
     end
 
     def resource_comment(resource)
@@ -157,6 +166,7 @@ module Hallmark
 
     def publicity(resource)
       return "always public" if resource.always_public?
+      return "public when #{resource.public_when}" if resource.public_when
 
       "public if #{resource.public_if}" if resource.public?
     end

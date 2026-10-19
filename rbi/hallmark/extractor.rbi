@@ -56,15 +56,24 @@ module Hallmark
       @root = T.let(T.unsafe(nil), String)
       @index = T.let(T.unsafe(nil), SourceIndex)
       @translator = T.let(T.unsafe(nil), MethodTranslator)
+      @declarative = T.let(T.unsafe(nil), DeclarativeTranslator)
       @cache = T.let(T.unsafe(nil), T::Hash[String, T.nilable(Extracted)])
       @controllers = T.let(T.unsafe(nil), T.nilable(Controllers))
+      @grape = T.let(T.unsafe(nil), T.nilable(GrapeEndpoints))
+      @grape_read = T.let(T.unsafe(nil), T::Boolean)
     end
+
+    sig { returns(T.nilable(GrapeEndpoints)) }
+    def grape; end
 
     sig { returns(Controllers) }
     def controllers; end
 
     sig { returns(T::Array[Extracted]) }
     def rules; end
+
+    sig { returns(T::Array[DeclarativeTranslator::Lint]) }
+    def lints; end
 
     sig { params(policy: String, rule: String).returns(T.nilable(Extracted)) }
     def fetch(policy, rule); end
@@ -76,5 +85,11 @@ module Hallmark
 
     sig { params(policy: String, rule: String).returns(T.nilable(String)) }
     def resource_for(policy, rule); end
+
+    sig { params(policy: String, ability: String, resource: T.nilable(String)).returns(T.nilable(Extracted)) }
+    def extract_ability(policy, ability, resource); end
+
+    sig { params(policy: String).returns(T::Array[String]) }
+    def abilities(policy); end
   end
 end

@@ -34,15 +34,15 @@ Metrics/AbcSize:
 Metrics/ClassLength:
   Max: 180
   Exclude: ["test/**/*", "lib/hallmark/extractor/source_index.rb", "lib/hallmark/extractor/method_translator.rb",
-            "lib/hallmark/extractor/controllers.rb"]
+            "lib/hallmark/extractor/controllers.rb", "lib/hallmark/extractor/declarative_translator.rb"]
 
 # Guard#to_alloy and #to_s are one `case` over every guard kind. A lookup
 # table would read better, but Sorbet's strict mode flakily rejects hash
 # constants even with a `T.let` in the RBI (seen Oct 15, 2026). The limit
 # grows by one with each guard kind (`outside_tenants`, Oct 18, 2026; `never`
-# and `opaque`, Oct 19, 2026).
+# and `opaque`, Oct 19, 2026; `flag`, Oct 19, 2026).
 Metrics/CyclomaticComplexity:
-  Max: 16
+  Max: 17
 
 Metrics/MethodLength:
   Max: 20

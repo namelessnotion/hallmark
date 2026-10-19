@@ -15,7 +15,7 @@ is found, the report says "no counterexample within scope N", never "safe".
 
 Phase 2 in progress. It works end to end, on hand-written guards, on
 guards inferred from what the app's test suite did, and on guards read from
-Pundit and Action Policy code:
+Pundit, Action Policy and DeclarativePolicy code:
 
 - the pattern catalog (`data/hallmark/catalog.als`), after Near and Jackson's
   SPACE (ICSE 2016): ownership, public objects, authentication, explicit
@@ -36,18 +36,18 @@ Pundit and Action Policy code:
 - RSpec matchers (`require "hallmark/rspec"`): `satisfy_catalog` and
   `have_no_counterexample(:update?)` check a policy's rules one at a time,
   on the sidecar by default
-- an extractor that reads Pundit and Action Policy rules from
-  `app/policies` with Prism, without loading the app, so rules no test
-  reached are checked too (`hallmark extract` prints what it read), and
-  drift: a stamped decision the rule's code contradicts fails the check
-  and the matchers
+- an extractor that reads Pundit, Action Policy and DeclarativePolicy rules,
+  controllers and Grape APIs with Prism, without loading the app, so rules
+  and entry points no test reached are checked too (`hallmark extract`
+  prints what it read, `hallmark rules` checks each rule), and drift: a
+  stamped decision the rule's code contradicts fails the check and the
+  matchers
 
 Phase 1 is done: its deliverables are built, and its gate (Hallmark run on
 one real app per authorization library, each with a confirmed real bug)
 passed on Oct 19, 2026.
 
-Not built yet (phase 2): reading DeclarativePolicy code and Grape
-endpoints, and SARIF output. Phase 3: shadow and sampled runtime
+Not built yet (phase 2): SARIF output. Phase 3: shadow and sampled runtime
 modes, the graphql-ruby schema walk and tracing, and field-level mapping.
 The models for those live in `research/models`.
 
@@ -428,6 +428,43 @@ from code becomes the route's exposure. Routes Hallmark cannot read that
 way (an authorize call it cannot resolve, no authorization call it can
 see, a controller outside `app/controllers`) are listed under coverage, not
 failed.
+
+### DeclarativePolicy and Grape
+
+DeclarativePolicy policies (and GitLab's EE modules, which
+`prepend_mod_with` adds from `ee/app/policies`) are read too: an ability is
+allowed when one of its `enable` rules holds and none of its `prevent` rules
+does, delegates included. Abilities have no naming convention, so the
+abilities read are those the mapping gives an op:
+
+```ruby
+rule "ProjectPolicy", :read_pipeline_schedule, op: :read
+term "reporter", role(:reporter, tenant: :record) | role(:maintainer, tenant: :record)
+```
+
+A condition is read from its body, or from a `term` named after it. Two
+DSL hazards fail the check: `&&`, `||` or `!` in a rule block (D4), and a
+condition cached at a scope that leaves out what it reads, such as
+`with_scope :subject` around a body reading `@user` (D3).
+
+Some decisions depend on settings of a record or of what it lives in, such
+as a GitLab project's "Public pipelines". Declare them as flags, say when a
+record is public in their terms, and limit grants by them:
+
+```ruby
+resource "Ci::PipelineSchedule", tenant: :project, flags: %i[project_public public_builds],
+         public_when: flag(:project_public) & flag(:public_builds)
+grant :guest, :read, "Ci::PipelineSchedule", when: flag(:public_builds)
+term "record.project.public_builds?", flag(:public_builds)
+```
+
+Grape APIs under `lib/api` or `app/api` are read for their endpoints and
+the abilities they check (`authorize!`, `can?`), and a collector names the
+endpoint a request runs ("GET /projects/:id/pipeline_schedules"), so REST
+endpoints are checked like controller actions.
+
+`hallmark rules FILE [POLICY...]` checks each rule on its own, from code and
+any recorded stamps, as the RSpec matchers do.
 
 ## How it works
 

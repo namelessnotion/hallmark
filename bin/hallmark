@@ -13,6 +13,11 @@ USAGE = <<~TEXT.freeze
     hallmark model FILE       print the Alloy model generated for FILE
     hallmark extract FILE     print the guard read from each policy rule's code under the app root
                               (FILE's directory, or its parent when FILE is in config/)
+    hallmark rules FILE [POLICY...]
+                              check each rule of the policies (default: every policy read from code)
+                              on its own, as the RSpec matchers do, from its code and any recorded
+                              stamps; exit 1 on any counterexample or policy-DSL hazard, else 2 on
+                              any unknown, else 0
     hallmark install-alloy    download Alloy #{Hallmark::ALLOY_VERSION} and verify its checksum
     hallmark install-sidecar  build the solver sidecar (needs a JDK 17+; installs Alloy first)
     hallmark version
@@ -50,12 +55,7 @@ end
 # bounds when calls in it could not be read (docs/adr/0003).
 def print_extracted(files)
   abort USAGE unless files.size == 1
-  file = files.fetch(0)
-  use_root(file)
-  load_file(file)
-  mapping = Hallmark.analyses.last&.mapping || Hallmark.configuration.mapping
-  abort "No mapping found in #{file}" unless mapping
-
+  mapping = mapping_from(files.fetch(0))
   root = Hallmark.configuration.root
   extractor = Hallmark::Extractor.load(mapping, root)
   abort "No policy code under #{root} (looked in #{Hallmark::Extractor::DIRS.join(", ")})" unless extractor
@@ -70,6 +70,57 @@ def extracted_lines(rule)
 
   [head, "  lower: #{rule.lower}", "  upper: #{rule.upper}",
    *rule.opaque_leaves.map { |leaf| "  not read: `#{leaf.operands[0]}` (#{leaf.operands[1]})" }]
+end
+
+# Each rule checked on its own (Hallmark::RuleCheck), then the hazards the
+# DeclarativePolicy reader found.
+def check_rules(args)
+  file, *policies = args
+  abort USAGE unless file
+  mapping = mapping_from(file)
+  extractor = Hallmark::Extractor.load(mapping)
+  checker = Hallmark::RuleCheck.new(mapping, stamps_if_any, extractor: extractor)
+  policies = policies_read(extractor) if policies.empty?
+  results = policies.flat_map { |policy| checker.check(policy) }
+  results.each { |result| puts result.lines }
+  lints = extractor ? extractor.lints : []
+  lints.each { |lint| puts "FAIL  #{lint} (policy-DSL hazard)" }
+  puts "", rules_summary(results, lints)
+  rules_exit(results, lints)
+end
+
+# The mapping a file declares, with the app root set from where it is.
+def mapping_from(file)
+  use_root(file)
+  load_file(file)
+  Hallmark.analyses.last&.mapping || Hallmark.configuration.mapping || abort("No mapping found in #{file}")
+end
+
+# Policies with a rule read from code on a mapped resource.
+def policies_read(extractor)
+  return [] unless extractor
+
+  extractor.rules.select(&:resource).map(&:policy).uniq
+end
+
+def stamps_if_any
+  dir = Hallmark.configuration.stamps
+  Hallmark::StampSet.files(dir).any? ? Hallmark::StampSet.load(dir) : Hallmark::StampSet.new
+end
+
+def rules_summary(results, lints)
+  counts = results.group_by(&:verdict).transform_values(&:size)
+  parts = ["#{counts.fetch(:counterexample, 0)} counterexamples", "#{counts.fetch(:none, 0)} with none within scope"]
+  parts << "#{counts.fetch(:unknown)} unknown" if counts.key?(:unknown)
+  parts << "#{counts.fetch(:not_observed)} not observed" if counts.key?(:not_observed)
+  parts << "#{lints.size} policy-DSL hazards" if lints.any?
+  "#{results.size} rules: #{parts.join(", ")}."
+end
+
+def rules_exit(results, lints)
+  return 1 if lints.any? || results.any?(&:counterexample?)
+
+  results.any? { |result| result.verdict == :unknown } ? 2 : 0
 end
 
 # The CLI does not boot the app, so a mapping that names an app class by
@@ -94,6 +145,8 @@ begin
     load_analyses(ARGV).each { |analysis| puts Hallmark::ModelBuilder.new(analysis).source }
   when "extract"
     print_extracted(ARGV)
+  when "rules"
+    exit(check_rules(ARGV))
   when "install-alloy"
     puts Hallmark::AlloyInstaller.new.install
   when "install-sidecar"

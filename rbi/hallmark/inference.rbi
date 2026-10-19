@@ -64,6 +64,9 @@ module Hallmark
     sig { returns(T::Array[Exposure]) }
     attr_reader :exposures
 
+    sig { returns(T.nilable(Extractor)) }
+    attr_reader :extractor
+
     sig { returns(Coverage) }
     attr_reader :coverage
 
@@ -127,17 +130,10 @@ module Hallmark
     sig { returns(T::Array[Exposure]) }
     def build_exposures; end
 
-    sig { returns(T::Array[Exposure]) }
-    def route_exposures; end
 
-    sig { params(entry_point: String, read: Extractor::Controllers::EntryPoint).returns(T::Array[Exposure]) }
-    def route_exposures_of(entry_point, read); end
 
-    sig { params(authorization: Extractor::Controllers::Authorization).returns(T.nilable(Unit)) }
-    def route_unit(authorization); end
 
-    sig { params(extracted: T.nilable(Extractor::Extracted)).returns(T.nilable(Unit)) }
-    def code_unit(extracted); end
+
 
     sig { params(entry_point: String, units: T::Array[Unit]).returns(T::Array[Exposure]) }
     def exposures_of(entry_point, units); end

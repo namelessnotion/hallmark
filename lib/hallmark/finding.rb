@@ -10,7 +10,7 @@ module Hallmark
     # roles the principal holds in it.
     TenantRoles = Struct.new(:tenant, :user, :roles, keyword_init: true)
 
-    attr_reader :exposure, :principal, :record, :owner, :roles, :current_tenant, :record_tenant
+    attr_reader :exposure, :principal, :record, :owner, :roles, :current_tenant, :record_tenant, :flags
 
     def self.from(exposure, instance, mapping)
       check = exposure.check_name
@@ -26,7 +26,10 @@ module Hallmark
         owner: instance.field(record, "owner").first,
         roles: instance.field(principal, "assigned"),
         current_tenant: tenant_roles(instance, principal, instance.skolem("$#{check}_cur")),
-        record_tenant: tenant_roles(instance, principal, instance.field(record, "tenant").first)
+        record_tenant: tenant_roles(instance, principal, instance.field(record, "tenant").first),
+        flags: mapping.fetch(exposure.resource).flags.to_h do |name|
+          [name, instance.sources(Naming.flag_field(name), record).any?]
+        end
       )
     end
 
@@ -46,7 +49,8 @@ module Hallmark
     # "catalog/Role_admin$0" or "Role_admin" -> "admin"
     def self.role_name(atom) = Naming.atom(atom).sub(/\$\d+\z/, "").delete_prefix("Role_")
 
-    def initialize(exposure:, mapping:, principal:, record:, owner:, roles:, current_tenant: nil, record_tenant: nil)
+    def initialize(exposure:, mapping:, principal:, record:, owner:, roles:, current_tenant: nil, record_tenant: nil,
+                   flags: {})
       @exposure = exposure
       @mapping = mapping
       @resource = mapping.fetch(exposure.resource)
@@ -56,6 +60,7 @@ module Hallmark
       @roles = roles.map { |role| Finding.role_name(role) }
       @current_tenant = current_tenant
       @record_tenant = record_tenant
+      @flags = flags
     end
 
     def anonymous? = Naming.atom(principal).start_with?("Anonymous")
@@ -118,7 +123,18 @@ module Hallmark
     def verb = exposure.op == :read ? "read" : "update"
 
     def what
-      "#{record_label}#{where}"
+      "#{record_label}#{where}#{flag_list}"
+    end
+
+    # ", with project_public and without public_builds"
+    def flag_list
+      return "" if flags.empty?
+
+      on, off = flags.keys.partition { |name| flags.fetch(name) }
+      parts = []
+      parts << "with #{on.join(", ")}" if on.any?
+      parts << "without #{off.join(", ")}" if off.any?
+      ", #{parts.join(" and ")}"
     end
 
     def record_label

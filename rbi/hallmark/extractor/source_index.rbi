@@ -135,16 +135,42 @@ module Hallmark
         sig { returns(T::Hash[String, Prism::Node]) }
         def constants; end
 
+        sig { returns(T::Hash[String, Condition]) }
+        def conditions; end
+
+        sig { returns(T::Array[DpRule]) }
+        def dp_rules; end
+
+        sig { returns(T::Array[Delegate]) }
+        def delegates; end
+
+        sig { returns(T::Array[String]) }
+        def overrides; end
+
+        # EE modules prepend_mod_with adds ("EE::ProjectPolicy")
+        sig { returns(T::Array[String]) }
+        def prepends; end
+
+        # True for a module, false for a class, nil when only referenced
+        sig { returns(T.nilable(T::Boolean)) }
+        def module; end
+
+        sig { params(value: T.nilable(T::Boolean)).returns(T.nilable(T::Boolean)) }
+        def module=(value); end
+
         sig do
           params(name: String, superclass: T.nilable(String), namespace: T::Array[String],
                  defs: T::Hash[String, Method], includes: T::Array[String], aliases: T::Hash[String, String],
                  default_rule: T.nilable(String), pre_checks: T::Array[PreCheck],
                  skipped_pre_checks: T::Array[PreCheck], attributes: T::Hash[String, Prism::Node],
                  singletons: T::Hash[String, Prism::DefNode], callbacks: T::Array[Callback],
-                 constants: T::Hash[String, Prism::Node]).void
+                 constants: T::Hash[String, Prism::Node], conditions: T::Hash[String, Condition],
+                 dp_rules: T::Array[DpRule], delegates: T::Array[Delegate], overrides: T::Array[String],
+                 prepends: T::Array[String], module: T.nilable(T::Boolean)).void
         end
         def initialize(name:, superclass:, namespace:, defs:, includes:, aliases:, default_rule:, pre_checks:,
-                       skipped_pre_checks:, attributes:, singletons:, callbacks:, constants:); end
+                       skipped_pre_checks:, attributes:, singletons:, callbacks:, constants:, conditions:, dp_rules:,
+                       delegates:, overrides:, prepends:, module: nil); end
       end
 
       sig { returns(String) }
@@ -155,6 +181,7 @@ module Hallmark
 
       sig { params(root: String, dirs: T::Array[String]).void }
       def initialize(root, dirs)
+        @pending_scope = T.let(T.unsafe(nil), T.nilable(String))
         @root = T.let(T.unsafe(nil), String)
         @scopes = T.let(T.unsafe(nil), T::Hash[String, Scope])
         @ancestors = T.let(T.unsafe(nil), T::Hash[String, T::Array[String]])
@@ -187,6 +214,9 @@ module Hallmark
       sig { returns(T::Array[String]) }
       def policies; end
 
+      sig { params(name: String, namespace: T::Array[String]).returns(T.nilable(String)) }
+      def resolve_constant(name, namespace); end
+
       sig { params(class_name: String).returns(T::Array[Callback]) }
       def callbacks(class_name); end
 
@@ -215,11 +245,29 @@ module Hallmark
 
       VISIBILITIES = T.let(T.unsafe(nil), T::Array[Symbol])
 
-      sig { params(scope: Scope, call: Prism::CallNode, file: String, visibility: Symbol).returns(Symbol) }
-      def declaration(scope, call, file, visibility); end
+      sig do
+        params(scope: Scope, call: Prism::CallNode, file: String, visibility: Symbol, parts: T::Array[String])
+          .returns(Symbol)
+      end
+      def declaration(scope, call, file, visibility, parts); end
+
+      sig do
+        params(scope: Scope, call: Prism::CallNode, args: T::Array[Prism::Node], file: String,
+               parts: T::Array[String]).void
+      end
+      def macro(scope, call, args, file, parts); end
 
       sig { params(scope: Scope, call: Prism::CallNode, args: T::Array[Prism::Node]).void }
-      def macro(scope, call, args); end
+      def policy_macro(scope, call, args); end
+
+      sig { params(call: Prism::CallNode, namespace: T::Array[String]).void }
+      def prepend_mod(call, namespace); end
+
+      sig { params(scope: Scope, node: T.any(Prism::ClassNode, Prism::ModuleNode)).void }
+      def mark_kind(scope, node); end
+
+      sig { params(call: Prism::CallNode).returns(T.nilable(Prism::Node)) }
+      def block_body(call); end
 
       sig { params(scope: Scope, name: Symbol, args: T::Array[Prism::Node]).void }
       def callback(scope, name, args); end
@@ -279,6 +327,9 @@ module Hallmark
 
       sig { params(name: String, namespace: T::Array[String]).returns(T.nilable(String)) }
       def resolve(name, namespace); end
+
+      sig { params(scope: Scope).returns(T.nilable(String)) }
+      def parent_of(scope); end
 
       sig { params(name: String).returns(T.nilable(String)) }
       def external_superclass(name); end

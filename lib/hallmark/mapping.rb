@@ -17,18 +17,18 @@ module Hallmark
 
     KINDS = %i[object profile].freeze
 
-    Resource = Struct.new(:name, :owner, :kind, :public_if, :tenant, :tenant_optional, :permits,
-                          keyword_init: true) do
+    Resource = Struct.new(:name, :owner, :kind, :public_if, :tenant, :tenant_optional, :permits, :flags,
+                          :public_when, keyword_init: true) do
       def alloy_sig = Naming.resource_sig(name, kind)
       def owned? = kind == :profile || !owner.nil?
-      def public? = !public_if.nil? && public_if != false
+      def public? = (!public_if.nil? && public_if != false) || !public_when.nil?
       def always_public? = public_if == true
       def tenanted? = !tenant.nil?
       def tenant_optional? = tenant_optional == true
       def permits? = !permits.nil?
     end
 
-    Grant = Struct.new(:role, :op, :resource, keyword_init: true) do
+    Grant = Struct.new(:role, :op, :resource, :condition, keyword_init: true) do
       def alloy_sig = "Grant_#{Naming.identifier(role)}_#{op}_#{Naming.identifier(resource)}"
     end
 
@@ -77,11 +77,20 @@ module Hallmark
     # that lives in a tenant, the role counts only when held in the record's
     # tenant.
     #
+    # `when:` limits the grant to records whose flags satisfy a guard (GitLab:
+    # guests read schedules only where "Public pipelines" is on).
+    #
     #   grant :moderator, :write, "Post"
-    def grant(role, op, resource)
+    #   grant :guest, :read, "Ci::PipelineSchedule", when: flag(:public_builds)
+    def grant(role, op, resource, when: nil)
       raise ConfigurationError, "grant op must be :read or :write, not #{op.inspect}" unless OPS.include?(op)
 
-      @grants << Grant.new(role: role.to_s, op: op, resource: Naming.class_name(resource))
+      condition = binding.local_variable_get(:when)
+      unless condition.nil? || (condition.is_a?(Guard) && condition.leaves.all? { |leaf| leaf.kind == :flag })
+        raise ConfigurationError, "a grant's `when:` must be a guard over flags, such as flag(:public_builds)"
+      end
+
+      @grants << Grant.new(role: role.to_s, op: op, resource: Naming.class_name(resource), condition: condition)
     end
 
     # The application class that represents signed-in users (default "User").
@@ -164,15 +173,25 @@ module Hallmark
     #            returning true for every op, or :read, :write or a list
     #
     #   resource "Link", tenant: :user, permits: ->(user, link) { user.collaborator_for?(link) }
-    def resource(name, owner: nil, kind: :object, public_if: nil, tenant: nil, tenant_optional: false, permits: nil)
+    # flags:     named boolean attributes of a record, for guards read from
+    #            code (`flag(:public_builds)`), such as settings of the project
+    #            a record lives in; the solver may set each either way
+    # public_when: a guard over the flags that says when a record is public
+    #            (`flag(:project_public) & flag(:public_builds)`); `public_if:`
+    #            still tells the collectors
+    def resource(name, owner: nil, kind: :object, public_if: nil, tenant: nil, tenant_optional: false, permits: nil,
+                 flags: [], public_when: nil)
       raise ConfigurationError, "unknown resource kind: #{kind}" unless KINDS.include?(kind)
 
       key = Naming.class_name(name)
       raise ConfigurationError, "resource #{key} is mapped twice" if @resources.key?(key)
       raise ConfigurationError, "resource #{key} has `tenant_optional:` but no `tenant:`" if tenant_optional && !tenant
 
+      names = Array(flags).map(&:to_s)
+      validate_public_when!(key, public_when, names)
       @resources[key] = Resource.new(name: key, owner: owner, kind: kind, public_if: public_if, tenant: tenant,
-                                     tenant_optional: tenant_optional ? true : false, permits: permits)
+                                     tenant_optional: tenant_optional ? true : false, permits: permits,
+                                     flags: names, public_when: public_when)
     end
 
     # Overrides one rule of a policy: its op, when the naming convention gets
@@ -278,6 +297,18 @@ module Hallmark
       @platform_roles = @platform_roles.dup
       @unchecked_allowed = @unchecked_allowed.dup
       @terms = @terms.dup
+    end
+
+    # `public_when:` may read only the resource's own flags.
+    def validate_public_when!(key, guard, flags)
+      return if guard.nil?
+      raise ConfigurationError, "public_when for #{key} must be a Hallmark::Guard" unless guard.is_a?(Guard)
+
+      stray = guard.leaves.reject { |leaf| %i[flag none never].include?(leaf.kind) }
+      raise ConfigurationError, "public_when for #{key} may read only flags, not #{stray.first}" if stray.any?
+
+      unknown = guard.flags - flags
+      raise ConfigurationError, "public_when for #{key} reads undeclared flags: #{unknown.join(", ")}" if unknown.any?
     end
 
     # A rule's declared resource must be mapped.

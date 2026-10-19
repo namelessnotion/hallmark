@@ -42,6 +42,10 @@ module Hallmark
     sig { returns(T.nilable(TenantRoles)) }
     attr_reader :record_tenant
 
+    # The resource's flags and whether the witness record has each
+    sig { returns(T::Hash[String, T::Boolean]) }
+    attr_reader :flags
+
     sig { params(exposure: Exposure, instance: Receipt::Instance, mapping: Mapping).returns(Finding) }
     def self.from(exposure, instance, mapping); end
 
@@ -62,10 +66,12 @@ module Hallmark
         owner: T.nilable(String),
         roles: T::Array[String],
         current_tenant: T.nilable(TenantRoles),
-        record_tenant: T.nilable(TenantRoles)
+        record_tenant: T.nilable(TenantRoles),
+        flags: T::Hash[String, T::Boolean]
       ).void
     end
-    def initialize(exposure:, mapping:, principal:, record:, owner:, roles:, current_tenant: nil, record_tenant: nil)
+    def initialize(exposure:, mapping:, principal:, record:, owner:, roles:, current_tenant: nil, record_tenant: nil,
+                   flags: {})
       @exposure = T.let(T.unsafe(nil), Exposure)
       @mapping = T.let(T.unsafe(nil), Mapping)
       @resource = T.let(T.unsafe(nil), Mapping::Resource)
@@ -75,6 +81,7 @@ module Hallmark
       @roles = T.let(T.unsafe(nil), T::Array[String])
       @current_tenant = T.let(T.unsafe(nil), T.nilable(TenantRoles))
       @record_tenant = T.let(T.unsafe(nil), T.nilable(TenantRoles))
+      @flags = T.let(T.unsafe(nil), T::Hash[String, T::Boolean])
     end
 
     sig { returns(T::Boolean) }
@@ -114,6 +121,9 @@ module Hallmark
 
     sig { returns(String) }
     def where; end
+
+    sig { returns(String) }
+    def flag_list; end
 
     sig { params(tenant_roles: TenantRoles).returns(String) }
     def tenant_label(tenant_roles); end

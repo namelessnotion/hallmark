@@ -16,6 +16,12 @@ module Hallmark
     sig { params(name: T.any(String, Symbol)).returns(String) }
     def role_sig(name); end
 
+    sig { params(name: T.any(String, Symbol)).returns(String) }
+    def flag_field(name); end
+
+    sig { params(name: T.any(String, Symbol)).returns(String) }
+    def flag_sig(name); end
+
     sig { params(name: T.nilable(String)).returns(String) }
     def atom(name); end
   end

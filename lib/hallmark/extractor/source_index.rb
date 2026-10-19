@@ -46,8 +46,12 @@ module Hallmark
       # a literal (`class_attribute :x, default: false`, `self.x = true`, or
       # a class method doing that, such as Gumroad's
       # `allow_anonymous_user_access!`); `singletons` the class methods.
+      # DeclarativePolicy declarations (`conditions`, `dp_rules`, `delegates`,
+      # `overrides`) and `prepends`, the EE modules `prepend_mod_with` adds,
+      # are read by `Declarative`.
       Scope = Struct.new(:name, :superclass, :namespace, :defs, :includes, :aliases, :default_rule, :pre_checks,
-                         :skipped_pre_checks, :attributes, :singletons, :callbacks, :constants, keyword_init: true)
+                         :skipped_pre_checks, :attributes, :singletons, :callbacks, :constants, :conditions,
+                         :dp_rules, :delegates, :overrides, :prepends, :module, keyword_init: true)
 
       # The Action Policy base class, outside the app, whose own rules all
       # deny and whose default rule is `manage?`.
@@ -61,9 +65,11 @@ module Hallmark
         @root = root
         @scopes = {}
         @ancestors = {}
+        @pending_scope = nil
         dirs.each do |dir|
           Dir.glob(File.join(root, dir, "**", "*.rb")).each { |path| index_file(path) }
         end
+        @ancestors.clear
       end
 
       # The class or module's ancestors inside the app, nearest first: the
@@ -77,8 +83,10 @@ module Hallmark
 
         seen << name
         modules = scope.includes.reverse.filter_map { |included| resolve(included, scope.namespace) }
-        parent = (superclass = scope.superclass) && resolve(superclass, scope.namespace)
-        [name, *modules.flat_map { |mod| collect_ancestors(mod, seen) },
+        prepended = scope.prepends.select { |mod| @scopes.key?(mod) }
+        parent = parent_of(scope)
+        [*prepended.flat_map { |mod| collect_ancestors(mod, seen) }, name,
+         *modules.flat_map { |mod| collect_ancestors(mod, seen) },
          *(parent ? collect_ancestors(parent, seen) : [])]
       end
 
@@ -141,7 +149,12 @@ module Hallmark
         end
       end
 
-      def policies = @scopes.keys.select { |name| name.end_with?("Policy") }.sort
+      # Classes named `*Policy`; a module such as GitLab's EE::ProjectPolicy is
+      # read only through the class it is prepended to.
+      def policies = @scopes.select { |name, scope| name.end_with?("Policy") && scope.module != true }.keys.sort
+
+      # A constant as written inside `namespace`, resolved to an indexed scope.
+      def resolve_constant(name, namespace) = resolve(name, namespace)
 
       # Callbacks a class runs, outermost ancestor first, as declared.
       def callbacks(class_name) = ancestors(class_name).reverse.flat_map { |name| @scopes.fetch(name).callbacks }
@@ -184,19 +197,43 @@ module Hallmark
         when Prism::ClassNode, Prism::ModuleNode
           parts = namespace + constant_name(node.constant_path).split("::")
           scope = scope_for(parts.join("::"), namespace)
-          if node.is_a?(Prism::ClassNode) && (superclass = node.superclass)
-            scope.superclass ||= constant_name(superclass, absolute: true)
-          end
+          mark_kind(scope, node)
           body(scope, node.body, file, parts)
         when Prism::Node
+          prepend_mod(node, namespace) if node.is_a?(Prism::CallNode)
           node.compact_child_nodes.each { |child| walk(child, namespace, file) }
         end
+      end
+
+      # Whether the scope is a class (with its superclass) or a module.
+      def mark_kind(scope, node)
+        unless node.is_a?(Prism::ClassNode)
+          scope.module = true if scope.module.nil?
+          return
+        end
+
+        scope.module = false
+        superclass = node.superclass
+        scope.superclass ||= constant_name(superclass, absolute: true) if superclass
+      end
+
+      # GitLab's `ProjectPolicy.prepend_mod_with("ProjectPolicy")` (or
+      # `prepend_mod`) prepends `EE::ProjectPolicy` when it exists.
+      def prepend_mod(call, namespace)
+        receiver = call.receiver
+        return unless %i[prepend_mod_with prepend_mod].include?(call.name) && receiver && constant?(receiver)
+
+        target = constant_name(receiver)
+        named = call.arguments&.arguments&.first
+        mod = named.is_a?(Prism::StringNode) ? named.unescaped : target
+        scope_for([*namespace, target].join("::"), namespace).prepends << "EE::#{mod}"
       end
 
       def scope_for(name, namespace)
         @scopes[name] ||= Scope.new(name: name, superclass: nil, namespace: namespace, defs: {}, includes: [],
                                     aliases: {}, default_rule: nil, pre_checks: [], skipped_pre_checks: [],
-                                    attributes: {}, singletons: {}, callbacks: [], constants: {})
+                                    attributes: {}, singletons: {}, callbacks: [], constants: {}, conditions: {},
+                                    dp_rules: [], delegates: [], overrides: [], prepends: [], module: nil)
       end
 
       # A class or module body: its defs, visibility changes and the
@@ -211,7 +248,7 @@ module Hallmark
           when Prism::SingletonClassNode
             singleton_body(scope, statement.body)
           when Prism::CallNode
-            visibility = declaration(scope, statement, file, visibility)
+            visibility = declaration(scope, statement, file, visibility, parts)
           when Prism::AliasMethodNode
             alias_names(scope, symbol(statement.new_name), symbol(statement.old_name))
           when Prism::ConstantWriteNode
@@ -232,10 +269,10 @@ module Hallmark
 
       # Returns the visibility in force after the call: `private` alone
       # changes it, `private def x` and `private :x` change one method's.
-      def declaration(scope, call, file, visibility)
+      def declaration(scope, call, file, visibility, parts)
         args = call.arguments&.arguments || []
         if !VISIBILITIES.include?(call.name)
-          macro(scope, call, args)
+          macro(scope, call, args, file, parts)
         elsif args.empty?
           return call.name
         else
@@ -244,20 +281,36 @@ module Hallmark
         visibility
       end
 
-      def macro(scope, call, args)
+      def macro(scope, call, args, file, parts)
         case call.name
+        when :prepended, :included then body(scope, block_body(call), file, parts) if call.receiver.nil?
+        when :class_methods then singleton_body(scope, block_body(call))
+        when *DECLARATIONS then declarative(scope, call, file)
         when :include then args.each { |arg| scope.includes << constant_name(arg) if constant?(arg) }
+        when *CALLBACKS then callback(scope, call.name, args)
+        else policy_macro(scope, call, args)
+        end
+      end
+
+      # Action Policy's declarations, Rails class attributes, and class
+      # methods that set them.
+      def policy_macro(scope, call, args)
+        case call.name
         when :alias_rule then alias_rule(scope, args)
         when :alias_method then alias_names(scope, symbol(args[0]), symbol(args[1]))
         when :default_rule then scope.default_rule = symbol(args[0])
         when :pre_check, :prepend_pre_check then scope.pre_checks.concat(pre_checks_of(args))
         when :skip_pre_check then scope.skipped_pre_checks.concat(pre_checks_of(args))
         when :class_attribute then class_attribute(scope, args)
-        when *CALLBACKS then callback(scope, call.name, args)
         else
           attribute_write(scope, call)
           class_method_call(scope, call)
         end
+      end
+
+      def block_body(call)
+        block = call.block
+        block.is_a?(Prism::BlockNode) ? block.body : nil
       end
 
       # `prepend_before_action` is :before with `prepend`; `skip_after_action`
@@ -323,7 +376,7 @@ module Hallmark
         found = scope.singletons[name]
         return found if found
 
-        parent = (superclass = scope.superclass) && resolve(superclass, scope.namespace)
+        parent = parent_of(scope)
         parent ? ancestor_singleton(@scopes.fetch(parent), name) : nil
       end
 
@@ -410,11 +463,26 @@ module Hallmark
         nil
       end
 
+      # A class's superclass as an indexed scope. Ruby resolves it before the
+      # class exists, so `module Admin; class ApplicationController <
+      # ApplicationController` names the top-level one, never itself.
+      def parent_of(scope)
+        superclass = scope.superclass
+        return nil unless superclass
+
+        found = resolve(superclass, scope.namespace)
+        return found unless found == scope.name
+
+        outer = scope.namespace.take(scope.namespace.size - 1)
+        found = resolve(superclass, outer)
+        found == scope.name ? nil : found
+      end
+
       # The superclass of an indexed class when it lies outside the app.
       def external_superclass(name)
         scope = @scopes.fetch(name)
         superclass = scope.superclass
-        return nil if superclass.nil? || resolve(superclass, scope.namespace)
+        return nil if superclass.nil? || parent_of(scope)
 
         superclass.delete_prefix("::")
       end

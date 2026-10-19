@@ -44,6 +44,9 @@ module Hallmark
     sig { returns(T.nilable(Coverage)) }
     attr_reader :coverage
 
+    sig { returns(T::Array[Extractor::DeclarativeTranslator::Lint]) }
+    attr_reader :lints
+
     sig { params(analysis: Analysis, receipt: Receipt).void }
     def initialize(analysis, receipt)
       @analysis = T.let(T.unsafe(nil), Analysis)
@@ -53,6 +56,7 @@ module Hallmark
       @unchecked = T.let(T.unsafe(nil), T::Array[String])
       @drift = T.let(T.unsafe(nil), T::Array[Drift])
       @coverage = T.let(T.unsafe(nil), T.nilable(Coverage))
+      @lints = T.let(T.unsafe(nil), T::Array[Extractor::DeclarativeTranslator::Lint])
     end
 
     sig { returns(T::Boolean) }
@@ -84,6 +88,9 @@ module Hallmark
 
     sig { params(total: Integer).returns(T::Array[String]) }
     def problems(total); end
+
+    sig { params(total: Integer).returns(T.nilable(String)) }
+    def verdicts(total); end
 
     sig { returns(T::Array[String]) }
     def drift_lines; end

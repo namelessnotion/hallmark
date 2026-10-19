@@ -16,7 +16,7 @@ module Hallmark
     # An exposure the solver gave no verdict for, and why.
     Unknown = Struct.new(:exposure, :reason)
 
-    attr_reader :analysis, :findings, :verified, :unknown, :unchecked, :drift, :coverage
+    attr_reader :analysis, :findings, :verified, :unknown, :unchecked, :drift, :coverage, :lints
 
     # Exit status for several reports: 1 on any counterexample, unchecked
     # entry point or drift, else 2 on any unknown, else 0.
@@ -33,15 +33,18 @@ module Hallmark
       inference = analysis.inference
       @unchecked = inference ? inference.unchecked : []
       @drift = inference ? inference.drift : []
+      # DeclarativePolicy hazards (D3, D4) in the abilities read from code.
+      @lints = inference&.extractor&.lints || []
       @coverage = inference&.coverage
       analysis.exposures.each { |exposure| read(exposure, receipt) }
     end
 
     # An unchecked entry point fails the run like a counterexample: it is a
     # request the app served with no authorization at all. So does drift,
-    # since the guards checked may not be the app's. An unknown is not a
-    # failure, but it is not clean either.
-    def failed? = findings.any? || unchecked.any? || drift.any?
+    # since the guards checked may not be the app's, and so does a
+    # DeclarativePolicy hazard (D3, D4), whose policy does not mean what it
+    # reads as. An unknown is not a failure, but it is not clean either.
+    def failed? = findings.any? || unchecked.any? || drift.any? || lints.any?
     def clean? = !failed? && unknown.empty?
 
     def exit_code
@@ -60,6 +63,7 @@ module Hallmark
       lines.concat(unknown_lines)
       verified.each { |exposure| lines << Report.ok_line(exposure) }
       lines.concat(drift_lines)
+      lints.each { |lint| lines << "FAIL  #{lint} (policy-DSL hazard)" }
       lines << ""
       lines << summary
       lines.concat(coverage_lines)
@@ -95,12 +99,21 @@ module Hallmark
     end
 
     def problems(total)
-      out = []
-      out << "#{count(findings.size, "counterexample")} in #{count(total, "check")}" if findings.any?
+      out = [verdicts(total)].compact
       out << count(unchecked.size, "unchecked entry point") if unchecked.any?
       out << "#{count(drift.size, "drifting decision")} (stamps the rule's code contradicts)" if drift.any?
+      out << count(lints.size, "policy-DSL hazard") if lints.any?
       out << unknown_summary(total) if unknown.any?
       out
+    end
+
+    # The checks' outcome beside other problems; never "no counterexample"
+    # next to an unknown, which is not one.
+    def verdicts(total)
+      return "#{count(findings.size, "counterexample")} in #{count(total, "check")}" if findings.any?
+      return nil unless unknown.empty? && (unchecked.any? || drift.any? || lints.any?)
+
+      "No counterexamples in #{count(total, "check")}"
     end
 
     # The drift section: each stamped decision the rule's extracted guard

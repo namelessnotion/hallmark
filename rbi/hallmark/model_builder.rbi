@@ -64,6 +64,9 @@ module Hallmark
     sig { returns(String) }
     def resources; end
 
+    sig { returns(T::Array[String]) }
+    def flags; end
+
     sig { params(resource: Mapping::Resource).returns(String) }
     def resource_comment(resource); end
 

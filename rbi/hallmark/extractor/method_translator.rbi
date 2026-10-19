@@ -8,8 +8,12 @@ module Hallmark
       QUERIES = T.let(T.unsafe(nil), T::Array[Symbol])
 
       class Frame
-        sig { returns(SourceIndex::Method) }
+        # Nil inside a DeclarativePolicy condition block
+        sig { returns(T.nilable(SourceIndex::Method)) }
         def definition; end
+
+        sig { returns(String) }
+        def file; end
 
         sig { returns(String) }
         def klass; end
@@ -24,9 +28,10 @@ module Hallmark
         def block; end
 
         sig do
-          params(definition: SourceIndex::Method, klass: String, locals: Locals, block: T.nilable(Block)).void
+          params(definition: T.nilable(SourceIndex::Method), file: String, klass: String, locals: Locals,
+                 block: T.nilable(Block)).void
         end
-        def initialize(definition:, klass:, locals:, block: nil); end
+        def initialize(definition:, file:, klass:, locals:, block: nil); end
       end
 
       class Block
@@ -57,6 +62,12 @@ module Hallmark
                locals: Locals, aliases: T::Hash[String, String]).returns(Guard)
       end
       def expression(node, method, class_name, resource, locals: {}, aliases: {}); end
+
+      sig do
+        params(node: T.nilable(Prism::Node), file: String, class_name: String, resource: T.nilable(String), key: String,
+               aliases: T::Hash[String, String]).returns(Guard)
+      end
+      def condition(node, file, class_name, resource, key:, aliases:); end
 
       private
 
