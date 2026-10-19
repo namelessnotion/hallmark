@@ -17,6 +17,17 @@ class ControllerCollectorTest < Minitest::Test
     assert_equal [Hallmark::Unchecked.new(entry_point: SHOW, status: 200, verb: "GET")], set.unchecked
   end
 
+  # The collectors install after Rails eager loads the controllers, so the
+  # hook must still run before a controller's own filters.
+  def test_an_authorization_in_a_filter_belongs_to_the_entry_point
+    set = collect do
+      assert_equal 200, Shop.request(PunditShop::LinksController, :rename, user: @ann, seller: @ann, link: @ann_link)
+    end
+
+    assert_empty set.unchecked
+    assert_equal ["PunditShop::LinksController#rename"], set.stamps.map(&:entry_point)
+  end
+
   def test_records_the_status_and_verb_in_the_jsonl
     lines = nil
     collect do

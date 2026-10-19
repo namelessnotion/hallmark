@@ -247,11 +247,15 @@ module PunditShop
       head :forbidden
     end
     before_action :require_seller, only: :index
+    before_action :authorize_link, only: :rename
 
     def edit
       authorize Shop.session.link, policy_class: LinkPolicy
       head :ok
     end
+
+    # Authorized in a filter, as Gumroad's bundle controllers are
+    def rename = head(:ok)
 
     def update
       authorize Shop.session.link, policy_class: LinkPolicy
@@ -290,6 +294,8 @@ module PunditShop
     def require_seller
       redirect_to "/sign_in" unless Shop.session.seller
     end
+
+    def authorize_link = authorize(Shop.session.link, :update?, policy_class: LinkPolicy)
   end
 end
 

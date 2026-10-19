@@ -34,11 +34,15 @@ module Hallmark
         end
       end
 
+      # Prepended: the collectors install after Rails eager loads the app's
+      # controllers, and a callback added to ActionController::Base then
+      # goes to the end of each subclass's chain, after its own filters, so
+      # an `authorize` in a `before_action` would run outside the entry point.
       def self.attach(base)
         return if base.include?(Around)
 
         base.include(Around)
-        base.around_action(:hallmark_entry_point)
+        base.prepend_around_action(:hallmark_entry_point)
       end
     end
   end
