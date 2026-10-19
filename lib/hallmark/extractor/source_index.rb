@@ -5,9 +5,11 @@ module Hallmark
   class Extractor
     # The classes and modules under a source directory, read with Prism and
     # never loaded: each one's methods, superclass, included modules and the
-    # Action Policy declarations the extractor needs (`alias_rule`,
-    # `default_rule`, `pre_check`). A class reopened in several files is
-    # merged.
+    # declarations the extractor needs: Action Policy's (`alias_rule`,
+    # `default_rule`, `pre_check`) and, for controllers, Rails callbacks
+    # (`before_action`, `after_action` and their skips) and the constants a
+    # class body assigns (`PUBLIC_ACTIONS = %i[show].freeze`). A class
+    # reopened in several files is merged.
     class SourceIndex
       # One `def`, with the file it is in relative to the root.
       Method = Struct.new(:name, :node, :file, :visibility, :owner, keyword_init: true) do
@@ -31,12 +33,21 @@ module Hallmark
         end
       end
 
+      # A Rails callback declaration. `kind` is :before, :skip_before, :after
+      # or :skip_after; `prepend` marks `prepend_before_action`; `only` and
+      # `except` are the nodes as written (a Symbol, a list, or a constant),
+      # resolved when asked for (`SourceIndex#applies?`).
+      Callback = Struct.new(:kind, :names, :only, :except, :prepend, :owner, keyword_init: true)
+
+      CALLBACKS = %i[before_action append_before_action prepend_before_action skip_before_action after_action
+                     append_after_action prepend_after_action skip_after_action].freeze
+
       # `attributes` holds the Rails class attributes the class body sets to
       # a literal (`class_attribute :x, default: false`, `self.x = true`, or
       # a class method doing that, such as Gumroad's
       # `allow_anonymous_user_access!`); `singletons` the class methods.
       Scope = Struct.new(:name, :superclass, :namespace, :defs, :includes, :aliases, :default_rule, :pre_checks,
-                         :skipped_pre_checks, :attributes, :singletons, keyword_init: true)
+                         :skipped_pre_checks, :attributes, :singletons, :callbacks, :constants, keyword_init: true)
 
       # The Action Policy base class, outside the app, whose own rules all
       # deny and whose default rule is `manage?`.
@@ -128,6 +139,34 @@ module Hallmark
 
       def policies = @scopes.keys.select { |name| name.end_with?("Policy") }.sort
 
+      # Callbacks a class runs, outermost ancestor first, as declared.
+      def callbacks(class_name) = ancestors(class_name).reverse.flat_map { |name| @scopes.fetch(name).callbacks }
+
+      # Whether a callback's `only:` and `except:` let it run for `action`.
+      def applies?(class_name, callback, action)
+        except = names_in(class_name, callback.except)
+        return false if except&.include?(action)
+
+        only = names_in(class_name, callback.only)
+        only.nil? || only.include?(action)
+      end
+
+      # Action names a node lists: a Symbol, an array of them (`.freeze`d or
+      # not), or a constant naming one, looked up in the class and its app
+      # ancestors. Nil for no node; an empty list for anything unreadable.
+      def names_in(class_name, node)
+        case node
+        when nil then nil
+        when Prism::SymbolNode, Prism::StringNode then [node.unescaped]
+        when Prism::ArrayNode then node.elements.flat_map { |element| names_in(class_name, element) || [] }
+        when Prism::CallNode
+          receiver = node.receiver
+          node.name == :freeze && receiver ? names_in(class_name, receiver) : []
+        when Prism::ConstantReadNode then names_in(class_name, constant(class_name, node.name.to_s)) || []
+        else []
+        end
+      end
+
       private
 
       def index_file(path)
@@ -153,7 +192,7 @@ module Hallmark
       def scope_for(name, namespace)
         @scopes[name] ||= Scope.new(name: name, superclass: nil, namespace: namespace, defs: {}, includes: [],
                                     aliases: {}, default_rule: nil, pre_checks: [], skipped_pre_checks: [],
-                                    attributes: {}, singletons: {})
+                                    attributes: {}, singletons: {}, callbacks: [], constants: {})
       end
 
       # A class or module body: its defs, visibility changes and the
@@ -171,6 +210,8 @@ module Hallmark
             visibility = declaration(scope, statement, file, visibility)
           when Prism::AliasMethodNode
             alias_names(scope, symbol(statement.new_name), symbol(statement.old_name))
+          when Prism::ConstantWriteNode
+            scope.constants[statement.name.to_s] = statement.value
           when Prism::ClassNode, Prism::ModuleNode
             walk(statement, parts, file)
           end
@@ -208,10 +249,34 @@ module Hallmark
         when :pre_check, :prepend_pre_check then scope.pre_checks.concat(pre_checks_of(args))
         when :skip_pre_check then scope.skipped_pre_checks.concat(pre_checks_of(args))
         when :class_attribute then class_attribute(scope, args)
+        when *CALLBACKS then callback(scope, call.name, args)
         else
           attribute_write(scope, call)
           class_method_call(scope, call)
         end
+      end
+
+      # `prepend_before_action` is :before with `prepend`; `skip_after_action`
+      # is :skip_after.
+      def callback(scope, name, args)
+        words = name.to_s.delete_suffix("_action").split("_")
+        prepend = words.delete("prepend") ? true : false
+        words.delete("append")
+        kind = words.join("_").to_sym
+        names = args.filter_map { |arg| symbol(arg) }
+        return if names.empty?
+
+        scope.callbacks << Callback.new(kind: kind, names: names, only: keyword_node(args, :only),
+                                        except: keyword_node(args, :except), prepend: prepend, owner: scope.name)
+      end
+
+      # A constant's value node, from the class or its nearest app ancestor.
+      def constant(class_name, name)
+        ancestors(class_name).each do |ancestor|
+          found = @scopes.fetch(ancestor).constants[name]
+          return found if found
+        end
+        nil
       end
 
       def singleton_body(scope, node)

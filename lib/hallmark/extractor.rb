@@ -27,11 +27,12 @@ module Hallmark
       def opaque_leaves = guard.opaque_leaves
     end
 
-    # An extractor for the app at `root`, or nil when there is no policy
-    # code there or HALLMARK_EXTRACT (or `c.extract`) turned extraction off.
+    # An extractor for the app at `root`, or nil when there is no policy or
+    # controller code there or HALLMARK_EXTRACT (or `c.extract`) turned
+    # extraction off.
     def self.load(mapping, root = Hallmark.configuration.root)
       return nil unless Hallmark.configuration.extract && root
-      return nil unless DIRS.any? { |dir| File.directory?(File.join(root, dir)) }
+      return nil unless (DIRS + Controllers::DIRS).any? { |dir| File.directory?(File.join(root, dir)) }
 
       new(mapping, root)
     end
@@ -44,7 +45,11 @@ module Hallmark
       @index = SourceIndex.new(@root, DIRS)
       @translator = MethodTranslator.new(@index, Terms.new(mapping))
       @cache = {}
+      @controllers = nil
     end
+
+    # The app's controllers, read on first use (`Controllers`).
+    def controllers = @controllers ||= Controllers.new(@mapping, @root)
 
     # Every rule each policy class defines or aliases, sorted by key.
     def rules
@@ -97,3 +102,4 @@ end
 require_relative "extractor/source_index"
 require_relative "extractor/terms"
 require_relative "extractor/method_translator"
+require_relative "extractor/controllers"

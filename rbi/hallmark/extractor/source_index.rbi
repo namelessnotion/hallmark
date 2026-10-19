@@ -4,6 +4,34 @@ module Hallmark
   class Extractor
     class SourceIndex
       ACTION_POLICY_BASE = T.let(T.unsafe(nil), String)
+      CALLBACKS = T.let(T.unsafe(nil), T::Array[Symbol])
+
+      class Callback
+        # :before, :skip_before, :after or :skip_after
+        sig { returns(Symbol) }
+        def kind; end
+
+        sig { returns(T::Array[String]) }
+        def names; end
+
+        sig { returns(T.nilable(Prism::Node)) }
+        def only; end
+
+        sig { returns(T.nilable(Prism::Node)) }
+        def except; end
+
+        sig { returns(T::Boolean) }
+        def prepend; end
+
+        sig { returns(String) }
+        def owner; end
+
+        sig do
+          params(kind: Symbol, names: T::Array[String], only: T.nilable(Prism::Node), except: T.nilable(Prism::Node),
+                 prepend: T::Boolean, owner: String).void
+        end
+        def initialize(kind:, names:, only:, except:, prepend:, owner:); end
+      end
 
       class Method
         sig { returns(String) }
@@ -100,15 +128,23 @@ module Hallmark
         sig { returns(T::Hash[String, Prism::DefNode]) }
         def singletons; end
 
+        sig { returns(T::Array[Callback]) }
+        def callbacks; end
+
+        # Constant name => the value the class body assigns
+        sig { returns(T::Hash[String, Prism::Node]) }
+        def constants; end
+
         sig do
           params(name: String, superclass: T.nilable(String), namespace: T::Array[String],
                  defs: T::Hash[String, Method], includes: T::Array[String], aliases: T::Hash[String, String],
                  default_rule: T.nilable(String), pre_checks: T::Array[PreCheck],
                  skipped_pre_checks: T::Array[PreCheck], attributes: T::Hash[String, Prism::Node],
-                 singletons: T::Hash[String, Prism::DefNode]).void
+                 singletons: T::Hash[String, Prism::DefNode], callbacks: T::Array[Callback],
+                 constants: T::Hash[String, Prism::Node]).void
         end
         def initialize(name:, superclass:, namespace:, defs:, includes:, aliases:, default_rule:, pre_checks:,
-                       skipped_pre_checks:, attributes:, singletons:); end
+                       skipped_pre_checks:, attributes:, singletons:, callbacks:, constants:); end
       end
 
       sig { returns(String) }
@@ -147,6 +183,15 @@ module Hallmark
       sig { returns(T::Array[String]) }
       def policies; end
 
+      sig { params(class_name: String).returns(T::Array[Callback]) }
+      def callbacks(class_name); end
+
+      sig { params(class_name: String, callback: Callback, action: String).returns(T::Boolean) }
+      def applies?(class_name, callback, action); end
+
+      sig { params(class_name: String, node: T.nilable(Prism::Node)).returns(T.nilable(T::Array[String])) }
+      def names_in(class_name, node); end
+
       private
 
       sig { params(path: String).void }
@@ -171,6 +216,12 @@ module Hallmark
 
       sig { params(scope: Scope, call: Prism::CallNode, args: T::Array[Prism::Node]).void }
       def macro(scope, call, args); end
+
+      sig { params(scope: Scope, name: Symbol, args: T::Array[Prism::Node]).void }
+      def callback(scope, name, args); end
+
+      sig { params(class_name: String, name: String).returns(T.nilable(Prism::Node)) }
+      def constant(class_name, name); end
 
       sig { params(scope: Scope, node: T.nilable(Prism::Node)).void }
       def singleton_body(scope, node); end

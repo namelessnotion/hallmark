@@ -90,6 +90,10 @@ module Hallmark
     sig { returns(T::Array[String]) }
     attr_reader :redirected
 
+    # Unchecked entry points the controller exempts from verify_authorized
+    sig { returns(T::Array[String]) }
+    attr_reader :exempt
+
     # Calls inside rules that the extractor could not read
     sig { returns(T::Array[Opaque]) }
     attr_reader :opaque
@@ -111,6 +115,7 @@ module Hallmark
       @without_op = T.let(T.unsafe(nil), T::Array[String])
       @unmapped = T.let(T.unsafe(nil), T::Array[String])
       @redirected = T.let(T.unsafe(nil), T::Array[String])
+      @exempt = T.let(T.unsafe(nil), T::Array[String])
       @opaque = T.let(T.unsafe(nil), T::Array[Opaque])
       @code_only = T.let(T.unsafe(nil), T::Array[String])
     end

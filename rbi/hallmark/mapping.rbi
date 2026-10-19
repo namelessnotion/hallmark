@@ -186,6 +186,10 @@ module Hallmark
     sig { returns(T.nilable(T.any(String, Symbol, Proc))) }
     attr_reader :current_tenant_source
 
+    # The controllers' reader of the current tenant, such as "current_seller"
+    sig { returns(T.nilable(String)) }
+    attr_reader :current_tenant_controller
+
     sig { returns(T::Array[String]) }
     attr_reader :platform_roles
 
@@ -196,6 +200,7 @@ module Hallmark
       @grants = T.let(T.unsafe(nil), T::Array[Grant])
       @tenancy = T.let(T.unsafe(nil), T.nilable(Tenancy))
       @current_tenant_source = T.let(T.unsafe(nil), T.nilable(T.any(String, Symbol, Proc)))
+      @current_tenant_controller = T.let(T.unsafe(nil), T.nilable(String))
       @platform_roles = T.let(T.unsafe(nil), T::Array[String])
       @principal_source = T.let(T.unsafe(nil), Collectors::Source)
       @principal_roles = T.let(T.unsafe(nil), Collectors::Source)
@@ -227,10 +232,11 @@ module Hallmark
     sig do
       params(
         source: T.nilable(T.any(String, Symbol, Proc)),
+        controller: T.nilable(T.any(String, Symbol)),
         block: T.nilable(Proc)
-      ).returns(T.nilable(T.any(String, Symbol, Proc)))
+      ).returns(T.nilable(String))
     end
-    def current_tenant(source = nil, &block); end
+    def current_tenant(source = nil, controller: nil, &block); end
 
     sig { params(names: T.any(String, Symbol)).returns(T::Array[String]) }
     def platform_role(*names); end

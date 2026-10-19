@@ -20,7 +20,9 @@ module Hallmark
   #
   # `redirected` lists entry points excused from threat 10 by Inference: a
   # GET or HEAD they redirected with no authorization call, while another
-  # request to them reached a rule.
+  # request to them reached a rule. `exempt` lists entry points that served
+  # a request without one where the controller exempts the action from
+  # `verify_authorized` (read from code).
   #
   # With the extractor (docs/adr/0003), a rule read exactly from code has no
   # not-observed region, since the code says what it allows everywhere; a
@@ -45,7 +47,7 @@ module Hallmark
     ANONYMOUS_LACKS = %i[owner permitted record_roles current_roles roles].freeze
 
     attr_reader :gaps, :never_allowed, :unreached, :class_level, :without_op, :unmapped, :redirected, :opaque,
-                :code_only
+                :code_only, :exempt
 
     def initialize(mapping, stamps)
       @mapping = mapping
@@ -59,6 +61,7 @@ module Hallmark
       @without_op = []
       @unmapped = []
       @redirected = []
+      @exempt = []
       @opaque = []
       @code_only = []
     end
@@ -81,7 +84,7 @@ module Hallmark
 
     def empty?
       [@gaps, @never_allowed, @unreached, @class_level, @without_op, @unmapped, @redirected, @opaque,
-       @code_only].all?(&:empty?)
+       @code_only, @exempt].all?(&:empty?)
     end
 
     # Fact combinations, as conjunctions, that none of `stamps` covers.

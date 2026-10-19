@@ -23,11 +23,11 @@ class ExtractedInferenceTest < Minitest::Test
     Hallmark::Stamp.new(**defaults, entry_point: entry_point, rule: rule, decision: decision, **facts)
   end
 
-  def analysis(stamps)
+  def analysis(stamps, unchecked = [], controller: nil)
     Hallmark::Analysis.build("Shop") do
       map do
         tenant "User", membership: "TeamMembership", self: :owner, roles_in: :team_roles_for
-        current_tenant :seller
+        current_tenant :seller, controller: controller
         platform_role :staff
         resource "Link", tenant: :user, permits: :collaborator_for?
         grant :owner, :write, "Link"
@@ -36,7 +36,7 @@ class ExtractedInferenceTest < Minitest::Test
         term "user.role_admin_for?(seller)", role(:admin, tenant: :current)
         term "user.role_marketing_for?(seller)", role(:marketing, tenant: :current)
       end
-      stamps Hallmark::StampSet.new(stamps)
+      stamps Hallmark::StampSet.new(stamps, unchecked)
     end
   end
 
@@ -87,6 +87,33 @@ class ExtractedInferenceTest < Minitest::Test
 
     assert_equal :not_observed, result.verdict
     assert_match(/calls Hallmark could not read/, result.reason)
+  end
+
+  # Step 3: a record the controller loads through the current seller is in
+  # the current tenant, whatever the rule allows; one loaded by id alone is
+  # not.
+  def test_a_scoped_load_puts_the_record_in_the_current_tenant
+    allow = { current_roles: ["admin"], record_roles: ["admin"] }
+    stamps = [stamp(rule: "show?", entry_point: "LinksController#destroy", **allow),
+              stamp(rule: "show?", entry_point: "LinksController#edit", **allow)]
+    exposures = analysis(stamps, controller: :current_seller).exposures.to_h { |exposure| [exposure.action, exposure] }
+    scoped = exposures.fetch("LinksController#destroy")
+
+    assert_equal in_current_tenant, scoped.guard.operands[0]
+    assert_match(%r{record loaded through current_seller \(app/controllers/links_controller.rb:26\)\z}, scoped.basis)
+    refute_equal in_current_tenant, exposures.fetch("LinksController#edit").guard.operands[0]
+  end
+
+  # Unchecked requests to actions the controller exempts from
+  # verify_authorized are intended; where it declares nothing, they fail.
+  def test_verify_authorized_exemptions_excuse_unchecked_requests
+    unchecked = %w[LinksController#show Admin::ReportsController#index].map do |entry_point|
+      Hallmark::Unchecked.new(entry_point: entry_point, status: 200, verb: "GET")
+    end
+    inference = analysis([], unchecked).inference
+
+    assert_equal ["Admin::ReportsController#index"], inference.unchecked
+    assert_equal ["LinksController#show"], inference.coverage.exempt
   end
 
   def test_extraction_can_be_turned_off

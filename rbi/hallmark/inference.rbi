@@ -92,8 +92,14 @@ module Hallmark
     sig { params(events: T::Array[Unchecked]).returns(T::Array[String]) }
     def classify_unchecked(events); end
 
+    sig { params(entry_point: String).returns(T::Boolean) }
+    def verify_skipped?(entry_point); end
+
     sig { params(event: Unchecked).returns(T::Boolean) }
     def redirect_before_check?(event); end
+
+    sig { params(entry_point: String, resource: String).returns(T.nilable(String)) }
+    def scoped_load(entry_point, resource); end
 
     sig { returns(T::Array[Unit]) }
     def build_units; end

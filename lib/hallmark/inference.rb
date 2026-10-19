@@ -64,6 +64,8 @@ module Hallmark
     # of its unchecked requests is not excused.
     def classify_unchecked(events)
       events = events.reject { |event| @mapping.unchecked_allowed.include?(event.entry_point) }
+      exempt, events = events.partition { |event| verify_skipped?(event.entry_point) }
+      @coverage.exempt.concat(exempt.map(&:entry_point).uniq.sort)
       excused, failing = events.partition { |event| redirect_before_check?(event) }
       failed = failing.map(&:entry_point).uniq.sort
       @coverage.redirected.concat((excused.map(&:entry_point).uniq - failed).sort)
@@ -74,6 +76,14 @@ module Hallmark
     # request took to a rule (any stamp, allowed or denied). Writes that
     # redirect, 304s and empty 2xx still fail, and so does an entry point
     # that never reached a rule (a signed-URL redirect may be an IDOR).
+    # The controller exempts the action from `verify_authorized` in code
+    # (`after_action :verify_authorized, except: PUBLIC_ACTIONS`): an
+    # unchecked request there is intended, as with `allow_unchecked`.
+    def verify_skipped?(entry_point)
+      read = @extractor&.controllers&.fetch(entry_point)
+      read ? read.verify == :skipped : false
+    end
+
     def redirect_before_check?(event)
       SAFE_VERBS.include?(event.verb) && REDIRECTS.include?(event.status) &&
         @stamps.any? { |stamp| stamp.entry_point == event.entry_point }
@@ -211,10 +221,23 @@ module Hallmark
       guards = units.map(&:guard)
       return nil if guards.include?(nil)
 
-      Exposure.new(
-        action: entry_point, op: op, resource: resource,
-        guard: guards.compact.reduce(:&), basis: units.map(&:basis).join("; ")
-      )
+      guard = guards.compact.reduce(:&)
+      basis = units.map(&:basis).join("; ")
+      if (scoped = scoped_load(entry_point, resource))
+        guard = in_current_tenant & guard
+        basis += "; record loaded through #{@mapping.current_tenant_controller} (#{scoped})"
+      end
+      Exposure.new(action: entry_point, op: op, resource: resource, guard: guard, basis: basis)
+    end
+
+    # Where an entry point authorizes a record it loaded through the current
+    # tenant, read from the controller (`current_seller.products.find(...)`):
+    # the record is then in the current tenant whatever its rules allow.
+    def scoped_load(entry_point, resource)
+      return nil unless @mapping.fetch(resource).tenanted?
+
+      read = @extractor&.controllers&.fetch(entry_point)
+      read&.scoped? ? read.location : nil
     end
   end
 end

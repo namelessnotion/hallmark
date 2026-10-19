@@ -171,7 +171,9 @@ module Hallmark
         "Rules with no op (declare `rule POLICY, NAME, op:` in the map block)" => coverage.without_op,
         "Unmapped resources" => coverage.unmapped,
         "Entry points that redirected a GET without an authorization call (authorized in other requests)" =>
-          coverage.redirected
+          coverage.redirected,
+        "Entry points that served a request without an authorization call, exempt from verify_authorized " \
+        "in the controller" => coverage.exempt
       }
     end
 

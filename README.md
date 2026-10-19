@@ -46,8 +46,8 @@ Phase 1 is done: its deliverables are built, and its gate (Hallmark run on
 one real app per authorization library, each with a confirmed real bug)
 passed on Oct 19, 2026.
 
-Not built yet (phase 2): reading DeclarativePolicy code, controllers and
-routes, and SARIF output. Phase 3: shadow and sampled runtime
+Not built yet (phase 2): reading DeclarativePolicy code and routes, and
+SARIF output. Phase 3: shadow and sampled runtime
 modes, the graphql-ruby schema walk and tracing, and field-level mapping.
 The models for those live in `research/models`.
 
@@ -378,11 +378,25 @@ DRIFT LinkPolicy#update? (Link) at app/policies/link_policy.rb:11: allowed, but 
 ```
 
 Rules no test called are checked by the matchers and listed under coverage
-by `hallmark check`. Until Hallmark reads controllers too, an entry point
-appears only when a stamp shows it, and its guard comes from the rules
-alone, so an action that loads the record through the current tenant can
-still get a false counterexample from a rule that does not check the
-tenant itself.
+by `hallmark check`. An entry point appears only when a stamp shows it
+(routes are not read yet).
+
+Hallmark also reads `app/controllers`, for two things stamps cannot say.
+First, how an entry point loaded the record it authorizes. Name the
+controllers' reader of the current tenant:
+
+```ruby
+current_tenant :seller, controller: :current_seller
+```
+
+An action whose authorized record comes from `current_seller.products.find(...)`
+(directly, through a `before_action`, a helper or an instance variable) is
+checked with the record in the current tenant, so a rule that does not
+check the tenant itself gives no false counterexample there.
+`Link.find(params[:id])` changes nothing. Second, `verify_authorized`: an
+action the controller leaves out of `after_action :verify_authorized` (or
+skips with `skip_after_action`) is exempt, so an unchecked request there is
+listed under coverage instead of failing, with no `allow_unchecked` line.
 
 ## How it works
 

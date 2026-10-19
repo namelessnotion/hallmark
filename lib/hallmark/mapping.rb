@@ -53,7 +53,8 @@ module Hallmark
     READ_RULES = %w[index? show? edit?].freeze
 
     attr_reader :principal_name, :principal_source, :principal_roles, :resources, :grants, :tenancy,
-                :current_tenant_source, :platform_roles, :rules, :unchecked_allowed, :terms
+                :current_tenant_source, :current_tenant_controller, :platform_roles, :rules, :unchecked_allowed,
+                :terms
 
     def initialize
       @principal_name = "User"
@@ -63,6 +64,7 @@ module Hallmark
       @grants = []
       @tenancy = nil
       @current_tenant_source = nil
+      @current_tenant_controller = nil
       @platform_roles = []
       @rules = {}
       @unchecked_allowed = []
@@ -125,8 +127,12 @@ module Hallmark
     # Where a request's current tenant comes from, such as :seller for a
     # policy context's `seller`, or a lambda or block. Recorded for the
     # collectors; the model checks guards against every possible current tenant.
-    def current_tenant(source = nil, &block)
+    # `controller:` names the controllers' reader of it (Gumroad:
+    # :current_seller), so the extractor can tell a record loaded through it
+    # (`current_seller.products.find(...)`) from one loaded by id alone.
+    def current_tenant(source = nil, controller: nil, &block)
       @current_tenant_source = source || block
+      @current_tenant_controller = controller&.to_s
     end
 
     # Roles that intentionally grant access across tenants, such as the

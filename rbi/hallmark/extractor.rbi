@@ -57,7 +57,11 @@ module Hallmark
       @index = T.let(T.unsafe(nil), SourceIndex)
       @translator = T.let(T.unsafe(nil), MethodTranslator)
       @cache = T.let(T.unsafe(nil), T::Hash[String, T.nilable(Extracted)])
+      @controllers = T.let(T.unsafe(nil), T.nilable(Controllers))
     end
+
+    sig { returns(Controllers) }
+    def controllers; end
 
     sig { returns(T::Array[Extracted]) }
     def rules; end
