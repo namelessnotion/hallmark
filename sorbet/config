@@ -11,5 +11,8 @@ bin/hallmark
 # Claude Code keeps side sessions' git worktrees here; each is a full copy of
 # lib/ and rbi/, so checking them reports every definition as a duplicate.
 --ignore=/.claude/
+# CI installs the bundle under .cache/ (BUNDLE_PATH in .gitlab-ci.yml); its gems
+# are not this project's code.
+--ignore=/.cache/
 # prism ships an RBI that this Sorbet version rejects; srb loads it from the bundle.
 --ignore=/prism.rbi

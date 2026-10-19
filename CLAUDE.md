@@ -361,12 +361,13 @@ the quantified variables named `p`, `r` and `cur`.
   semicolons or parentheses.
 - When a design decision changes, update `docs/PLAN.md` (roadmap status and
   open questions included) in the same change.
-- `.gitlab-ci.yml` (ruby:3.4-bookworm plus openjdk-17) has run on every push
-  to `main` since Oct 17, 2026 (pipelines 1 to 4), and every pipeline
-  failed. On the latest (`985c800`) `test` passed and `lint` (rubocop, then
-  `srb tc`) failed. Job logs need a GitLab login. `Gemfile.lock` is
-  gitignored, so CI resolves its own rubocop and Sorbet versions; that is a
-  suspect, not a confirmed cause.
+- `.gitlab-ci.yml` (ruby:3.4-bookworm plus openjdk-17) runs on every push to
+  `main`. Pipelines 1 to 4 (Oct 17 to 19, 2026) failed in `lint`: CI installs
+  the bundle under `.cache/bundle` (`BUNDLE_PATH`), and `srb tc` checked every
+  installed gem there (6,421 errors). Reproduced and fixed Oct 19, 2026 with
+  `--ignore=/.cache/` in `sorbet/config` (rubocop already excluded it).
+  Check lint the way CI runs it with `docker run` on `ruby:3.4-bookworm`,
+  `BUNDLE_PATH=/app/.cache/bundle`.
 
 ## Phase 2 (extractor)
 
@@ -374,8 +375,8 @@ Planned Oct 19, 2026 (`docs/PLAN.md`, "Phase 2 plan"; bounds in
 `docs/adr/0003`). The GraphQL schema walk and field-level mapping moved to
 phase 3. Steps, in order:
 
-0. Phase 1 loose ends: fix the failing CI `lint` job (see Conventions); the
-   Forem run's report wording.
+0. Phase 1 loose ends: the CI `lint` job (fixed Oct 19, 2026; see
+   Conventions); the Forem run's report wording.
 1. Extractor core and the Pundit and Action Policy front end
    (`lib/hallmark/extractor/`, `term` in the map block, `hallmark extract`),
    on Gumroad: F6 from its own specs with no probe spec, on both checkouts,
