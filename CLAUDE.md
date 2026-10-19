@@ -240,7 +240,10 @@ the quantified variables named `p`, `r` and `cur`.
 
 ## Conventions
 
-- Ruby 3.2+ (endless methods, anonymous block forwarding are fine);
+- Ruby 3.2+ (endless methods, anonymous block forwarding are fine, but never
+  forward an anonymous `&` from inside another block: Ruby 3.3.0, which
+  Forem runs, rejects it with a SyntaxError; check with each Ruby's
+  `ruby -wc` on `lib/`);
   `# frozen_string_literal: true` everywhere; the test task runs with warnings
   on and should stay warning-free.
 - No runtime dependencies beyond `rexml`. No network access at runtime except
@@ -412,9 +415,18 @@ tmpfs, so reload the schema after a restart). Run `bin/hallmark` from this
 checkout with `HALLMARK_STAMPS=~/Repos/forem/tmp/hallmark HALLMARK_RUN=slice`;
 Forem's `.ruby-version` (3.3.0) is not installed on the host. `bundle
 install` in the container prunes three gems from Forem's `vendor/cache`;
-restore them with `git checkout -- vendor/cache`. Forem's policy specs call
-rules directly (`policy.public_send(rule)`), which no collector sees yet, so
-only request specs feed the stamps.
+restore them with `git checkout -- vendor/cache`.
+
+Rerun the same day with the `outside_tenants` guard term and the Pundit
+direct-call wrapper merged (`HALLMARK_RUN=run3`; outputs in
+`~/Repos/hallmark-findings/forem/run3/`): 791 examples, 0 failures, 299
+stamps (the policy specs now feed them), 8 counterexamples in 33 checks, the
+finding's 7 plus a catalog gap (creating an organization). With the draft
+fix applied (`run3/fix/`): 801 examples, 0 failures, 1 counterexample in 35
+checks, the catalog gap alone. The rerun first failed twice inside Forem,
+both fixed in Hallmark: Ruby 3.3.0 rejects an anonymous block forwarded
+from inside a block, and RSpec cannot stub on any instance a method a
+prepended module defines.
 
 Passing the gate, per app (decided Oct 15, 2026):
 
