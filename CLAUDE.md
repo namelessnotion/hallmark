@@ -26,8 +26,9 @@ both meeting the gate's criteria, in "GitLab slice" and "Forem slice" below;
 Action Policy (the Gumroad port, Oct 19, 2026) meets every criterion but the
 confirmed real bug, which waits on an open question, in "Gumroad Action
 Policy port" below. That run found the controller hook running after
-controllers' own `before_action`s (fixed Oct 19, 2026); GitLab and Forem
-predate the fix and should be rerun.
+controllers' own `before_action`s (fixed Oct 19, 2026); GitLab and Forem,
+rerun with the fix the same day, gave identical results and still meet the
+gate.
 
 Built:
 
@@ -389,7 +390,14 @@ whole run, no unknown. One counterexample, the historical bug (a signed-in
 non-member reads a schedule that is not public), attached to
 `GraphqlController#execute` because the REST API (Grape) stamps carry no
 entry point. The controller checks pass but are blind (checked against the
-`Project`). Rerun at the fix, `c1a85e83ac3` (only the MR's four files differ): no counterexamples in 9 checks, no unknown; the two leaking allows are denies there. Run `bin/hallmark` from
+`Project`). Rerun at the fix, `c1a85e83ac3` (only the MR's four files differ): no counterexamples in 9 checks, no unknown; the two leaking allows are denies there. Rerun Oct 19, 2026 with the
+controller-hook fix (`HALLMARK_RUN=run4`, outputs in
+`~/Repos/hallmark-findings/gitlab-7ce3a7d/run4/`): 435 examples, the same 3
+webpack failures, the same entry points with the same stamp counts, and an
+identical report (1 counterexample in 9 checks, 2.1 s CLI, 1.6 s sidecar),
+so GitLab still meets the gate. GitLab's test environment does not eager
+load without `CI`, so the slice's controllers loaded after the hook and
+always ran it first. Run `bin/hallmark` from
 this checkout with `HALLMARK_STAMPS=~/Repos/gitlab/tmp/hallmark`, not from
 `~/Repos/gitlab`, whose `.ruby-version` makes mise build Ruby 3.1.4.
 
@@ -431,6 +439,16 @@ checks, the catalog gap alone. The rerun first failed twice inside Forem,
 both fixed in Hallmark: Ruby 3.3.0 rejects an anonymous block forwarded
 from inside a block, and RSpec cannot stub on any instance a method a
 prepended module defines.
+
+Rerun Oct 19, 2026 with the controller-hook fix (`HALLMARK_RUN=run4` and
+`run4fix`; outputs in `~/Repos/hallmark-findings/forem/run4/`): the same
+791 and 801 examples with 0 failures, stamps byte-identical to run3's, and
+identical reports (8 counterexamples in 33 checks, then 1 in 35 with the
+draft fix; 3.7 s and 2.7 s CLI, about 2.5 s sidecar), so Forem still meets
+the gate. Forem does not eager load in tests either: only
+`ApplicationController` was loaded when the hook installed, and none of its
+filters calls Pundit. The fix run applies `fix/f1-fix.patch` and swaps the
+probe for `probes/hallmark_probe_m3_fixed_spec.rb`; revert both after.
 
 ### Gumroad Action Policy port
 
