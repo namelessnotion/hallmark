@@ -133,6 +133,9 @@ module Hallmark
         @authorizes = T.let(T.unsafe(nil), T::Hash[[String, String, String], T::Boolean])
       end
 
+      sig { params(entry_point: String).returns(T.nilable(String)) }
+      def action_location(entry_point); end
+
       sig { params(entry_point: String).returns(T.nilable(EntryPoint)) }
       def fetch(entry_point); end
 

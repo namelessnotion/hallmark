@@ -31,6 +31,9 @@ module Hallmark
       sig { returns(T::Array[Endpoint]) }
       attr_reader :endpoints
 
+      sig { params(name: String).returns(T.nilable(String)) }
+      def location_of(name); end
+
       sig { params(mapping: Mapping, root: String).void }
       def initialize(mapping, root)
         @resources = T.let(T.unsafe(nil), T::Array[String])

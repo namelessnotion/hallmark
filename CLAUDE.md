@@ -162,7 +162,7 @@ explicit permission on one record, for Gumroad's collaborators).
 bundle install
 bin/hallmark install-alloy                 # Alloy 6.2.0 to ~/.cache/hallmark, SHA-256 verified; needs Java 17+
 bin/hallmark install-sidecar               # also builds the sidecar jar (javac + jar from a JDK 17+); no extra download
-bundle exec rake test                      # 297 tests; the 21 integration tests skip without the jar or sidecar
+bundle exec rake test                      # 304 tests; the 21 integration tests skip without the jar or sidecar
 bundle exec rubocop                        # lint
 bundle exec srb tc                         # type-check lib/ against rbi/; `rake` runs tests, rubocop, then this
 bin/hallmark check examples/medium_clone/hallmark.rb    # exits 1 (two counterexamples, expected)
@@ -174,6 +174,7 @@ bundle exec rspec examples/storefront/link_policy_spec.rb   # the matchers, bugg
 bin/hallmark model FILE                    # print the generated Alloy model; the fastest way to debug
 bin/hallmark extract examples/storefront/hallmark.rb    # guards read from examples/storefront/app/policies
 bin/hallmark rules FILE [POLICY...]        # check each rule on its own, from code and recorded stamps
+bin/hallmark check --sarif OUT FILE        # also write what fails as SARIF 2.1.0
 bundle exec rake fixtures:regenerate       # refresh test/fixtures/{medium_clone,storefront} from a real run
 java -jar ~/.cache/hallmark/alloy-6.2.0.jar exec -c '*' research/models/tenancy.als
 ```
@@ -431,7 +432,8 @@ phase 3. Steps, in order:
    `Collectors::GrapeHook`, `GrapeEndpoints`, `hallmark rules`; GitLab log
    "Phase 2 step 4", Forem log "Phase 2"). Private mapping:
    `~/Repos/hallmark-findings/gitlab-7ce3a7d/step4/`.
-5. SARIF (`hallmark check --sarif FILE`).
+5. SARIF (`hallmark check --sarif FILE`). Done Oct 19, 2026 (`Sarif`,
+   `Exposure#locations`); the logs validate against the OASIS schema.
 6. Gate: the three phase 1 apps on wider slices plus two of Mastodon, HCB
    and rubygems.org; every phase 1 bug from code, compared with SPACE.
 

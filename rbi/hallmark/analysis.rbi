@@ -39,10 +39,11 @@ module Hallmark
         op: Symbol,
         resource: T.any(String, Symbol, T::Module[T.anything]),
         guard: Object,
-        basis: T.nilable(String)
+        basis: T.nilable(String),
+        locations: T.nilable(T::Array[String])
       ).returns(Exposure)
     end
-    def add_exposure(action:, op:, resource:, guard:, basis: nil); end
+    def add_exposure(action:, op:, resource:, guard:, basis: nil, locations: nil); end
 
     sig { params(source: T.any(StampSet, String, Pathname)).returns(Inference) }
     def add_stamps(source); end

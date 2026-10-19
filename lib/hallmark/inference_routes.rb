@@ -7,6 +7,20 @@ module Hallmark
   class Inference
     private
 
+    # Source lines behind an exposure: where the entry point authorizes
+    # (its first authorize call, or its Grape endpoint), the rules' code,
+    # then the controller's own checks; only "file:line" ones.
+    def locations_for(entry_point, resource, units)
+      rules = units.filter_map { |unit| unit.extracted&.location }
+      [entry_site(entry_point), *rules, *check_locations(entry_point, resource)].compact.uniq.grep(/\A.+:\d+\z/)
+    end
+
+    def entry_site(entry_point)
+      controllers&.fetch(entry_point)&.location || @extractor&.grape&.location_of(entry_point)
+    end
+
+    def check_locations(entry_point, resource) = (controllers&.checks(entry_point, resource) || []).map(&:location)
+
     # Routes no test reached (no stamp, no unchecked request), read from
     # their controller: an exposure for each rule it authorizes that the
     # extractor read, with the rule's code guard alone. What cannot be read

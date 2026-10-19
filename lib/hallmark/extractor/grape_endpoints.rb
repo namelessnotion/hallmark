@@ -30,6 +30,9 @@ module Hallmark
 
       attr_reader :endpoints
 
+      # Where the endpoint named `name` is defined, or nil.
+      def location_of(name) = @endpoints.find { |endpoint| endpoint.name == name }&.location
+
       def initialize(mapping, root)
         @resources = mapping.resources.keys
         @root = File.expand_path(root)

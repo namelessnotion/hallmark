@@ -197,7 +197,10 @@ module Hallmark
         basis += "; record loaded through #{@mapping.current_tenant_controller} (#{scoped})"
       end
       guard, basis = controller_checks(entry_point, resource, guard, basis)
-      Exposure.new(action: entry_point, op: op, resource: resource, guard: guard, basis: basis) if guard && basis
+      return nil unless guard && basis
+
+      Exposure.new(action: entry_point, op: op, resource: resource, guard: guard, basis: basis,
+                   locations: locations_for(entry_point, resource, units))
     end
 
     # The checks the entry point's controller makes in its own code

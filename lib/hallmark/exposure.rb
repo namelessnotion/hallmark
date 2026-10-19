@@ -13,7 +13,12 @@ module Hallmark
   # An exposure is the entry point, the op and the resource together
   # (docs/adr/0001), so the generated names carry all three: one entry point
   # may read two kinds of record.
-  Exposure = Struct.new(:action, :op, :resource, :guard, :basis, keyword_init: true) do
+  #
+  # `locations` are the source lines behind an exposure read from code
+  # ("app/controllers/links_controller.rb:42"): the entry point's authorize
+  # call or Grape endpoint first, then the rules' code and the controller's
+  # own checks. Empty for a hand-declared exposure. SARIF output uses them.
+  Exposure = Struct.new(:action, :op, :resource, :guard, :basis, :locations, keyword_init: true) do
     def check_name = "safe_#{name_suffix}"
     def predicate_name = "allows_#{name_suffix}"
     def name_suffix = "#{Naming.identifier(action)}_#{op}_#{Naming.identifier(resource)}"

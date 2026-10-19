@@ -6,10 +6,12 @@ require_relative "../lib/hallmark"
 
 USAGE = <<~TEXT.freeze
   Usage:
-    hallmark check FILE...    run the analyses declared in FILEs; exit 1 on any counterexample,
-                              unchecked entry point or drift, else 2 on any unknown (or error), else 0.
-                              A FILE that only maps (config/hallmark.rb) is checked against the
-                              stamps the test suite recorded.
+    hallmark check [--sarif OUT] FILE...
+                              run the analyses declared in FILEs; exit 1 on any counterexample,
+                              unchecked entry point, drift or policy-DSL hazard, else 2 on any
+                              unknown (or error), else 0. A FILE that only maps (config/hallmark.rb)
+                              is checked against the stamps the test suite recorded. --sarif also
+                              writes what fails as SARIF 2.1.0 to OUT.
     hallmark model FILE       print the Alloy model generated for FILE
     hallmark extract FILE     print the guard read from each policy rule's code under the app root
                               (FILE's directory, or its parent when FILE is in config/)
@@ -40,6 +42,25 @@ def load_analyses(files)
   Hallmark.analyze(File.basename(Dir.pwd)) { stamps } if Hallmark.analyses.empty? && Hallmark.configuration.mapping
   abort "No `Hallmark.analyze` blocks found in #{files.join(", ")}" if Hallmark.analyses.empty?
   Hallmark.analyses
+end
+
+# Takes `--sarif OUT` out of the arguments, returning OUT.
+def sarif_option(args)
+  index = args.index("--sarif")
+  return nil unless index
+
+  out = args[index + 1] || abort("--sarif needs a file to write")
+  args.slice!(index, 2)
+  out
+end
+
+# The SARIF log, with results that have no line in the app's code pointing
+# at the mapping file, relative to the app root.
+def write_sarif(out, reports, file)
+  root = File.expand_path(Hallmark.configuration.root)
+  path = File.expand_path(file.to_s)
+  fallback = path.start_with?("#{root}/") ? path.delete_prefix("#{root}/") : file
+  File.write(out, Hallmark::Sarif.new(reports, fallback: fallback).to_json)
 end
 
 # The app a mapping file belongs to: the parent of its config/ directory
@@ -138,8 +159,11 @@ end
 begin
   case ARGV.shift
   when "check"
+    sarif = sarif_option(ARGV)
+    files = ARGV.dup
     reports = load_analyses(ARGV).map(&:run)
     puts reports.join("\n\n")
+    write_sarif(sarif, reports, files.first) if sarif
     exit(Hallmark::Report.exit_code(reports))
   when "model"
     load_analyses(ARGV).each { |analysis| puts Hallmark::ModelBuilder.new(analysis).source }

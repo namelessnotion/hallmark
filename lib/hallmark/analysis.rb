@@ -38,11 +38,11 @@ module Hallmark
       @inference = nil
     end
 
-    def add_exposure(action:, op:, resource:, guard:, basis: nil)
+    def add_exposure(action:, op:, resource:, guard:, basis: nil, locations: nil)
       raise ConfigurationError, "guard for #{action} must be a Hallmark::Guard" unless guard.is_a?(Guard)
 
       exposure = Exposure.new(action: action.to_s, op: op, resource: Naming.class_name(resource), guard: guard,
-                              basis: basis)
+                              basis: basis, locations: locations)
       if @exposures.any? { |existing| existing.check_name == exposure.check_name }
         raise ConfigurationError, "#{action} is declared twice for #{op} #{exposure.resource}"
       end
@@ -65,7 +65,7 @@ module Hallmark
       @inference = inference
       inference.exposures.each do |exposure|
         add_exposure(action: exposure.action, op: exposure.op, resource: exposure.resource, guard: exposure.guard,
-                     basis: exposure.basis)
+                     basis: exposure.basis, locations: exposure.locations)
       end
       inference
     end

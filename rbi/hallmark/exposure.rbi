@@ -18,8 +18,15 @@ module Hallmark
     sig { returns(T.nilable(String)) }
     def basis; end
 
-    sig { params(action: String, op: Symbol, resource: String, guard: Guard, basis: T.nilable(String)).void }
-    def initialize(action:, op:, resource:, guard:, basis: nil); end
+    # "file:line" strings, the entry point's first; nil or empty when declared by hand
+    sig { returns(T.nilable(T::Array[String])) }
+    def locations; end
+
+    sig do
+      params(action: String, op: Symbol, resource: String, guard: Guard, basis: T.nilable(String),
+             locations: T.nilable(T::Array[String])).void
+    end
+    def initialize(action:, op:, resource:, guard:, basis: nil, locations: nil); end
 
     sig { returns(String) }
     def check_name; end

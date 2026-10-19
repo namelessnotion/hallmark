@@ -4,6 +4,15 @@ module Hallmark
   class Inference
     private
 
+    sig { params(entry_point: String, resource: String, units: T::Array[Unit]).returns(T::Array[String]) }
+    def locations_for(entry_point, resource, units); end
+
+    sig { params(entry_point: String).returns(T.nilable(String)) }
+    def entry_site(entry_point); end
+
+    sig { params(entry_point: String, resource: String).returns(T::Array[String]) }
+    def check_locations(entry_point, resource); end
+
     sig { returns(T::Array[Exposure]) }
     def route_exposures; end
 

@@ -87,6 +87,15 @@ module Hallmark
         @authorizes = {}
       end
 
+      # Where the action is defined ("app/controllers/links_controller.rb:12"),
+      # or nil when it is not in an indexed controller.
+      def action_location(entry_point)
+        controller, action = entry_point.split("#", 2)
+        return nil unless controller && action && @index.scopes.key?(controller)
+
+        @index.find_method(controller, action)&.location
+      end
+
       # The entry point "Controller#action", or nil when no indexed
       # controller has that name.
       def fetch(entry_point)

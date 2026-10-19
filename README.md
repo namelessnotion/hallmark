@@ -47,8 +47,8 @@ Phase 1 is done: its deliverables are built, and its gate (Hallmark run on
 one real app per authorization library, each with a confirmed real bug)
 passed on Oct 19, 2026.
 
-Not built yet (phase 2): SARIF output. Phase 3: shadow and sampled runtime
-modes, the graphql-ruby schema walk and tracing, and field-level mapping.
+Not built yet (phase 3): shadow and sampled runtime modes, the graphql-ruby
+schema walk and tracing, and field-level mapping.
 The models for those live in `research/models`.
 
 ## Requirements
@@ -465,6 +465,18 @@ endpoints are checked like controller actions.
 
 `hallmark rules FILE [POLICY...]` checks each rule on its own, from code and
 any recorded stamps, as the RSpec matchers do.
+
+### SARIF
+
+`hallmark check --sarif hallmark.sarif config/hallmark.rb` also writes what
+fails the check as SARIF 2.1.0, for code scanning: counterexamples at the
+entry point's authorize call (the rule's code as a related location),
+unchecked entry points at their action, drift at the rule, and policy-DSL
+hazards at their condition. Paths are relative to the app root.
+
+```bash
+bin/hallmark check --sarif hallmark.sarif config/hallmark.rb
+```
 
 ## How it works
 
