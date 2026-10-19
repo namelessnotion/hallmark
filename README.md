@@ -209,8 +209,9 @@ a policy spec), the rule (`LinkPolicy#update?`), allow or deny, the roles held i
 the record's tenant and in the current tenant, and the mapped facts as
 booleans (logged in, owner, public, explicit permission, record in the
 current tenant). Stamps hold no ids. An exception inside a rule counts as a
-deny. Rules a Pundit policy spec checks with `permit` are stamped too, as
-queries.
+deny. Rules a Pundit policy spec calls on the policy itself
+(`described_class.new(user, record).update?`, pundit/rspec's `permit`,
+pundit-matchers' `permit_actions`) are stamped too, as queries.
 
 From the stamps, each rule's guard is the OR of the fact combinations it
 allowed, and each entry point's guard is the AND of the rules it enforced

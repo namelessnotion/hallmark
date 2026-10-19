@@ -73,8 +73,8 @@ class RSpecRunTest < Minitest::Test
   end
 
   # A Pundit policy spec: `permit` builds the policy and calls the rule
-  # itself. The collectors are installed before pundit/rspec loads, as the
-  # Railtie does, so the hook waits for the suite to start.
+  # itself, which the wrapper on the policy class's rules stamps. The
+  # collectors are installed before pundit/rspec loads, as the Railtie does.
   PERMIT_SPEC = <<~RUBY.freeze
     require "hallmark"
     require #{File.join(ROOT, "test", "support", "shop").inspect}

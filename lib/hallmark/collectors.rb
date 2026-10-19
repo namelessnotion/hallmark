@@ -13,7 +13,8 @@ module Hallmark
   #                      `action_policy.authorize` to tell `authorize!` from
   #                      `allowed_to?`
   #   Pundit             prepends `authorize` and `policy_scope` on
-  #                      Pundit::Authorization
+  #                      Pundit::Authorization, and a module wrapping the
+  #                      rules on each policy class, for direct calls
   #   DeclarativePolicy  prepends `allowed?` on DeclarativePolicy::Base
   #   Action Controller  an `around_action` that flags entry points finishing
   #                      without an authorization call (threat 10)
