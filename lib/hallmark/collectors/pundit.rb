@@ -14,8 +14,11 @@ module Hallmark
     # (`described_class.new(user, record).public_send(:update?)`, as Forem's
     # do, and as the `permit` matcher of pundit/rspec and pundit-matchers'
     # `permit_actions` do). Pundit policies are plain classes with no common
-    # base, so each policy class gets a prepended module wrapping its rules,
-    # the public methods ending in `?`. A direct call is stamped as a query:
+    # base, so each policy class gets its own rules (the public methods ending
+    # in `?` that it defines) replaced by wrappers that call the original.
+    # Not a prepended module: RSpec's `allow_any_instance_of(SomePolicy)`
+    # refuses to stub a method a prepended module defines, which broke
+    # Forem's specs. A direct call is stamped as a query:
     # it feeds the rule's guard and ties the rule to no entry point. Calls
     # made inside `authorize`, or from another rule, are not stamped again.
     module PunditHook
@@ -94,10 +97,15 @@ module Hallmark
         def observe_rules(klass)
           return unless policy_class?(klass)
 
-          wrappers = @wrappers ||= {}.compare_by_identity
-          wrapper = wrappers[klass] ||= Module.new.tap { |rules| klass.prepend(rules) }
+          wrapped = (@wrappers ||= {}.compare_by_identity)[klass] ||= {}
+          # Rules the class defines itself or takes from an included module;
+          # rules from a parent class are wrapped on that class. A rule the
+          # class body (re)defined since it was wrapped is no longer the
+          # wrapper, so it is wrapped again.
           (klass.public_instance_methods - Object.public_instance_methods).each do |rule|
-            wrap(wrapper, rule) if rule.end_with?("?") && !wrapper.method_defined?(rule, false)
+            next unless (current = rule_here(klass, rule))
+
+            wrapped[rule] = wrap(klass, rule, current) unless wrapped[rule] == current
           end
         rescue StandardError => e
           Collectors.warn_once(e)
@@ -152,12 +160,29 @@ module Hallmark
 
         private
 
-        # Defines one rule on a policy class's wrapper module, passing the
-        # arguments, the block and the result through untouched.
-        def wrap(wrapper, rule)
-          wrapper.define_method(rule) do |*args, **kwargs, &block|
-            PunditHook.query(self, rule) { super(*args, **kwargs, &block) }
+        # Replaces one rule on a policy class with a wrapper that calls the
+        # original (so its `super` still reaches the parent class), passing
+        # the arguments, the block and the result through untouched. Returns
+        # the wrapper. Warnings are off while it is defined: replacing a
+        # method warns "method redefined" under `ruby -w`.
+        def wrap(klass, rule, original)
+          verbose = $VERBOSE
+          $VERBOSE = nil
+          klass.define_method(rule) do |*args, **kwargs, &block|
+            PunditHook.query(self, rule) { original.bind(self).call(*args, **kwargs, &block) }
           end
+          klass.instance_method(rule)
+        ensure
+          $VERBOSE = verbose
+        end
+
+        # The rule's current method when it is to be wrapped on this class:
+        # a `?` method the class defines or takes from a module.
+        def rule_here(klass, rule)
+          return unless rule.end_with?("?")
+
+          method = klass.instance_method(rule)
+          method if method.owner == klass || !method.owner.is_a?(Class)
         end
 
         def takes_user_and_record?(method)

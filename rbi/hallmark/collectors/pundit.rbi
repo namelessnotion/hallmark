@@ -41,7 +41,7 @@ module Hallmark
 
       @installed = T.let(nil, T.nilable(T::Boolean))
       @tracer = T.let(nil, T.nilable(TracePoint))
-      @wrappers = T.let(nil, T.nilable(T::Hash[T::Class[T.anything], T::Module[T.anything]]))
+      @wrappers = T.let(nil, T.nilable(T::Hash[T::Class[T.anything], T::Hash[Symbol, UnboundMethod]]))
 
       class << self
         sig { void }
@@ -67,8 +67,11 @@ module Hallmark
 
         private
 
-        sig { params(wrapper: T::Module[T.anything], rule: Symbol).void }
-        def wrap(wrapper, rule); end
+        sig { params(klass: T::Class[T.anything], rule: Symbol, original: UnboundMethod).returns(UnboundMethod) }
+        def wrap(klass, rule, original); end
+
+        sig { params(klass: T::Class[T.anything], rule: Symbol).returns(T.nilable(UnboundMethod)) }
+        def rule_here(klass, rule); end
 
         sig { params(method: UnboundMethod).returns(T::Boolean) }
         def takes_user_and_record?(method); end

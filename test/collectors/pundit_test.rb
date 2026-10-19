@@ -167,13 +167,48 @@ class PunditCollectorTest < Minitest::Test
   def test_wraps_only_pundit_policies
     collect { PunditShop::LinkPolicy.new(PunditShop::Context.new(@ada, @ann), @ann_link).update? }
 
-    refute_same PunditShop::LinkPolicy, PunditShop::LinkPolicy.ancestors.first
-    [ApShop::LinkPolicy, DpShop::LinkPolicy, ActionDispatch::ContentSecurityPolicy].each do |klass|
-      assert_same klass, klass.ancestors.first
+    assert wrapped?(PunditShop::LinkPolicy, :update?)
+    refute wrapped?(ApShop::LinkPolicy, :update?)
+    refute wrapped?(DpShop::LinkPolicy, :edit?) if DpShop::LinkPolicy.method_defined?(:edit?)
+    csp = ActionDispatch::ContentSecurityPolicy
+    assert_empty(csp.public_instance_methods.select { |name| name.end_with?("?") && wrapped?(csp, name) })
+  end
+
+  # The wrappers live on the policy class, not on a prepended module, so
+  # RSpec can still stub a rule on every instance (Forem's dashboard spec
+  # does: `allow_any_instance_of(ArticlePolicy).to receive(...)`). A stubbed
+  # rule answers as stubbed and leaves no stamp; once the stub is gone the
+  # wrapper is back.
+  def test_rules_stay_stubbable_on_any_instance
+    require "rspec/mocks"
+    mocks = Object.new.extend(::RSpec::Mocks::ExampleMethods)
+    policy = -> { PunditShop::LinkPolicy.new(PunditShop::Context.new(@mia, @ann), @bob_link) }
+    set = collect do
+      ::RSpec::Mocks.with_temporary_scope do
+        mocks.allow_any_instance_of(PunditShop::LinkPolicy).to mocks.receive(:update?).and_return(:stubbed)
+        assert_equal :stubbed, policy.call.update?
+      end
+      refute_predicate policy.call, :update?
     end
+
+    assert_equal([["update?", "deny"]], set.stamps.map { |stamp| [stamp.rule, stamp.decision] })
+    assert_same PunditShop::LinkPolicy, PunditShop::LinkPolicy.ancestors.first
+    assert wrapped?(PunditShop::LinkPolicy, :update?)
+  end
+
+  def test_stamps_rules_from_an_included_module
+    set = collect_late_policy { |policy| assert_same true, policy.review? }
+
+    assert_equal([["PunditShop::LatePolicy", "review?", "allow"]],
+                 set.stamps.map { |stamp| stamp.to_h.values_at(:policy, :rule, :decision) })
   end
 
   private
+
+  def wrapped?(klass, rule)
+    file, = klass.instance_method(rule).source_location
+    file == File.expand_path("../../lib/hallmark/collectors/pundit.rb", __dir__)
+  end
 
   # Loads PunditShop::LatePolicy once the collectors are on, and yields one
   # built for the vendor's staff acting for ann.
@@ -183,6 +218,8 @@ class PunditCollectorTest < Minitest::Test
       yield PunditShop::LatePolicy.new(PunditShop::Context.new(@sue, @ann), @ann_link)
     end
   ensure
-    PunditShop.send(:remove_const, :LatePolicy) if PunditShop.const_defined?(:LatePolicy, false)
+    %i[LatePolicy Reviewable].each do |name|
+      PunditShop.send(:remove_const, name) if PunditShop.const_defined?(name, false)
+    end
   end
 end
