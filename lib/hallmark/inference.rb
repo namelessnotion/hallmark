@@ -24,6 +24,10 @@ module Hallmark
   #
   # Stamps the extracted guard contradicts are drift (`Drift`), which also
   # fails the report.
+  #
+  # An exposure also carries what its controller requires: the current
+  # tenant when the record is loaded through it, and the lower bound of the
+  # checks the controller makes in its own code (`Extractor::Controllers`).
   class Inference
     include Guard::DSL
 
@@ -179,8 +183,7 @@ module Hallmark
     # is listed under coverage, never failed: the code may authorize in ways
     # Hallmark does not read.
     def route_exposures
-      controllers = @extractor&.controllers
-      return [] unless controllers
+      return [] unless (controllers = self.controllers)
 
       (@routes.map(&:entry_point).uniq - @reached).sort.flat_map do |entry_point|
         read = controllers.fetch(entry_point)
@@ -248,7 +251,23 @@ module Hallmark
         guard = in_current_tenant & guard
         basis += "; record loaded through #{@mapping.current_tenant_controller} (#{scoped})"
       end
-      Exposure.new(action: entry_point, op: op, resource: resource, guard: guard, basis: basis)
+      guard, basis = controller_checks(entry_point, resource, guard, basis)
+      Exposure.new(action: entry_point, op: op, resource: resource, guard: guard, basis: basis) if guard && basis
+    end
+
+    # The checks the entry point's controller makes in its own code
+    # (`e404 unless product.user == current_seller`), ANDed in by their
+    # lower bound: the request goes on only where they hold (docs/adr/0003).
+    # Nil when a check leaves nothing certain, every way through it
+    # depending on calls Hallmark could not read: the entry point is listed
+    # under coverage, as a rule that never allows is.
+    def controller_checks(entry_point, resource, guard, basis)
+      checks = controllers&.checks(entry_point, resource) || []
+      return [guard, basis] if checks.empty?
+
+      checked = checks.reduce(guard) { |all, check| Guard.conjoin(all, check.guard.lower) }
+      @coverage.observe_checks(entry_point, checks.map(&:guard), certain: checked.kind != :never)
+      [checked, "#{basis}; checked in the controller (#{checks.map(&:location).join(", ")})"] if checked.kind != :never
     end
 
     # Where an entry point authorizes a record it loaded through the current
@@ -257,8 +276,9 @@ module Hallmark
     def scoped_load(entry_point, resource)
       return nil unless @mapping.fetch(resource).tenanted?
 
-      read = @extractor&.controllers&.fetch(entry_point)
-      read&.scoped? ? read.location : nil
+      controllers&.fetch(entry_point)&.then { |read| read.location if read.scoped? }
     end
+
+    def controllers = @extractor&.controllers
   end
 end

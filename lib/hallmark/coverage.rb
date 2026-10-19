@@ -27,13 +27,15 @@ module Hallmark
   # With the extractor (docs/adr/0003), a rule read exactly from code has no
   # not-observed region, since the code says what it allows everywhere; a
   # rule with opaque leaves keeps its stamp regions and lists each call
-  # (`opaque`), whose outcome the checked lower bound assumes denies.
+  # (`opaque`), whose outcome the checked lower bound assumes denies; so do
+  # the checks a controller makes in its own code, under the entry point.
   # `code_only` lists rules read from code that no stamp or unreached route
   # shows. Of the routes no test reached (phase 2 step 3): `routes_unread`
   # are in controllers outside `app/controllers` (gems, engines),
   # `routes_unchecked` call no authorization in the code Hallmark reads, and
   # `routes_unresolved` authorize a record whose class or rule it could not
-  # tell.
+  # tell. `checks_unread` are entry points whose controller makes a check
+  # in its own code that leaves nothing certain.
   class Coverage
     # One fact a stamp records, as a dimension of the fact space: a boolean,
     # or the set of roles held in one place (`roles` is true).
@@ -52,7 +54,7 @@ module Hallmark
     ANONYMOUS_LACKS = %i[owner permitted record_roles current_roles roles].freeze
 
     attr_reader :gaps, :never_allowed, :unreached, :class_level, :without_op, :unmapped, :redirected, :opaque,
-                :code_only, :exempt, :routes_unread, :routes_unchecked, :routes_unresolved
+                :code_only, :exempt, :routes_unread, :routes_unchecked, :routes_unresolved, :checks_unread
 
     def initialize(mapping, stamps)
       @mapping = mapping
@@ -70,6 +72,7 @@ module Hallmark
       @routes_unread = []
       @routes_unchecked = []
       @routes_unresolved = []
+      @checks_unread = []
       @opaque = []
       @code_only = []
     end
@@ -92,7 +95,7 @@ module Hallmark
 
     def empty?
       [@gaps, @never_allowed, @unreached, @class_level, @without_op, @unmapped, @redirected, @opaque,
-       @code_only, @exempt, @routes_unread, @routes_unchecked, @routes_unresolved].all?(&:empty?)
+       @code_only, @exempt, @routes_unread, @routes_unchecked, @routes_unresolved, @checks_unread].all?(&:empty?)
     end
 
     # Fact combinations, as conjunctions, that none of `stamps` covers.
@@ -106,12 +109,24 @@ module Hallmark
       end
     end
 
+    # The checks an entry point's controller makes in its own code: the
+    # calls in them the extractor could not read, and the entry point when
+    # they leave nothing `certain`.
+    def observe_checks(entry_point, guards, certain:)
+      guards.each { |guard| observe_opaque(entry_point, guard) }
+      @checks_unread << entry_point unless certain || @checks_unread.include?(entry_point)
+    end
+
     private
 
     def observe_extracted(unit, extracted)
       @never_allowed << unit.key if unit.guard.nil? && unit.stamps.any?
-      extracted.opaque_leaves.each do |leaf|
-        entry = Opaque.new(rule: unit.key, call: leaf.operands[0], location: leaf.operands[1])
+      observe_opaque(unit.key, extracted.guard)
+    end
+
+    def observe_opaque(name, guard)
+      guard.opaque_leaves.each do |leaf|
+        entry = Opaque.new(rule: name, call: leaf.operands[0], location: leaf.operands[1])
         @opaque << entry unless @opaque.include?(entry)
       end
     end

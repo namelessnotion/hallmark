@@ -144,5 +144,13 @@ module Hallmark
 
     sig { params(entry_point: String, op: Symbol, resource: String, units: T::Array[Unit]).returns(T.nilable(Exposure)) }
     def exposure_for(entry_point, op, resource, units); end
+
+    sig do
+      params(entry_point: String, resource: String, guard: Guard, basis: String).returns(T.nilable([Guard, String]))
+    end
+    def controller_checks(entry_point, resource, guard, basis); end
+
+    sig { returns(T.nilable(Extractor::Controllers)) }
+    def controllers; end
   end
 end

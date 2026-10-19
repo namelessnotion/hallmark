@@ -22,6 +22,9 @@ module Hallmark
     # translation never guesses (docs/adr/0003). Before the rule run, in
     # order: a constructor's early exits (Gumroad's raises when no user is
     # signed in) and Action Policy's pre-checks.
+    #
+    # `expression` reads one condition in controller code the same way, with
+    # the controller's names renamed to the policy's (`Canonical`).
     class MethodTranslator
       # Where translation is: the method being read, its class (for calls to
       # siblings), the locals in force, and the block it was called with.
@@ -39,6 +42,7 @@ module Hallmark
         @terms = terms
         @stack = []
         @resource = nil
+        @aliases = {}
       end
 
       # The guard for `class_name#rule` checked on a record of `resource`, or
@@ -55,6 +59,17 @@ module Hallmark
                 end
         guard = wrap_pre_checks(class_name, rule, guard)
         wrap_constructor(class_name, guard)
+      end
+
+      # The guard for a condition written in `method` of `class_name`, on a
+      # record of `resource`, with `locals` in force and `aliases` renaming
+      # the controller's names (`"@product" => "record"`).
+      def expression(node, method, class_name, resource, locals: {}, aliases: {})
+        @resource = resource
+        @aliases = aliases
+        enter(method, class_name, locals, nil) { |frame| value(node, frame) }
+      ensure
+        @aliases = {}
       end
 
       private
@@ -333,7 +348,7 @@ module Hallmark
 
       def term(node, frame) = @terms.lookup(render(node, frame), @resource) || opaque(node, frame)
 
-      def render(node, frame) = Canonical.new(frame.locals).render(node)
+      def render(node, frame) = Canonical.new(frame.locals, @aliases).render(node)
 
       def opaque(node, frame)
         Guard.new(:opaque, render(node, frame), "#{frame.definition.file}:#{node.location.start_line}")

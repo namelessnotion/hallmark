@@ -5,6 +5,9 @@ module Hallmark
     class Controllers
       DIRS = T.let(T.unsafe(nil), T::Array[String])
       AUTHORIZE = T.let(T.unsafe(nil), T::Array[Symbol])
+      RAISES = T.let(T.unsafe(nil), T::Array[Symbol])
+      HALTS = T.let(T.unsafe(nil), T::Array[Symbol])
+      ON_RECORD = T.let(T.unsafe(nil), T::Array[Symbol])
       CHECKS = T.let(T.unsafe(nil), T::Array[Symbol])
 
       class Authorization
@@ -60,14 +63,58 @@ module Hallmark
         sig { returns(T::Boolean) }
         def checked; end
 
+        # The variables holding the authorized records: "@product" or a local's name
+        sig { returns(T::Array[String]) }
+        def records; end
+
+        sig { returns(T::Array[Exit]) }
+        def exits; end
+
         sig do
           params(name: String, loading: T.nilable(Symbol), location: T.nilable(String), verify: T.nilable(Symbol),
-                 authorizations: T::Array[Authorization], checked: T::Boolean).void
+                 authorizations: T::Array[Authorization], checked: T::Boolean, records: T::Array[String],
+                 exits: T::Array[Exit]).void
         end
-        def initialize(name:, loading: nil, location: nil, verify: nil, authorizations: [], checked: false); end
+        def initialize(name:, loading: nil, location: nil, verify: nil, authorizations: [], checked: false,
+                       records: [], exits: []); end
 
         sig { returns(T::Boolean) }
         def scoped?; end
+      end
+
+      class Exit
+        # The request goes on where this holds (fails to, when negated)
+        sig { returns(Prism::Node) }
+        def condition; end
+
+        sig { returns(T::Boolean) }
+        def negated; end
+
+        sig { returns(SourceIndex::Method) }
+        def definition; end
+
+        sig { returns(Locals) }
+        def locals; end
+
+        sig { returns(String) }
+        def location; end
+
+        sig do
+          params(condition: Prism::Node, negated: T::Boolean, definition: SourceIndex::Method, locals: Locals,
+                 location: String).void
+        end
+        def initialize(condition:, negated:, definition:, locals:, location:); end
+      end
+
+      class Check
+        sig { returns(Guard) }
+        def guard; end
+
+        sig { returns(String) }
+        def location; end
+
+        sig { params(guard: Guard, location: String).void }
+        def initialize(guard:, location:); end
       end
 
       # A record argument, the method it was read in, and the authorize call
@@ -79,13 +126,85 @@ module Hallmark
         @tenant_reader = T.let(T.unsafe(nil), T.nilable(String))
         @resources = T.let(T.unsafe(nil), T::Array[String])
         @tenant_keys = T.let(T.unsafe(nil), T::Hash[String, String])
+        @translator = T.let(T.unsafe(nil), MethodTranslator)
+        @aliases = T.let(T.unsafe(nil), T::Hash[String, String])
         @cache = T.let(T.unsafe(nil), T::Hash[String, T.nilable(EntryPoint)])
+        @checks = T.let(T.unsafe(nil), T::Hash[[String, String], T::Array[Check]])
+        @authorizes = T.let(T.unsafe(nil), T::Hash[[String, String, String], T::Boolean])
       end
 
       sig { params(entry_point: String).returns(T.nilable(EntryPoint)) }
       def fetch(entry_point); end
 
+      sig { params(entry_point: String, resource: String).returns(T::Array[Check]) }
+      def checks(entry_point, resource); end
+
       private
+
+      sig { params(mapping: Mapping).returns(T::Hash[String, String]) }
+      def aliases(mapping); end
+
+      sig { params(entry_point: String, resource: String).returns(T::Array[Check]) }
+      def read_checks(entry_point, resource); end
+
+      sig do
+        params(exit: Exit, controller: String, resource: String, aliases: T::Hash[String, String]).returns(T.nilable(Check))
+      end
+      def check_for(exit, controller, resource, aliases); end
+
+      sig { params(guard: Guard).returns(T::Boolean) }
+      def on_record?(guard); end
+
+      sig { params(records: T::Array[Record]).returns(T::Array[String]) }
+      def record_names(records); end
+
+      sig { params(controller: String, methods: T::Array[SourceIndex::Method], action: String).returns(T::Array[Exit]) }
+      def exits(controller, methods, action); end
+
+      sig do
+        params(controller: String, method: SourceIndex::Method, context: Symbol, depth: Integer,
+               found: T::Array[Exit]).returns(T::Boolean)
+      end
+      def authorized_in?(controller, method, context, depth, found); end
+
+      sig { params(statement: Prism::Node, locals: Locals).void }
+      def remember(statement, locals); end
+
+      sig { params(node: Prism::ReturnNode, context: Symbol).returns(T::Boolean) }
+      def returns?(node, context); end
+
+      sig { params(controller: String, node: Prism::Node, depth: Integer).returns(T::Boolean) }
+      def authorizes?(controller, node, depth); end
+
+      sig { params(controller: String, helper: SourceIndex::Method, depth: Integer).returns(T::Boolean) }
+      def helper_authorizes?(controller, helper, depth); end
+
+      sig do
+        params(controller: String, statement: Prism::Node, method: SourceIndex::Method, locals: Locals,
+               context: Symbol).returns(T.nilable(Exit))
+      end
+      def exit_of(controller, statement, method, locals, context); end
+
+      sig { params(controller: String, node: Prism::CallNode).returns(T.nilable(SourceIndex::Method)) }
+      def helper_call(controller, node); end
+
+      sig do
+        params(controller: String, node: T.any(Prism::IfNode, Prism::UnlessNode), method: SourceIndex::Method,
+               locals: Locals, context: Symbol).returns(T.nilable(Exit))
+      end
+      def guarded_exit(controller, node, method, locals, context); end
+
+      sig { params(controller: String, node: T.nilable(Prism::Node), context: Symbol, depth: Integer).returns(T::Boolean) }
+      def leaves?(controller, node, context, depth); end
+
+      sig { params(controller: String, node: Prism::CallNode, context: Symbol, depth: Integer).returns(T::Boolean) }
+      def leaves_call?(controller, node, context, depth); end
+
+      sig { params(node: T.nilable(Prism::Node)).returns(T::Boolean) }
+      def halts?(node); end
+
+      sig { params(node: T.nilable(Prism::Node)).returns(T::Array[Prism::Node]) }
+      def body_statements(node); end
 
       sig { params(entry_point: String).returns(T.nilable(EntryPoint)) }
       def read(entry_point); end
@@ -93,7 +212,7 @@ module Hallmark
       Methods = T.type_alias { T::Array[SourceIndex::Method] }
       Found = T.type_alias { T::Array[[Prism::Node, SourceIndex::Method]] }
 
-      sig { params(method: SourceIndex::Method, call: Prism::CallNode).returns(String) }
+      sig { params(method: SourceIndex::Method, call: Prism::Node).returns(String) }
       def location(method, call); end
 
       sig { params(records: T::Array[Record]).returns(T.nilable(String)) }

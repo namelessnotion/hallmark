@@ -41,9 +41,10 @@ module Hallmark
     class Canonical
       OPERATORS = T.let(T.unsafe(nil), T::Array[Symbol])
 
-      sig { params(locals: Locals).void }
-      def initialize(locals)
+      sig { params(locals: Locals, aliases: T::Hash[String, String]).void }
+      def initialize(locals, aliases = {})
         @locals = T.let(T.unsafe(nil), Locals)
+        @aliases = T.let(T.unsafe(nil), T::Hash[String, String])
       end
 
       sig { params(node: Prism::Node).returns(String) }
@@ -53,6 +54,9 @@ module Hallmark
 
       sig { params(node: Prism::CallNode).returns(String) }
       def call(node); end
+
+      sig { params(node: Prism::CallNode).returns(T.nilable(String)) }
+      def reader(node); end
 
       sig { params(node: Prism::CallNode).returns(T::Array[String]) }
       def arguments(node); end

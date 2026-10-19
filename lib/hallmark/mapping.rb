@@ -53,13 +53,14 @@ module Hallmark
     READ_RULES = %w[index? show? edit?].freeze
 
     attr_reader :principal_name, :principal_source, :principal_roles, :resources, :grants, :tenancy,
-                :current_tenant_source, :current_tenant_controller, :platform_roles, :rules, :unchecked_allowed,
-                :terms
+                :current_tenant_source, :current_tenant_controller, :principal_controller, :platform_roles, :rules,
+                :unchecked_allowed, :terms
 
     def initialize
       @principal_name = "User"
       @principal_source = :user
       @principal_roles = nil
+      @principal_controller = "current_user"
       @resources = {}
       @grants = []
       @tenancy = nil
@@ -90,10 +91,14 @@ module Hallmark
     #        DeclarativePolicy), or a lambda taking the policy
     # roles: the user's roles outside any tenant, as a method name on the
     #        user or a lambda taking the user; nil when there are none
-    def principal(name, from: :user, roles: nil)
+    # controller: the controllers' reader of the signed-in user (default
+    #        :current_user; Gumroad: :logged_in_user), so the extractor can
+    #        read a controller's own checks on it
+    def principal(name, from: :user, roles: nil, controller: :current_user)
       @principal_name = Naming.class_name(name)
       @principal_source = from
       @principal_roles = roles
+      @principal_controller = controller&.to_s
     end
 
     # The class whose records are tenants, for apps where a user holds roles

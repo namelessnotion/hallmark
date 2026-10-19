@@ -158,7 +158,8 @@ module Hallmark
     def opaque_lines(coverage)
       return [] if coverage.opaque.empty?
 
-      ["  Calls in rules that Hallmark could not read (the checked guard assumes each one denies):",
+      ["  Calls in rules and controller checks that Hallmark could not read (the checked guard assumes each one " \
+       "denies):",
        *coverage.opaque.map { |entry| "    #{entry}" }]
     end
 
@@ -174,7 +175,9 @@ module Hallmark
         "Entry points that redirected a GET without an authorization call (authorized in other requests)" =>
           coverage.redirected,
         "Entry points that served a request without an authorization call, exempt from verify_authorized " \
-        "in the controller" => coverage.exempt
+        "in the controller" => coverage.exempt,
+        "Entry points not checked: their controller's own check depends on calls Hallmark could not read" =>
+          coverage.checks_unread
       }
     end
 

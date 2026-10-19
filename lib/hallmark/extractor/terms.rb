@@ -16,7 +16,8 @@ module Hallmark
     #   resource ..., permits: :collaborator_for?   user.collaborator_for?(record) (permitted)
     #
     # A record is never a class in a record-level check, so
-    # `record.is_a?(Class)` is false.
+    # `record.is_a?(Class)` is false, and it exists, so `record.present?` is
+    # true and `record.nil?` and `record.blank?` are false.
     class Terms
       include Guard::DSL
 
@@ -60,6 +61,8 @@ module Hallmark
           ["#{user}.#{name}", "#{user}.#{name.delete_suffix("?")}?"].each { |source| @global[source] = role(name) }
         end
         @global["#{RECORD}.is_a?(Class)"] = Guard.new(:never)
+        @global["#{RECORD}.present?"] = Guard.new(:none)
+        ["#{RECORD}.nil?", "#{RECORD}.blank?"].each { |source| @global[source] = Guard.new(:never) }
         @mapping.resources.each_value { |resource| seed_resource(resource, user) }
       end
 
@@ -87,19 +90,23 @@ module Hallmark
     # Renders a Prism node as normalized source. `locals` maps a local
     # variable's name to the node it was assigned and the locals in force
     # there, so `seller = record.user; seller == user` reads as
-    # `record.user == user`.
+    # `record.user == user`. `aliases` renames what controller code calls
+    # the policy's names: an instance variable (`"@product" => "record"`), a
+    # local no assignment explains, or a receiverless reader with no
+    # arguments (`"current_seller" => "seller"`).
     class Canonical
       OPERATORS = %i[== != eql? equal? < > <= >= === =~].freeze
 
-      def initialize(locals)
+      def initialize(locals, aliases = {})
         @locals = locals
+        @aliases = aliases
       end
 
       def render(node)
         case node
-        when Prism::CallNode then call(node)
+        when Prism::CallNode then reader(node) || call(node)
         when Prism::LocalVariableReadNode then local(node)
-        when Prism::InstanceVariableReadNode then node.name.to_s.delete_prefix("@")
+        when Prism::InstanceVariableReadNode then @aliases.fetch(node.name.to_s) { node.name.to_s.delete_prefix("@") }
         when Prism::ParenthesesNode then parentheses(node)
         when Prism::SymbolNode then ":#{node.unescaped}"
         when Prism::SelfNode then "self"
@@ -117,14 +124,24 @@ module Hallmark
 
         prefix = receiver && !receiver.is_a?(Prism::SelfNode) ? "#{render(receiver)}." : ""
         args = arguments(node)
+
         "#{prefix}#{name}#{"(#{args.join(", ")})" if args.any?}"
+      end
+
+      # A receiverless reader with no arguments that `aliases` renames.
+      def reader(node)
+        return nil unless node.receiver.nil? && node.arguments.nil? && node.block.nil?
+
+        @aliases[node.name.to_s]
       end
 
       def arguments(node) = (node.arguments&.arguments || []).map { |arg| render(arg) }
 
       def local(node)
         assigned = @locals[node.name.to_s]
-        assigned ? Canonical.new(assigned[1]).render(assigned[0]) : node.name.to_s
+        return Canonical.new(assigned[1], @aliases).render(assigned[0]) if assigned
+
+        @aliases.fetch(node.name.to_s, node.name.to_s)
       end
 
       def parentheses(node)

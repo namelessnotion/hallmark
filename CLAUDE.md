@@ -20,7 +20,7 @@ Phase 0 (spike) is done. Phase 1's deliverables are built: step 1
 step 3 (solver sidecar) and step 4 (RSpec matchers). Its exit gate, Hallmark
 on three real apps, passed on Oct 19, 2026, so phase 1 is done. Phase 2 (the
 extractor) started Oct 19, 2026, and its step 1 (Pundit and Action Policy
-rules read from code) and step 2 (drift) were done the same day; the plan is "Phase 2
+rules read from code), step 2 (drift) and step 3 (controllers and routes) were done the same day; the plan is "Phase 2
 (extractor)" below and `docs/PLAN.md` ("Roadmap", "Phase 2 plan"). The gate's record is in
 "Phase 1 (core gem): the gate" below. The first real-app run (original Gumroad on Pundit, Oct 16, 2026, not
 a gate app) is in "First run on original Gumroad" below. Gate runs so far:
@@ -114,7 +114,14 @@ Built:
   stamp file at exit (`Collectors::Routes`, `Route`, `StampSet#routes`), and
   routes no test reached become exposures from the rules their code
   authorizes, or coverage lines (`docs/PLAN.md`, "The shipped
-  controllers").
+  controllers"). Checks a controller makes in its own code before its
+  authorize call (`e404 unless product_accessible_by_current_user?(@product)`)
+  are read by `MethodTranslator#expression` with controller names renamed
+  (`Canonical` aliases: the record's variable to `record`, the current
+  tenant and signed-in user readers, `principal ..., controller:`, to the
+  policy's names) and ANDed into the exposure by their lower bound
+  (`Controllers#checks`); a check that leaves nothing certain lists the
+  entry point under coverage (`Coverage#checks_unread`) instead.
 - Drift (phase 2 step 2, Oct 19, 2026; `lib/hallmark/drift.rb`,
   `stamp_facts.rb`): `StampFacts` is the one reading of a stamp's facts in
   catalog terms, shared by `Inference` (`#literals`, the inferred guard's
@@ -145,7 +152,7 @@ explicit permission on one record, for Gumroad's collaborators).
 bundle install
 bin/hallmark install-alloy                 # Alloy 6.2.0 to ~/.cache/hallmark, SHA-256 verified; needs Java 17+
 bin/hallmark install-sidecar               # also builds the sidecar jar (javac + jar from a JDK 17+); no extra download
-bundle exec rake test                      # 277 tests; the 20 integration tests skip without the jar or sidecar
+bundle exec rake test                      # 283 tests; the 20 integration tests skip without the jar or sidecar
 bundle exec rubocop                        # lint
 bundle exec srb tc                         # type-check lib/ against rbi/; `rake` runs tests, rubocop, then this
 bin/hallmark check examples/medium_clone/hallmark.rb    # exits 1 (two counterexamples, expected)
@@ -403,7 +410,9 @@ phase 3. Steps, in order:
    (the data-side gap), routes recorded at the end of a test run. Done Oct
    19, 2026 (`Extractor::Controllers`, `Collectors::Routes`,
    `UncheckedRequests`; Gumroad log "Run 5" and "Run 6"). Grape moved to
-   step 4.
+   step 4. Checks in controller code added the same day: F8's three false
+   positives gone, F6 stays, on both checkouts (Gumroad log "Run 7",
+   outputs and mappings in `~/Repos/hallmark-findings/gumroad-b6c62aa/extract4/`).
 4. DeclarativePolicy front end, on GitLab, with Grape endpoints (collector
    and reader): !132952 from `ProjectPolicy` alone; Forem's finding from
    `ArticlePolicy` alone.

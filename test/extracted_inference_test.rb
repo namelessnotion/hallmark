@@ -137,6 +137,26 @@ class ExtractedInferenceTest < Minitest::Test
     assert_equal ["Devise::SessionsController#new"], inference.coverage.routes_unread
   end
 
+  # A check the controller makes in its own code joins the exposure's
+  # guard by its lower bound: show? asks only for a role in the current
+  # seller (M2), but the shared filter also requires the seller's own link
+  # or a collaborator. A check Hallmark cannot read leaves nothing certain:
+  # the entry point is listed, not checked, and so is the call.
+  def test_controller_checks_join_the_exposure
+    names = %w[ProductsController#publish ProductsController#preview ProductsController#stats]
+    inference = analysis([], controller: :current_seller, routes: names.map { |name| route(name) }).inference
+    exposures = inference.exposures.to_h { |exposure| [exposure.action, exposure] }
+    rule = exposures.fetch("ProductsController#stats").guard
+
+    assert_equal rule & (in_current_tenant | permitted), exposures.fetch("ProductsController#publish").guard
+    assert_match(%r{; checked in the controller \(app/controllers/application_controller.rb:21\)\z},
+                 exposures.fetch("ProductsController#publish").basis)
+    refute exposures.key?("ProductsController#preview")
+    assert_equal ["ProductsController#preview"], inference.coverage.checks_unread
+    assert_includes inference.coverage.opaque.map(&:to_s),
+                    "ProductsController#preview: `record.previewable?` (app/controllers/products_controller.rb:39)"
+  end
+
   def test_extraction_can_be_turned_off
     Hallmark.configuration.extract = false
     inference = analysis([stamp(rule: "update?", current_roles: ["admin"], record_roles: ["admin"])]).inference

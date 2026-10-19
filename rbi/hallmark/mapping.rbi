@@ -162,6 +162,10 @@ module Hallmark
     sig { returns(Collectors::Source) }
     attr_reader :principal_roles
 
+    # The controllers' reader of the signed-in user, such as "current_user"
+    sig { returns(T.nilable(String)) }
+    attr_reader :principal_controller
+
     # Overrides keyed by "Policy#rule"
     sig { returns(T::Hash[String, Rule]) }
     attr_reader :rules
@@ -204,6 +208,7 @@ module Hallmark
       @platform_roles = T.let(T.unsafe(nil), T::Array[String])
       @principal_source = T.let(T.unsafe(nil), Collectors::Source)
       @principal_roles = T.let(T.unsafe(nil), Collectors::Source)
+      @principal_controller = T.let(T.unsafe(nil), T.nilable(String))
       @rules = T.let(T.unsafe(nil), T::Hash[String, Rule])
       @unchecked_allowed = T.let(T.unsafe(nil), T::Array[String])
       @terms = T.let(T.unsafe(nil), T::Hash[String, Guard])
@@ -213,9 +218,10 @@ module Hallmark
     def grant(role, op, resource); end
 
     sig do
-      params(name: T.any(String, Symbol, T::Module[T.anything]), from: Collectors::Source, roles: Collectors::Source).void
+      params(name: T.any(String, Symbol, T::Module[T.anything]), from: Collectors::Source, roles: Collectors::Source,
+             controller: T.nilable(T.any(String, Symbol))).void
     end
-    def principal(name, from: :user, roles: nil); end
+    def principal(name, from: :user, roles: nil, controller: :current_user); end
 
     sig do
       params(

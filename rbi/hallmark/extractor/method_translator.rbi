@@ -46,10 +46,17 @@ module Hallmark
         @terms = T.let(T.unsafe(nil), Terms)
         @stack = T.let(T.unsafe(nil), T::Array[[String, String]])
         @resource = T.let(T.unsafe(nil), T.nilable(String))
+        @aliases = T.let(T.unsafe(nil), T::Hash[String, String])
       end
 
       sig { params(class_name: String, rule: String, resource: T.nilable(String)).returns(T.nilable(Guard)) }
       def rule(class_name, rule, resource); end
+
+      sig do
+        params(node: Prism::Node, method: SourceIndex::Method, class_name: String, resource: T.nilable(String),
+               locals: Locals, aliases: T::Hash[String, String]).returns(Guard)
+      end
+      def expression(node, method, class_name, resource, locals: {}, aliases: {}); end
 
       private
 

@@ -14,4 +14,14 @@ class ApplicationController < ActionController::Base
   def e404
     raise ActionController::RoutingError, "Not Found"
   end
+
+  # A check made outside the policy, shared by several controllers.
+  def fetch_link_and_enforce_access
+    @link = Link.find_by(permalink: params[:id])
+    e404 unless link_accessible?(@link)
+  end
+
+  def link_accessible?(link)
+    link.present? && (link.user == current_seller || current_user&.collaborator_for?(link))
+  end
 end

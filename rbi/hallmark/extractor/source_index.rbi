@@ -157,10 +157,14 @@ module Hallmark
       def initialize(root, dirs)
         @root = T.let(T.unsafe(nil), String)
         @scopes = T.let(T.unsafe(nil), T::Hash[String, Scope])
+        @ancestors = T.let(T.unsafe(nil), T::Hash[String, T::Array[String]])
       end
 
+      sig { params(name: String).returns(T::Array[String]) }
+      def ancestors(name); end
+
       sig { params(name: String, seen: T::Array[String]).returns(T::Array[String]) }
-      def ancestors(name, seen = []); end
+      def collect_ancestors(name, seen); end
 
       sig { params(name: String).returns(T::Boolean) }
       def action_policy?(name); end

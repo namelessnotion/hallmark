@@ -380,7 +380,7 @@ DRIFT LinkPolicy#update? (Link) at app/policies/link_policy.rb:11: allowed, but 
 Rules no test called are checked by the matchers and listed under coverage
 by `hallmark check` (or checked through a route, below).
 
-Hallmark also reads `app/controllers`, for two things stamps cannot say.
+Hallmark also reads `app/controllers`, for three things stamps cannot say.
 First, how an entry point loaded the record it authorizes. Name the
 controllers' reader of the current tenant:
 
@@ -396,6 +396,29 @@ check the tenant itself gives no false counterexample there.
 action the controller leaves out of `after_action :verify_authorized` (or
 skips with `skip_after_action`) is exempt, so an unchecked request there is
 listed under coverage instead of failing, with no `allow_unchecked` line.
+Third, checks the controller makes in its own code before it authorizes:
+
+```ruby
+def fetch_product_and_enforce_access
+  @product = Link.fetch(params[:id])
+  e404 unless @product.user == current_seller || logged_in_user&.collaborator_for?(@product)
+end
+```
+
+A guarded way out like this one (`e404`, `raise`, `head` or a redirect in a
+`before_action`, `return` in the action) is read with the policies' terms,
+the record's variable read as `record` and the controllers' readers as the
+policy's names, and ANDed into the exposure. Name the signed-in user reader
+when it is not `current_user`:
+
+```ruby
+principal "User", controller: :logged_in_user
+```
+
+Only what such a check certainly lets through counts (its lower bound): a
+check that lets nothing through for certain, because every way past it
+depends on a call Hallmark cannot read, leaves the entry point unchecked
+and listed under coverage, never passed.
 
 The Railtie also records the app's routes when the test run ends. A route
 no test reached is checked from code: each `authorize` call in it resolves

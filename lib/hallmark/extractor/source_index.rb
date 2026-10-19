@@ -60,6 +60,7 @@ module Hallmark
       def initialize(root, dirs)
         @root = root
         @scopes = {}
+        @ancestors = {}
         dirs.each do |dir|
           Dir.glob(File.join(root, dir, "**", "*.rb")).each { |path| index_file(path) }
         end
@@ -67,15 +68,18 @@ module Hallmark
 
       # The class or module's ancestors inside the app, nearest first: the
       # scope itself, its included modules (last included first), then its
-      # superclass's.
-      def ancestors(name, seen = [])
+      # superclass's. Memoized: the index does not change once built.
+      def ancestors(name) = @ancestors[name] ||= collect_ancestors(name, [])
+
+      def collect_ancestors(name, seen)
         scope = @scopes[name]
         return [] if scope.nil? || seen.include?(name)
 
         seen << name
         modules = scope.includes.reverse.filter_map { |included| resolve(included, scope.namespace) }
         parent = (superclass = scope.superclass) && resolve(superclass, scope.namespace)
-        [name, *modules.flat_map { |mod| ancestors(mod, seen) }, *(parent ? ancestors(parent, seen) : [])]
+        [name, *modules.flat_map { |mod| collect_ancestors(mod, seen) },
+         *(parent ? collect_ancestors(parent, seen) : [])]
       end
 
       # Whether the class inherits, at some depth, from Action Policy's base.

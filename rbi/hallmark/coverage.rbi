@@ -106,6 +106,10 @@ module Hallmark
     sig { returns(T::Array[String]) }
     attr_reader :routes_unresolved
 
+    # Entry points whose controller check leaves nothing certain
+    sig { returns(T::Array[String]) }
+    attr_reader :checks_unread
+
     # Calls inside rules that the extractor could not read
     sig { returns(T::Array[Opaque]) }
     attr_reader :opaque
@@ -131,6 +135,7 @@ module Hallmark
       @routes_unread = T.let(T.unsafe(nil), T::Array[String])
       @routes_unchecked = T.let(T.unsafe(nil), T::Array[String])
       @routes_unresolved = T.let(T.unsafe(nil), T::Array[String])
+      @checks_unread = T.let(T.unsafe(nil), T::Array[String])
       @opaque = T.let(T.unsafe(nil), T::Array[Opaque])
       @code_only = T.let(T.unsafe(nil), T::Array[String])
     end
@@ -144,10 +149,16 @@ module Hallmark
     sig { params(stamps: T::Array[Stamp], resource: Mapping::Resource).returns(T::Array[String]) }
     def not_observed(stamps, resource); end
 
+    sig { params(entry_point: String, guards: T::Array[Guard], certain: T::Boolean).void }
+    def observe_checks(entry_point, guards, certain:); end
+
     private
 
     sig { params(unit: Inference::Unit, extracted: Extractor::Extracted).void }
     def observe_extracted(unit, extracted); end
+
+    sig { params(name: String, guard: Guard).void }
+    def observe_opaque(name, guard); end
 
     sig { params(stamps: T::Array[Stamp]).returns(T::Array[String]) }
     def role_universe(stamps); end
