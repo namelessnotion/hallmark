@@ -17,12 +17,14 @@ module Hallmark
 
     KINDS = %i[object profile].freeze
 
-    Resource = Struct.new(:name, :owner, :kind, :public_if, :tenant, :permits, keyword_init: true) do
+    Resource = Struct.new(:name, :owner, :kind, :public_if, :tenant, :tenant_optional, :permits,
+                          keyword_init: true) do
       def alloy_sig = Naming.resource_sig(name, kind)
       def owned? = kind == :profile || !owner.nil?
       def public? = !public_if.nil? && public_if != false
       def always_public? = public_if == true
       def tenanted? = !tenant.nil?
+      def tenant_optional? = tenant_optional == true
       def permits? = !permits.nil?
     end
 
@@ -140,6 +142,9 @@ module Hallmark
     #            true when every record is public, nil when none is
     # tenant:    association naming the record's tenant (e.g. :organization),
     #            or nil when the record lives outside tenants
+    # tenant_optional: true when some records have no tenant (a Forem article
+    #            posted under an organization, or under its author alone);
+    #            roles then count outside tenants for those records
     # permits:   for the collectors, the ops a user holds an explicit
     #            permission for on one record, outside any role or tenant
     #            (a collaborator, a share): a lambda taking the user and the
@@ -147,14 +152,15 @@ module Hallmark
     #            returning true for every op, or :read, :write or a list
     #
     #   resource "Link", tenant: :user, permits: ->(user, link) { user.collaborator_for?(link) }
-    def resource(name, owner: nil, kind: :object, public_if: nil, tenant: nil, permits: nil)
+    def resource(name, owner: nil, kind: :object, public_if: nil, tenant: nil, tenant_optional: false, permits: nil)
       raise ConfigurationError, "unknown resource kind: #{kind}" unless KINDS.include?(kind)
 
       key = Naming.class_name(name)
       raise ConfigurationError, "resource #{key} is mapped twice" if @resources.key?(key)
+      raise ConfigurationError, "resource #{key} has `tenant_optional:` but no `tenant:`" if tenant_optional && !tenant
 
       @resources[key] = Resource.new(name: key, owner: owner, kind: kind, public_if: public_if, tenant: tenant,
-                                     permits: permits)
+                                     tenant_optional: tenant_optional ? true : false, permits: permits)
     end
 
     # Overrides one rule of a policy: its op, when the naming convention gets

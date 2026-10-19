@@ -120,6 +120,7 @@ Mapping options for `resource`:
 | `kind: :profile` | each record describes exactly one user | `:object` |
 | `public_if:` | a predicate (some records are public) or `true` (all are) | never public |
 | `tenant:` | association naming the record's tenant | none: the record lives outside tenants |
+| `tenant_optional: true` | some records have no tenant (an article posted by its author alone); roles held outside tenants count for those | every record of a resource with `tenant:` has one |
 | `permits:` | for the collectors, a user's explicit permission on one record (a collaborator, a share): a lambda `(user, record)` or a method on the user, returning `true` for every op, or `:read`, `:write` or a list | nobody holds one |
 
 `grant :role, :read_or_write, "Resource"` declares an intended permission:

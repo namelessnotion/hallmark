@@ -192,6 +192,19 @@ class ModelBuilderTest < Minitest::Test
     assert_includes source, "fact Page_has_no_tenant { no Page <: tenant }"
   end
 
+  # Forem: an article lives in an organization or in none.
+  def test_records_with_an_optional_tenant_live_in_at_most_one
+    model = build do
+      map do
+        tenant "Organization", membership: "OrganizationMembership"
+        resource "Article", owner: :user, tenant: :organization, tenant_optional: true
+      end
+      writes "ArticlesController#update", "Article", guard: logged_in & owner
+    end
+
+    assert_includes model.source, "fact Article_in_at_most_one_tenant { all r: Article | lone r.tenant }"
+  end
+
   def test_tenants_that_are_users_hold_their_self_role_in_themselves
     source = storefront.source
 

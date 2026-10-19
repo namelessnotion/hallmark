@@ -286,7 +286,7 @@ check ProjectsUpdateIsSafe for 4 but 1 Org  -- no counterexample: the bug is inv
 
 - `sig Tenant { user: lone User }`: when tenants are users (`self: :owner`), facts make `user` a bijection onto the tenants, give each tenant's user the self role in a membership of its own tenant, and give that role to nobody else.
 - `sig Membership { member: one User, within: one Tenant, roles: set Role }`, at most one per user and tenant.
-- `abstract sig Resource { owner: lone User, tenant: lone Tenant }`: a tenant-aware resource has exactly one tenant; any other has none. An analysis without a tenant gets `no Tenant and no Membership`, so its patterns are exactly SPACE's.
+- `abstract sig Resource { owner: lone User, tenant: lone Tenant }`: a tenant-aware resource has exactly one tenant; any other has none. An analysis without a tenant gets `no Tenant and no Membership`, so its patterns are exactly SPACE's. A resource mapped with `tenant_optional: true` (added Oct 18, 2026, for Forem, whose articles belong to an organization or to none) has at most one (`lone r.tenant`); for a record with none the collectors count roles held outside tenants, as `rolesFor` does.
 - `rolesFor[p, r]` is the principal's roles in the record's tenant, or its roles outside tenants (`assigned`) when the record has none. Ownership also requires membership in the record's tenant (M3); the administrator and explicit-permission patterns use `rolesFor`.
 - Platform staff: `sig PlatformRole in Role`, pinned to the declared platform roles. Holders may do anything in any tenant. In a tenant-aware mapping, users hold only platform roles outside tenants, and the analysis rejects a guard that checks any other role there (it would pass vacuously).
 - Guards in a tenant-aware model take `[p: Principal, cur: Tenant, r: <Sig>]`, so the witness carries the skolem `$<check>_cur`. Guard terms: `role(:x, tenant: :current | :record | :any)` and `in_current_tenant` (`r.tenant = cur`).
@@ -611,6 +611,24 @@ Gaps it showed and left open:
 - **Stubbed policies.** A controller spec that replaces the policy with an `instance_double` drops its stamp with a warning; harmless, but the warning reads like an error.
 - **Collaborator witnesses** also carry the role the collaborator held in their own account (`permitted & role(:owner, tenant: :current)`), which is true of the stamp but irrelevant to the decision.
 
+## Phase 1 gate run: Forem (Pundit)
+
+On Oct 18, 2026 Hallmark ran on Forem at `b042765` (`main`, Oct 16, 2026; Pundit 2.3.1, Rolify 6.0.1, Rails 8.0.5, Ruby 3.3.0), scoped to `ArticlePolicy` and `OrganizationPolicy` and the controllers that authorize an `Article` or an `Organization` with them; organizations are the tenants. Forem's history has no past authorization fix inside a Pundit policy that the catalog can see (its policy fixes are suspension rules, which need the unbuilt `c.restrict`; forem/forem#23899's membership bug lived in controller code), so the gate's bug had to be live. The findings log is private (disclosure rule under "Roadmap"); this section records only what the run taught Hallmark.
+
+- **Run.** Two policy specs, 15 request spec files and one probe spec, 790 examples, 0 failures with or without the collectors, in Docker (Forem's CI images and steps). 111 stamps. `hallmark check` built 33 checks: 7 counterexamples, all one live finding (triaged in the log, accepted as the gate's bug, not yet reported), the rest with no counterexample within scope 5, none unknown; the whole run took 2.9 s on the CLI and 2.4 s on a cold sidecar, with identical findings. 25 entry points were flagged as unchecked (threat 10), all intended (public API reads, author-scoped API writes, personal analytics, a membership action authorized by hand) and now `allow_unchecked`.
+- **Setup notes.** Hallmark loads through a local initializer (`HALLMARK_LIB`), as on GitLab, so Forem's Gemfile is untouched. Forem makes Rolify's `has_role?` private, so the mapping reads roles through its `Authorizer`.
+
+What the run found in Hallmark, fixed in the same change:
+
+- **Records with an optional tenant.** A personal article has no organization. `resource ..., tenant_optional: true` ("The shipped encoding").
+
+Gaps it showed and left open:
+
+- **Policy specs that call rules directly.** Forem's policy specs call `policy.public_send(:update?)` (pundit-matchers' `permit_actions` works the same way), so neither `authorize` nor `permit` runs and the role evidence they hold leaves no stamp. Only request specs fed this run.
+- **Authorization outside Pundit.** Forem decides several organization questions with hand-written checks in controllers; the collectors see none of them.
+- **Platform roles are all or nothing.** Super moderators may unpublish and retag any article but not edit it; mapped as a platform role, they may do anything.
+- **Report wording.** With no `current_tenant` declared, witnesses still name "the current tenant" and suggest checking it (also seen on GitLab); the "intended pattern" line can name explicit permission when no resource is mapped with `permits:`.
+
 ## Roadmap
 
 The spike is deliberately small: shell out to the 6.2 CLI, hand-write the generated `.als` for one demo app, and prove the loop end to end before building the sidecar.
@@ -620,7 +638,7 @@ A working spike in two weeks, a usable gem by week 6. Weeks are estimates for on
 | Phase | Weeks | Delivers | Exit gate | Status |
 | --- | --- | --- | --- | --- |
 | 0. Spike | 1 to 2 | CLI backend, `catalog.als`, one demo app | MediumClone bugs reproduced | Done Oct 15, 2026 |
-| 1. Core gem | 3 to 6 | Tenant-aware DSL, collectors and stamp store, sidecar shim, RSpec matchers (in that order) | 3 apps, one per library (Pundit, Action Policy, DeclarativePolicy): each check under 10 s with no unknown, a triaged findings log, and one confirmed real bug per app | Deliverables built: tenant-aware catalog and DSL, then collectors, stamp store and Railtie, then the sidecar (Oct 15, 2026), then the RSpec matchers (Oct 16, 2026). Gate open: first real-app run on Gumroad (Pundit, not a gate app) Oct 16, 2026; no gate app run yet |
+| 1. Core gem | 3 to 6 | Tenant-aware DSL, collectors and stamp store, sidecar shim, RSpec matchers (in that order) | 3 apps, one per library (Pundit, Action Policy, DeclarativePolicy): each check under 10 s with no unknown, a triaged findings log, and one confirmed real bug per app | Deliverables built: tenant-aware catalog and DSL, then collectors, stamp store and Railtie, then the sidecar (Oct 15, 2026), then the RSpec matchers (Oct 16, 2026). Gate open: first real-app run on Gumroad (Pundit, not a gate app) Oct 16, 2026; GitLab (DeclarativePolicy) run Oct 17, 2026 on pipeline schedules at the commit before gitlab-org/gitlab!132952: 9 checks in 1.7 s, no unknown, one counterexample (the historical bug), and none at the fix (`c1a85e83ac3`); GitLab meets the gate's criteria, with the controller checks blind (abilities checked on a container); Forem (Pundit) run Oct 18, 2026 on articles and organizations at `b042765`: 33 checks in 2.9 s, no unknown, 7 counterexamples from one live finding (private log), accepted as Forem's gate bug Oct 18, 2026, so Forem meets the gate's criteria; Action Policy (the Gumroad port) remains |
 | 2. Extractor | 7 to 10 | Prism guards, drift reports, SARIF, GraphQL schema walk, field-level mapping | Bug yield compared with SPACE | |
 | 3. Runtime | 11 to 14 | Shadow and sampled modes, GraphQL tracing, revocation checks | Hot-path budget met in benchmark | |
 | 4. Hardening | 15 on | JRuby backend, native-image, CI integrations | | |
@@ -658,8 +676,14 @@ Open questions:
 - [x] Phase 1 target apps, one per library. Pundit: decided Oct 15, Forem (Pundit plus Rolify), with HCB, Mastodon and rubygems.org as alternates; the Gumroad differential runs as a test, not a gate app. DeclarativePolicy: a slice of GitLab. Action Policy: decided Oct 15, Gumroad with its Pundit policies ported to Action Policy (no open-source app uses Action Policy; Gumroad has no Pundit scope classes, has 56 policy specs, is MIT licensed, and its per-seller team roles exercise the tenant-aware checks; running Hallmark on both versions cross-checks the two adapters). Mastodon is the fallback. Details in `CLAUDE.md`.
 - [ ] License: Apache-2.0 to match Alloy, or MIT?
 - [ ] Does a confirmed authorization flaw with no security impact (an over-broad rule whose only unscoped caller exposes nothing) count as the gate's "confirmed real bug"? The first Gumroad run found one; see the private findings log.
+- [ ] Ruby floor (Oct 17, 2026): the gemspec asks for Ruby 3.2, but `lib/` loads and collects on 3.1.4 (GitLab at the gate commit runs 3.1, so Hallmark loaded through a local initializer instead of Bundler). Lower `required_ruby_version` to 3.1, or keep 3.2 and document the workaround?
+- [x] Does Forem's live finding count as its gate bug? Decided Oct 18, 2026: yes. It is confirmed by a probe spec at `b042765` and is a flaw by the catalog, though Forem documents no intent either way; see the private log.
+- [ ] Report Forem's finding through dev.to/security: when, and by whom? Nothing about it is published until Forem fixes it or the policy's deadline passes.
+- [ ] Policy specs that call rules directly (Oct 18, 2026, not built): Forem's specs call `policy.public_send(rule)` and pundit-matchers does the same, so the Pundit collector sees neither `authorize` nor `permit`. Stamping them needs a hook on each policy class's rule methods that skips calls made inside `authorize`.
 - [ ] Does any target app need JRuby, or can the JRuby backend wait until after phase 4?
 - [ ] Global abilities and headless policies (Oct 17, 2026, design note; not built): they are stamped class-level and not modeled. They usually gate platform staff (GitLab's `GlobalPolicy`, an admin dashboard), so they could later map to the catalog's platform-staff and administrator patterns through a named pseudo-resource (say `resource :global`) with no tenant, owner or record facts.
+- [ ] Abilities checked on a container (Oct 17, 2026, design note; not built): GitLab checks `read_pipeline_schedule` against the `Project` on the schedules page and the list API, and the project's publicity (`public?`) is wider than its schedules' (`public? && public_builds?`), so mapped as a read of `Project` those checks show no finding. The mapping needs a way to say that an ability on a container guards the contained records, with their facts read from the container; for example a per-rule `resource:` that also applies to stamps, with the contained resource's `public_if:` taking the container.
+- [ ] Grape entry points (Oct 17, 2026, not built): the controller collector is a Rails `around_action`, so GitLab's REST API (Grape) stamps rules with no entry point, and `hallmark check` builds no exposure for them; only the matchers check those rules. Seen on the GitLab run: the API spec's leaking allows surfaced only through the rule's other entry point (GraphQL).
 - [ ] Tenancy style: v1 assumes shared tables with an org foreign key. Does any target app use schema-per-tenant (Apartment-style), which hides the org from the data layer?
 
 ## Sources

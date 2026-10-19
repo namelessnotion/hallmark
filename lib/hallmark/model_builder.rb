@@ -186,6 +186,7 @@ module Hallmark
       return [] unless mapping.tenancy
 
       sig = resource.alloy_sig
+      return ["fact #{sig}_in_at_most_one_tenant { all r: #{sig} | lone r.tenant }"] if resource.tenant_optional?
       return ["fact #{sig}_in_one_tenant { all r: #{sig} | one r.tenant }"] if resource.tenanted?
 
       ["fact #{sig}_has_no_tenant { no #{sig} <: tenant }"]

@@ -20,7 +20,10 @@ Phase 0 (spike) is done. Phase 1's deliverables are built: step 1
 step 3 (solver sidecar) and step 4 (RSpec matchers). Its exit gate, Hallmark
 on three real apps, is still open and is the next work. See "Next work"
 below. The first real-app run (original Gumroad on Pundit, Oct 16, 2026, not
-a gate app) is in "First run on original Gumroad" below.
+a gate app) is in "First run on original Gumroad" below. Gate runs so far:
+GitLab (DeclarativePolicy, Oct 17, 2026) and Forem (Pundit, Oct 18, 2026),
+both meeting the gate's criteria, in "GitLab slice" and "Forem slice" below;
+Action Policy (the Gumroad port) has not started.
 
 Built:
 
@@ -35,7 +38,9 @@ Built:
 - `examples/medium_clone`: reproduces both bugs from the SPACE paper's
   Figure 2, and the fixed version verifies (the phase 0 exit gate)
 - Tenant-aware mapping: `tenant` (with `membership:`, `member:`, `roles:`
-  and `self:`), `current_tenant`, `platform_role`, `resource ..., tenant:`;
+  and `self:`), `current_tenant`, `platform_role`, `resource ..., tenant:`
+  (with `tenant_optional: true` when some records have none, as Forem's
+  personal articles);
   class constants or strings (constants only where the app is loaded: the
   Railtie and the matchers; `bin/hallmark` stops with an error naming the
   class). Guards: `role(:x, tenant: :current | :record | :any)` and
@@ -94,7 +99,7 @@ explicit permission on one record, for Gumroad's collaborators).
 bundle install
 bin/hallmark install-alloy                 # Alloy 6.2.0 to ~/.cache/hallmark, SHA-256 verified; needs Java 17+
 bin/hallmark install-sidecar               # also builds the sidecar jar (javac + jar from a JDK 17+); no extra download
-bundle exec rake test                      # 199 tests; the 18 integration tests skip without the jar or sidecar
+bundle exec rake test                      # 203 tests; the 18 integration tests skip without the jar or sidecar
 bundle exec rubocop                        # lint
 bundle exec srb tc                         # type-check lib/ against rbi/; `rake` runs tests, rubocop, then this
 bin/hallmark check examples/medium_clone/hallmark.rb    # exits 1 (two counterexamples, expected)
@@ -349,6 +354,68 @@ Devise's `sign_in` in controller specs without eager loading), then `ruby
 ../namelessnotion/hallmark/bin/hallmark check config/hallmark.rb`. The spec
 list is in the findings folder.
 
+### GitLab slice (DeclarativePolicy)
+
+Declared Oct 17, 2026, for the gate's "past security fix reproduced" bug:
+[gitlab-org/gitlab!132952](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/132952)
+(public, HackerOne, severity::3). Before it, `ProjectPolicy` enabled
+`:read_pipeline_schedule` for anyone with `public_access`, so non-members
+read pipeline schedules of a public project with "Public pipelines" off.
+Pinned at the fix's first parent,
+`7ce3a7de2db1048b1ae0802e4e76ed04a282fd07`, shallow-fetched to
+`~/Repos/gitlab` (not forked). Slice: `read_pipeline_schedule` on
+`ProjectPolicy` and `Ci::PipelineSchedulePolicy`, and the controller, REST
+and GraphQL paths that check it. GitLab's own pre-fix
+`spec/requests/api/ci/pipeline_schedules_spec.rb` expects the leak ("with
+public project", `public_builds: false`), so the stamps should show it with
+no probe spec. The mapping is `config/hallmark.rb` in that checkout; the
+private log `~/Repos/hallmark-findings/gitlab.md` has a hand-written
+preview and the gaps found while mapping (Grape entry points, abilities
+checked on a container, visibility levels).
+
+Run Oct 17, 2026 in Docker with GitLab's own CI images (recipe in
+`~/Repos/hallmark-findings/gitlab-7ce3a7d/env/`). Hallmark loads through a
+local initializer (`config/initializers/zz_hallmark.rb`, `HALLMARK_LIB`),
+since this GitLab runs Ruby 3.1 and the gemspec asks for 3.2. Four spec
+files, no new failures with the collectors on; 9 checks, 1.7 s for the
+whole run, no unknown. One counterexample, the historical bug (a signed-in
+non-member reads a schedule that is not public), attached to
+`GraphqlController#execute` because the REST API (Grape) stamps carry no
+entry point. The controller checks pass but are blind (checked against the
+`Project`). Rerun at the fix, `c1a85e83ac3` (only the MR's four files differ): no counterexamples in 9 checks, no unknown; the two leaking allows are denies there. Run `bin/hallmark` from
+this checkout with `HALLMARK_STAMPS=~/Repos/gitlab/tmp/hallmark`, not from
+`~/Repos/gitlab`, whose `.ruby-version` makes mise build Ruby 3.1.4.
+
+### Forem slice (Pundit)
+
+Run Oct 18, 2026 at `b042765feee028e21f92159c845f615354e24a62` (`main`,
+Oct 16, 2026; Pundit 2.3.1, Rolify 6.0.1, Rails 8.0.5, Ruby 3.3.0), a
+blobless clone at `~/Repos/forem` (not forked). Slice: `ArticlePolicy` and
+`OrganizationPolicy` and the controllers that authorize an `Article` or an
+`Organization` with them; organizations are the tenants, and an article's
+organization is optional (`tenant_optional: true`, built for this run).
+Forem's history has no past authorization fix inside a policy that the
+catalog can see, so the bug is live: one finding, confirmed with a probe
+spec and unreported; details only in the private log
+`~/Repos/hallmark-findings/forem.md` (keep them out of this repository until
+Forem has fixed it). 790 examples, 0 failures with the collectors on; 33
+checks in 2.9 s (CLI) and 2.4 s (sidecar), no unknown, 7 counterexamples
+from that one finding. Anthony accepted it as Forem's gate bug (Oct 18,
+2026), so Forem meets the gate's criteria; reporting it is an open question
+below.
+
+The mapping (`config/hallmark.rb`), a local initializer
+(`config/initializers/zz_hallmark.rb`, `HALLMARK_LIB`) and the probe spec are
+untracked files in that checkout. Docker recipe in
+`~/Repos/hallmark-findings/forem/env/` (Forem's CI steps; the database is on
+tmpfs, so reload the schema after a restart). Run `bin/hallmark` from this
+checkout with `HALLMARK_STAMPS=~/Repos/forem/tmp/hallmark HALLMARK_RUN=slice`;
+Forem's `.ruby-version` (3.3.0) is not installed on the host. `bundle
+install` in the container prunes three gems from Forem's `vendor/cache`;
+restore them with `git checkout -- vendor/cache`. Forem's policy specs call
+rules directly (`policy.public_send(rule)`), which no collector sees yet, so
+only request specs feed the stamps.
+
 Passing the gate, per app (decided Oct 15, 2026):
 
 - a declared slice (Gumroad: `LinkPolicy` and the controllers that call it);
@@ -515,3 +582,5 @@ Railtie lands.
 - Whether a confirmed authorization flaw with no security impact counts as
   a gate app's "confirmed real bug" (the first Gumroad run found one; see the
   private findings log).
+- Whether and when to report Forem's live finding through dev.to/security
+  (it counts as Forem's gate bug, decided Oct 18, 2026).

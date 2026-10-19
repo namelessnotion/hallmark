@@ -74,6 +74,13 @@ class MappingTest < Minitest::Test
     assert_match(/resource Project has a tenant, but the map block declares no `tenant`/, error.message)
   end
 
+  def test_an_optional_tenant_needs_a_tenant
+    error = assert_raises(Hallmark::ConfigurationError) do
+      analysis { map { resource "Article", owner: :user, tenant_optional: true } }
+    end
+    assert_match(/resource Article has `tenant_optional:` but no `tenant:`/, error.message)
+  end
+
   def test_current_tenant_and_platform_roles
     mapping = analysis do
       map do

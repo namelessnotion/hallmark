@@ -25,6 +25,10 @@ module Hallmark
       sig { returns(T.nilable(Symbol)) }
       def tenant; end
 
+      # True when some records have no tenant
+      sig { returns(T.nilable(T::Boolean)) }
+      def tenant_optional; end
+
       # How the collectors read a user's explicit permissions on one record
       sig { returns(Collectors::Source) }
       def permits; end
@@ -36,10 +40,11 @@ module Hallmark
           kind: Symbol,
           public_if: T.nilable(T.any(Symbol, T::Boolean)),
           tenant: T.nilable(Symbol),
+          tenant_optional: T.nilable(T::Boolean),
           permits: Collectors::Source
         ).void
       end
-      def initialize(name:, owner:, kind:, public_if:, tenant:, permits: nil); end
+      def initialize(name:, owner:, kind:, public_if:, tenant:, tenant_optional: nil, permits: nil); end
 
       sig { returns(String) }
       def alloy_sig; end
@@ -55,6 +60,9 @@ module Hallmark
 
       sig { returns(T::Boolean) }
       def tenanted?; end
+
+      sig { returns(T::Boolean) }
+      def tenant_optional?; end
 
       sig { returns(T::Boolean) }
       def permits?; end
@@ -229,10 +237,11 @@ module Hallmark
         kind: Symbol,
         public_if: T.nilable(T.any(Symbol, T::Boolean)),
         tenant: T.nilable(Symbol),
+        tenant_optional: T::Boolean,
         permits: Collectors::Source
       ).returns(Resource)
     end
-    def resource(name, owner: nil, kind: :object, public_if: nil, tenant: nil, permits: nil); end
+    def resource(name, owner: nil, kind: :object, public_if: nil, tenant: nil, tenant_optional: false, permits: nil); end
 
     sig do
       params(
