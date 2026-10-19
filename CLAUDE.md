@@ -31,6 +31,9 @@ controllers' own `before_action`s (fixed Oct 19, 2026); GitLab and Forem,
 rerun with the fix the same day, gave identical results and still meet the
 gate.
 
+Decided Oct 19, 2026: Hallmark is Apache-2.0 (`LICENSE`), and DeclarativePolicy
+is the first-class adapter.
+
 Built:
 
 - `data/hallmark/catalog.als`: SPACE's patterns (ownership, public objects,
@@ -246,9 +249,11 @@ the quantified variables named `p`, `r` and `cur`.
 
 ## Conventions
 
-- Ruby 3.2+ (endless methods, anonymous block forwarding are fine, but never
-  forward an anonymous `&` from inside another block: Ruby 3.3.0, which
-  Forem runs, rejects it with a SyntaxError; check with each Ruby's
+- Ruby 3.2+, and the floor stays there (decided Oct 19, 2026; 3.1 apps such as
+  GitLab at the gate commit load `lib/` through a local initializer,
+  unsupported). Endless methods and anonymous block forwarding are fine, but
+  never forward an anonymous `&` from inside another block: Ruby 3.3.0, which
+  Forem runs, rejects it with a SyntaxError (check with each Ruby's
   `ruby -wc` on `lib/`);
   `# frozen_string_literal: true` everywhere; the test task runs with warnings
   on and should stay warning-free.
@@ -506,8 +511,8 @@ against so results are reproducible.
 Target apps live outside this repository, as separate checkouts or forks
 pinned to a commit. Never copy their code into Hallmark: Forem, Mastodon and
 HCB are AGPL-3.0, GitLab mixes MIT with its proprietary `ee/` directory, and
-Hallmark's own license is not chosen yet. Short excerpts in docs, with a
-link to the source, are fine.
+Hallmark is Apache-2.0. Short excerpts in docs, with a link to the source,
+are fine.
 
 ### Porting Gumroad to Action Policy
 
@@ -642,8 +647,5 @@ Railtie lands.
 
 ## Open questions (Anthony decides; do not choose)
 
-- License: Apache-2.0 (matches Alloy) or MIT. Until then the README says all
-  rights are reserved; do not add a LICENSE file.
-- First-class adapter: Action Policy, Pundit or DeclarativePolicy.
 - Reserving the `hallmark` name on RubyGems.
 - Whether any target app needs JRuby, and whether any uses schema-per-tenant.

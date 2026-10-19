@@ -400,5 +400,4 @@ policy-code extraction and runtime observation.
 
 ## License
 
-Not chosen yet (Apache-2.0, to match Alloy, or MIT). Until a license file is
-added, all rights are reserved.
+Apache License 2.0, the same license as Alloy; see `LICENSE`.

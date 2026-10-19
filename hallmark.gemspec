@@ -16,6 +16,7 @@ Gem::Specification.new do |spec|
     allowed that no intended pattern allows.
   DESC
   spec.homepage = "https://gitlab.com/namelessnotion/hallmark"
+  spec.license = "Apache-2.0"
   spec.required_ruby_version = ">= 3.2"
 
   spec.metadata["homepage_uri"] = spec.homepage
@@ -24,7 +25,7 @@ Gem::Specification.new do |spec|
 
   # rbi/ carries the Sorbet signatures; srb and Tapioca pick it up from installed gems.
   # solver/ is the sidecar's Java source; `hallmark install-sidecar` builds it on the user's machine.
-  spec.files = Dir["lib/**/*.rb", "rbi/**/*.rbi", "data/**/*.als", "solver/**/*.java", "bin/*", "README.md"]
+  spec.files = Dir["lib/**/*.rb", "rbi/**/*.rbi", "data/**/*.als", "solver/**/*.java", "bin/*", "README.md", "LICENSE"]
   spec.bindir = "bin"
   spec.executables = ["hallmark"]
   spec.require_paths = ["lib"]
