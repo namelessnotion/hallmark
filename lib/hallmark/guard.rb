@@ -10,9 +10,10 @@ module Hallmark
   # from policy code.
   #
   # Guards over tenants read the current tenant `cur` and the record's tenant
-  # `r.tenant`; see `Guard::DSL#role` and `#in_current_tenant`.
+  # `r.tenant`; see `Guard::DSL#role`, `#in_current_tenant` and
+  # `#outside_tenants`.
   class Guard
-    KINDS = %i[none logged_in owner admin role public in_current_tenant permitted and or not].freeze
+    KINDS = %i[none logged_in owner admin role public in_current_tenant outside_tenants permitted and or not].freeze
 
     # Where a role check looks: outside any tenant (nil), in the current
     # tenant, in the record's tenant, or in any tenant at all.
@@ -44,6 +45,7 @@ module Hallmark
       when :role then "#{Naming.role_sig(operands[0])} in #{role_set(operands[1])}"
       when :public then "r in Public"
       when :in_current_tenant then "r.tenant = cur"
+      when :outside_tenants then "no r.tenant"
       when :permitted then "permitted[p, #{op || raise(ArgumentError, "permitted needs the exposure's op")}, r]"
       when :and then "(#{operands[0].to_alloy(op)} and #{operands[1].to_alloy(op)})"
       when :or then "(#{operands[0].to_alloy(op)} or #{operands[1].to_alloy(op)})"
@@ -69,6 +71,7 @@ module Hallmark
         case leaf.kind
         when :role then [leaf.operands[1]].compact
         when :in_current_tenant then [:current]
+        when :outside_tenants then [:record]
         else []
         end
       end.uniq
@@ -77,6 +80,10 @@ module Hallmark
     # Whether this guard reads explicit permissions, which only a resource
     # mapped with `permits:` has.
     def permits? = leaves.any? { |leaf| leaf.kind == :permitted }
+
+    # Whether this guard asks if the record lives outside tenants, which only
+    # a resource mapped with `tenant_optional:` can.
+    def outside_tenants? = leaves.any? { |leaf| leaf.kind == :outside_tenants }
 
     # Role checks held outside any tenant: "Admin" for `admin`, else the role name.
     def roles_outside_tenants
@@ -96,6 +103,7 @@ module Hallmark
       when :role then operands[1] ? "role(:#{operands[0]}, tenant: :#{operands[1]})" : "role(:#{operands[0]})"
       when :public then "public_record"
       when :in_current_tenant then "in_current_tenant"
+      when :outside_tenants then "outside_tenants"
       when :permitted then "permitted"
       when :and then "(#{operands[0]} & #{operands[1]})"
       when :or then "(#{operands[0]} | #{operands[1]})"
@@ -153,6 +161,10 @@ module Hallmark
 
       # The record belongs to the current tenant (Gumroad: `record.user == seller`).
       def in_current_tenant = Guard.new(:in_current_tenant)
+
+      # The record lives in no tenant, as a resource mapped with
+      # `tenant_optional:` may (a personal article, outside any organization).
+      def outside_tenants = Guard.new(:outside_tenants)
 
       # The user holds an explicit permission on the record for the
       # exposure's op (Gumroad: `user.collaborator_for?(record)`).

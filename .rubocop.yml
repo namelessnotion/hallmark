@@ -34,9 +34,10 @@ Metrics/ClassLength:
 
 # Guard#to_alloy and #to_s are one `case` over every guard kind. A lookup
 # table would read better, but Sorbet's strict mode flakily rejects hash
-# constants even with a `T.let` in the RBI (seen Oct 15, 2026).
+# constants even with a `T.let` in the RBI (seen Oct 15, 2026). The limit
+# grows by one with each guard kind (`outside_tenants`, Oct 18, 2026).
 Metrics/CyclomaticComplexity:
-  Max: 13
+  Max: 14
 
 Metrics/MethodLength:
   Max: 20

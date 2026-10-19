@@ -9,9 +9,10 @@ module Hallmark
   # "not observed": between the inferred guard (the OR of the allow-stamps)
   # and everything the rule was never seen to deny. They are listed as
   # conjunctions over the mapped facts, found by splitting the fact space one
-  # fact at a time (logged in, public, owner, explicit permission, record in
-  # the current tenant, then the roles held in each place) and stopping wherever no stamp is
-  # left, so each line covers a whole unexplored region.
+  # fact at a time (logged in, public, owner, explicit permission, record
+  # outside tenants, record in the current tenant, then the roles held in
+  # each place) and stopping wherever no stamp is left, so each line covers
+  # a whole unexplored region.
   #
   # Roles are split by the set held, drawn from no role, each single role,
   # and the sets some stamp shows; combinations of several roles that no
@@ -28,6 +29,9 @@ module Hallmark
     # A rule's not-observed combinations, such as
     # "logged_in & ~in_current_tenant & record_roles=[]".
     Gap = Struct.new(:rule, :resource, :op, :allows, :denies, :combinations, keyword_init: true)
+
+    # Facts an anonymous visitor never has.
+    ANONYMOUS_LACKS = %i[owner permitted record_roles current_roles roles].freeze
 
     attr_reader :gaps, :never_allowed, :unreached, :class_level, :without_op, :unmapped, :redirected
 
@@ -84,15 +88,19 @@ module Hallmark
       out << Dim.new(kind: :public_record, label: "public_record") if resource.public? && !resource.always_public?
       out << Dim.new(kind: :owner, label: "owner") if resource.owned?
       out << Dim.new(kind: :permitted, label: "permitted") if resource.permits?
-      if @mapping.tenancy
-        if resource.tenanted?
-          out << Dim.new(kind: :in_current_tenant, label: "in_current_tenant")
-          out << Dim.new(kind: :record_roles, label: "record_roles", roles: true)
-        end
-        out << Dim.new(kind: :current_roles, label: "current_roles", roles: true)
-      end
+      out.concat(tenant_dims(resource)) if @mapping.tenancy
       out << Dim.new(kind: :roles, label: "roles", roles: true) if outside_roles.any?
       out
+    end
+
+    def tenant_dims(resource)
+      out = []
+      out << Dim.new(kind: :outside_tenants, label: "outside_tenants") if resource.tenant_optional?
+      if resource.tenanted?
+        out << Dim.new(kind: :in_current_tenant, label: "in_current_tenant")
+        out << Dim.new(kind: :record_roles, label: "record_roles", roles: true)
+      end
+      out << Dim.new(kind: :current_roles, label: "current_roles", roles: true)
     end
 
     # Roles held outside tenants: only platform roles in a tenant-aware mapping.
@@ -120,13 +128,15 @@ module Hallmark
     end
 
     # Dimensions the earlier ones already decide: an anonymous visitor owns
-    # nothing and holds no roles, and in the current tenant the current
-    # tenant's roles are the record tenant's.
+    # nothing and holds no roles, a record outside tenants is in no tenant
+    # to hold roles in, and in the current tenant the current tenant's roles
+    # are the record tenant's.
     def implied?(dim, assignment)
-      logged_in = assignment.find { |other, _| other.kind == :logged_in }&.last
-      return true if logged_in == false && %i[owner permitted record_roles current_roles roles].include?(dim.kind)
+      held = assignment.to_h { |other, value| [other.kind, value] }
+      return true if held[:logged_in] == false && ANONYMOUS_LACKS.include?(dim.kind)
+      return true if held[:outside_tenants] == true && %i[in_current_tenant record_roles].include?(dim.kind)
 
-      dim.kind == :current_roles && assignment.any? { |other, value| other.kind == :in_current_tenant && value == true }
+      dim.kind == :current_roles && held[:in_current_tenant] == true
     end
 
     def value(stamp, dim)

@@ -88,6 +88,9 @@ module Hallmark
     sig { returns(T::Array[Unit]) }
     def build_units; end
 
+    sig { params(stamps: T::Array[Stamp], resource: Mapping::Resource).returns(T::Array[Stamp]) }
+    def with_outside_tenants(stamps, resource); end
+
     sig { params(policy: String, rule: String, resource: String, stamps: T::Array[Stamp]).returns(T.nilable(Unit)) }
     def unit_for(policy, rule, resource, stamps); end
 
@@ -111,6 +114,9 @@ module Hallmark
 
     sig { params(stamp: Stamp, resource: Mapping::Resource, out: T::Array[Guard]).void }
     def tenant_literals(stamp, resource, out); end
+
+    sig { params(stamp: Stamp, resource: Mapping::Resource).returns(T::Array[Guard]) }
+    def record_tenant_literals(stamp, resource); end
 
     sig { returns(T::Array[Exposure]) }
     def build_exposures; end

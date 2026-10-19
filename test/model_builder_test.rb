@@ -205,6 +205,19 @@ class ModelBuilderTest < Minitest::Test
     assert_includes model.source, "fact Article_in_at_most_one_tenant { all r: Article | lone r.tenant }"
   end
 
+  def test_outside_tenants_becomes_no_tenant_on_the_record
+    model = build do
+      map do
+        tenant "Organization", membership: "OrganizationMembership"
+        resource "Article", owner: :user, tenant: :organization, tenant_optional: true
+      end
+      writes "ArticlesController#update", "Article",
+             guard: owner & (outside_tenants | role(:admin, tenant: :record))
+    end
+
+    assert_includes model.source, "(r.owner = p and (no r.tenant or Role_admin in rolesIn[p, r.tenant]))"
+  end
+
   def test_tenants_that_are_users_hold_their_self_role_in_themselves
     source = storefront.source
 

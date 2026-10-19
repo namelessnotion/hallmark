@@ -51,6 +51,16 @@ class GuardTest < Minitest::Test
                  (role(:admin, tenant: :current) & in_current_tenant).to_s
   end
 
+  def test_outside_tenants_asks_for_a_record_with_no_tenant
+    guard = owner & outside_tenants
+
+    assert_equal "no r.tenant", outside_tenants.to_alloy
+    assert_equal "(owner & outside_tenants)", guard.to_s
+    assert_equal %i[record], guard.tenants
+    assert_predicate guard, :outside_tenants?
+    refute_predicate owner, :outside_tenants?
+  end
+
   def test_unknown_role_tenants_are_rejected
     assert_raises(ArgumentError) { role(:admin, tenant: :organization) }
   end

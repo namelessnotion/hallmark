@@ -80,6 +80,19 @@ module Hallmark
       groups.sort.filter_map { |(policy, rule, resource), stamps| unit_for(policy, rule, resource, stamps) }
     end
 
+    # Stamps written before `outside_tenants` existed mark a record with no
+    # tenant only by leaving `record_roles` unset (a tenanted record always
+    # has a list, empty for a non-member).
+    def with_outside_tenants(stamps, resource)
+      return stamps unless resource.tenant_optional?
+
+      stamps.map do |stamp|
+        next stamp unless stamp.outside_tenants.nil? && stamp.record_roles.nil?
+
+        Stamp.new(**stamp.to_h, outside_tenants: true)
+      end
+    end
+
     def unit_for(policy, rule, resource, stamps)
       op = @mapping.op_for(policy, rule)
       unless op
@@ -87,7 +100,8 @@ module Hallmark
         return nil
       end
 
-      unit = Unit.new(policy: policy, rule: rule, resource: resource, op: op, stamps: stamps)
+      unit = Unit.new(policy: policy, rule: rule, resource: resource, op: op,
+                      stamps: with_outside_tenants(stamps, @mapping.fetch(resource)))
       assign_guard(unit)
       @coverage.observe(unit)
       unit
@@ -141,17 +155,22 @@ module Hallmark
       out
     end
 
-    # Role literals only: holding a role in a tenant implies membership there.
+    # Where the record lives, then roles; no membership literal, since
+    # holding a role in a tenant implies membership there. A record with no
+    # tenant gets `outside_tenants`, so that an owner's allow on a personal
+    # record does not stand for records in a tenant.
     def tenant_literals(stamp, resource, out)
-      current = Array(stamp.current_roles).sort
-      if resource.tenanted? && stamp.in_current_tenant
-        out << in_current_tenant
-        current.each { |name| out << role(name, tenant: :current) }
-        return
-      end
+      out.concat(record_tenant_literals(stamp, resource)) if resource.tenanted?
+      Array(stamp.current_roles).sort.each { |name| out << role(name, tenant: :current) }
+    end
 
-      Array(stamp.record_roles).sort.each { |name| out << role(name, tenant: :record) } if resource.tenanted?
-      current.each { |name| out << role(name, tenant: :current) }
+    # Where the record lives: outside tenants, in the current tenant, or in
+    # another, with the roles held there.
+    def record_tenant_literals(stamp, resource)
+      return [outside_tenants] if resource.tenant_optional? && stamp.outside_tenants
+      return [in_current_tenant] if stamp.in_current_tenant
+
+      Array(stamp.record_roles).sort.map { |name| role(name, tenant: :record) }
     end
 
     def build_exposures

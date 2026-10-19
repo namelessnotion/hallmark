@@ -43,6 +43,9 @@ module Hallmark
     def in_current_tenant; end
 
     sig { returns(T.nilable(T::Boolean)) }
+    def outside_tenants; end
+
+    sig { returns(T.nilable(T::Boolean)) }
     def granted; end
 
     sig { returns(T.nilable(T::Boolean)) }
@@ -72,6 +75,7 @@ module Hallmark
         public_record: T.nilable(T::Boolean),
         member: T.nilable(T::Boolean),
         in_current_tenant: T.nilable(T::Boolean),
+        outside_tenants: T.nilable(T::Boolean),
         granted: T.nilable(T::Boolean),
         permitted: T.nilable(T::Boolean),
         roles: T.nilable(T::Array[String]),
@@ -82,7 +86,7 @@ module Hallmark
     def initialize(
       entry_point: nil, policy: nil, rule: nil, resource: nil, class_level: nil, enforced: nil, decision: nil,
       raised: nil, logged_in: nil, owner: nil, public_record: nil, member: nil, in_current_tenant: nil,
-      granted: nil, permitted: nil, roles: nil, record_roles: nil, current_roles: nil
+      outside_tenants: nil, granted: nil, permitted: nil, roles: nil, record_roles: nil, current_roles: nil
     ); end
 
     sig { returns(T::Boolean) }

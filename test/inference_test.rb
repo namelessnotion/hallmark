@@ -201,6 +201,57 @@ class InferenceTest < Minitest::Test
     assert_equal %w[A#show H#show], inference.coverage.redirected
   end
 
+  # Articles live in an organization or in none (`tenant_optional:`), with
+  # no current tenant.
+  def article(decision: "allow", **facts)
+    stamp(policy: "ArticlePolicy", resource: "Article", entry_point: "ArticlesController#update",
+          decision: decision, in_current_tenant: nil, current_roles: nil, owner: true, member: true,
+          outside_tenants: false, **facts)
+  end
+
+  def articles(stamps)
+    Hallmark::Analysis.build("Test") do
+      map do
+        tenant "Organization", membership: "OrganizationMembership"
+        resource "Article", owner: :user, tenant: :organization, tenant_optional: true
+      end
+      stamps Hallmark::StampSet.new(stamps)
+    end
+  end
+
+  PERSONAL = { outside_tenants: true, member: false, record_roles: nil }.freeze
+
+  # An owner's allow on a personal article does not stand for articles in an
+  # organization: there the owner was also an organization admin.
+  def test_records_outside_tenants_infer_outside_tenants
+    exposure = articles([article(**PERSONAL), article(record_roles: ["admin"])]).exposures.fetch(0)
+
+    assert_equal "((logged_in & owner) & (outside_tenants | role(:admin, tenant: :record)))", exposure.guard.to_s
+  end
+
+  # Stamps written before `outside_tenants` existed leave it unset.
+  def test_stamps_without_outside_tenants_read_a_missing_tenant_from_record_roles
+    old = article(**PERSONAL, outside_tenants: nil)
+    exposure = articles([old, article(record_roles: ["admin"])]).exposures.fetch(0)
+
+    assert_equal "((logged_in & owner) & (outside_tenants | role(:admin, tenant: :record)))", exposure.guard.to_s
+  end
+
+  def test_an_owner_allowed_in_a_tenant_without_roles_needs_no_outside_tenants
+    guard = articles([article(**PERSONAL), article(member: false, record_roles: [])]).exposures.fetch(0).guard
+
+    assert_equal "(logged_in & owner)", guard.to_s
+  end
+
+  def test_records_outside_tenants_are_a_coverage_dimension
+    gap = articles([article(**PERSONAL), article(decision: "deny", owner: false, record_roles: [])])
+          .inference.coverage.gaps.fetch(0)
+
+    assert_includes gap.combinations, "logged_in & owner & ~outside_tenants"
+    assert_includes gap.combinations, "logged_in & ~owner & outside_tenants"
+    refute(gap.combinations.any? { |line| line.include?(" outside_tenants &") })
+  end
+
   def test_not_observed_lists_whole_regions_no_stamp_reached
     coverage = analysis([
                           stamp(current_roles: ["admin"], record_roles: ["admin"]),

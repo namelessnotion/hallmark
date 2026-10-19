@@ -40,6 +40,9 @@ module Hallmark
     sig { returns(T::Boolean) }
     def permits?; end
 
+    sig { returns(T::Boolean) }
+    def outside_tenants?; end
+
     sig { returns(T::Array[String]) }
     def roles_outside_tenants; end
 
@@ -86,6 +89,9 @@ module Hallmark
 
       sig { returns(Guard) }
       def in_current_tenant; end
+
+      sig { returns(Guard) }
+      def outside_tenants; end
 
       sig { returns(Guard) }
       def permitted; end

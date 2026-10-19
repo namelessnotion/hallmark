@@ -109,6 +109,20 @@ class MappingTest < Minitest::Test
     assert_match(/reads explicit permissions, but Post is mapped without `permits:`/, error.message)
   end
 
+  def test_outside_tenants_needs_a_resource_whose_tenant_is_optional
+    error = assert_raises(Hallmark::ConfigurationError) do
+      Hallmark::Analysis.build("Test") do
+        map do
+          tenant "Organization", membership: "OrganizationMembership"
+          resource "Article", owner: :user, tenant: :organization
+        end
+        writes "ArticlesController#update", "Article", guard: owner & outside_tenants
+      end
+    end
+    assert_match(/asks whether the record lives outside tenants, but Article is mapped without `tenant_optional:`/,
+                 error.message)
+  end
+
   def test_guards_cannot_read_tenants_without_a_tenant
     error = assert_raises(Hallmark::ConfigurationError) do
       analysis do

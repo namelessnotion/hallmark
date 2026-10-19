@@ -219,10 +219,11 @@ module Hallmark
         tenant = read(resource.tenant, record)
         # A record with no tenant (`tenant_optional:`) counts the roles held
         # outside tenants, as the catalog's `rolesFor` does.
-        return { member: false, in_current_tenant: nil, record_roles: nil } if tenant.nil?
+        return { member: false, in_current_tenant: nil, outside_tenants: true, record_roles: nil } if tenant.nil?
 
         roles = user ? roles_in(user, tenant) : []
-        { member: !roles.empty?, in_current_tenant: (tenant == current if current), record_roles: roles }
+        { member: !roles.empty?, in_current_tenant: (tenant == current if current),
+          outside_tenants: (false if resource.tenant_optional?), record_roles: roles }
       end
 
       def outside_roles(user) = user ? names(read(@mapping.principal_roles, user)) : []

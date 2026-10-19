@@ -133,7 +133,7 @@ module Hallmark
 
     def where
       target = record_tenant
-      return "" unless target
+      return @resource.tenant_optional? ? " outside any tenant" : "" unless target
       return " in the current tenant" unless cross_tenant? || current_tenant.nil?
       return " in tenant #{tenant_label(target)}" if anonymous?
 

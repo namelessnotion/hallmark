@@ -3,8 +3,9 @@
 module Hallmark
   class Coverage
     class Dim
-      # A Stamp field: :logged_in, :public_record, :owner, :in_current_tenant,
-      # :record_roles, :current_roles or :roles
+      # A Stamp field: :logged_in, :public_record, :owner, :permitted,
+      # :outside_tenants, :in_current_tenant, :record_roles, :current_roles
+      # or :roles
       sig { returns(Symbol) }
       def kind; end
 
@@ -103,6 +104,9 @@ module Hallmark
 
     sig { params(resource: Mapping::Resource).returns(T::Array[Dim]) }
     def dims(resource); end
+
+    sig { params(resource: Mapping::Resource).returns(T::Array[Dim]) }
+    def tenant_dims(resource); end
 
     sig { returns(T::Array[String]) }
     def outside_roles; end

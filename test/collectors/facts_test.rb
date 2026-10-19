@@ -28,14 +28,14 @@ class FactsTest < Minitest::Test
   def test_a_record_without_its_optional_tenant_counts_roles_outside_tenants
     stamp = stamp_for(Forum::Article.new(@ada, nil))
 
-    assert_equal [true, false, nil, nil, ["admin"]],
-                 stamp.to_h.values_at(:owner, :member, :record_roles, :in_current_tenant, :roles)
+    assert_equal [true, false, true, nil, nil, ["admin"]],
+                 stamp.to_h.values_at(:owner, :member, :outside_tenants, :record_roles, :in_current_tenant, :roles)
   end
 
   def test_a_record_in_its_optional_tenant_counts_roles_there
     stamp = stamp_for(Forum::Article.new(@ada, Forum::Organization.new("acme")))
 
-    assert_equal [true, ["org_admin"]], stamp.to_h.values_at(:member, :record_roles)
+    assert_equal [true, false, ["org_admin"]], stamp.to_h.values_at(:member, :outside_tenants, :record_roles)
   end
 
   private

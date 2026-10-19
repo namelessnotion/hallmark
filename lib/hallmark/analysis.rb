@@ -73,10 +73,11 @@ module Hallmark
       @exposures.each do |exposure|
         resource = @mapping.fetch(exposure.resource)
         validate_tenants!(exposure)
-        next unless exposure.guard.permits? && !resource.permits?
-
-        raise ConfigurationError, "the guard for #{exposure.action} reads explicit permissions, but #{resource.name} " \
-                                  "is mapped without `permits:`"
+        if exposure.guard.permits? && !resource.permits?
+          raise ConfigurationError, "the guard for #{exposure.action} reads explicit permissions, " \
+                                    "but #{resource.name} is mapped without `permits:`"
+        end
+        validate_outside_tenants!(exposure, resource)
       end
       @mapping.grants.each { |grant| @mapping.fetch(grant.resource) }
       self
@@ -111,6 +112,15 @@ module Hallmark
       raise ConfigurationError, "the guard for #{exposure.action} checks #{stray.join(", ")} outside any tenant, " \
                                 "where users hold only platform roles; pass `tenant:` to the role check " \
                                 "or declare `platform_role`"
+    end
+
+    # Only a record whose tenant is optional can live outside tenants: for
+    # any other resource `outside_tenants` is always true or always false.
+    def validate_outside_tenants!(exposure, resource)
+      return unless exposure.guard.outside_tenants? && !resource.tenant_optional?
+
+      raise ConfigurationError, "the guard for #{exposure.action} asks whether the record lives outside tenants, " \
+                                "but #{resource.name} is mapped without `tenant_optional:`"
     end
 
     # Evaluation context for the DSL block, so guard helpers and declarations

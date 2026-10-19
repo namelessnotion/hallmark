@@ -59,6 +59,9 @@ module Hallmark
     sig { params(exposure: Exposure).void }
     def validate_tenants!(exposure); end
 
+    sig { params(exposure: Exposure, resource: Mapping::Resource).void }
+    def validate_outside_tenants!(exposure, resource); end
+
     public
 
     class Builder

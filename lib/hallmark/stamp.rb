@@ -12,6 +12,9 @@ module Hallmark
   # Facts are nil when they do not apply: record facts for a rule checked
   # against a class (`authorize! Link, to: :create?`), tenant facts when the
   # resource lives outside tenants or the mapping has no current tenant.
+  # `outside_tenants` is nil in lines written before Oct 18, 2026; Inference
+  # reads a record-level stamp of a `tenant_optional:` resource with no
+  # `record_roles` as outside tenants.
   Stamp = Struct.new(
     :entry_point,       # "LinksController#update", or nil outside a request (a policy spec, a service object)
     :policy,            # "LinkPolicy"
@@ -26,6 +29,7 @@ module Hallmark
     :public_record,
     :member,            # the user holds a role in the record's tenant
     :in_current_tenant, # the record lives in the current tenant
+    :outside_tenants,   # the record lives in no tenant; nil unless its resource is mapped with `tenant_optional:`
     :granted,           # a mapped grant covers this rule's op for the roles that count
     :permitted,         # the user holds an explicit permission on the record for this rule's op
     :roles,             # roles held outside any tenant

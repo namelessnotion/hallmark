@@ -160,7 +160,11 @@ each tenant holds that role in itself. `role(:name, tenant:)` says where the
 role must be held: `:current` (the current tenant), `:record` (the record's
 tenant) or `:any` (some tenant, an unscoped check). Without `tenant:`, a role
 is held outside tenants, which in a tenant-aware mapping only platform roles
-are. `in_current_tenant` means the record belongs to the current tenant.
+are. `in_current_tenant` means the record belongs to the current tenant,
+and `outside_tenants` that it belongs to none (only for a resource mapped
+with `tenant_optional: true`). Inference adds `outside_tenants` to an
+allow-stamp on a record with no tenant, so an owner's allow on a personal
+article does not stand for articles in an organization.
 
 `bin/hallmark model FILE` prints the generated Alloy model, which is the
 best way to see exactly what is being checked.
