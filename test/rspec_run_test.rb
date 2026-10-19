@@ -124,6 +124,6 @@ class RSpecRunTest < Minitest::Test
     output, status = rspec(File.join("examples", "storefront", "link_policy_spec.rb"))
 
     assert_predicate status, :success?, output
-    assert_includes output, "5 examples, 0 failures"
+    assert_includes output, "8 examples, 0 failures"
   end
 end

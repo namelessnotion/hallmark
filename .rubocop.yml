@@ -28,16 +28,19 @@ Metrics/AbcSize:
 
 # ModelBuilder renders one model section per method and Finding one phrase
 # of the explanation per method; splitting either scatters one output over files.
+# The extractor's index and translator are each one reading of Prism's node
+# kinds, so they are left out rather than split by node kind.
 Metrics/ClassLength:
   Max: 180
-  Exclude: ["test/**/*"]
+  Exclude: ["test/**/*", "lib/hallmark/extractor/source_index.rb", "lib/hallmark/extractor/method_translator.rb"]
 
 # Guard#to_alloy and #to_s are one `case` over every guard kind. A lookup
 # table would read better, but Sorbet's strict mode flakily rejects hash
 # constants even with a `T.let` in the RBI (seen Oct 15, 2026). The limit
-# grows by one with each guard kind (`outside_tenants`, Oct 18, 2026).
+# grows by one with each guard kind (`outside_tenants`, Oct 18, 2026; `never`
+# and `opaque`, Oct 19, 2026).
 Metrics/CyclomaticComplexity:
-  Max: 14
+  Max: 16
 
 Metrics/MethodLength:
   Max: 20

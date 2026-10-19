@@ -60,8 +60,8 @@ module Hallmark
     sig { returns(StampSet) }
     attr_reader :stamps
 
-    sig { params(mapping: Mapping, stamps: StampSet).void }
-    def initialize(mapping, stamps = StampSet.new)
+    sig { params(mapping: Mapping, stamps: StampSet, extractor: T.nilable(Extractor)).void }
+    def initialize(mapping, stamps = StampSet.new, extractor: nil)
       @mapping = T.let(T.unsafe(nil), Mapping)
       @stamps = T.let(T.unsafe(nil), StampSet)
       @units = T.let(T.unsafe(nil), T::Array[Inference::Unit])
@@ -92,6 +92,9 @@ module Hallmark
 
     sig { params(rule: Mapping::Rule, guard: Guard).returns(Result) }
     def from_rule(rule, guard); end
+
+    sig { params(unit: Inference::Unit).returns(String) }
+    def unguarded(unit); end
 
     sig { params(rule: Mapping::Rule).returns(String) }
     def convention(rule); end

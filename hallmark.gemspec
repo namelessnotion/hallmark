@@ -32,4 +32,7 @@ Gem::Specification.new do |spec|
 
   # A bundled gem since Ruby 3.0; declared so Bundler loads it.
   spec.add_dependency "rexml", "~> 3.2"
+  # The extractor's parser. A default gem since Ruby 3.3, but 3.3.0 ships 0.19,
+  # whose node API predates 1.0, and 3.2 ships none.
+  spec.add_dependency "prism", ">= 1.2"
 end

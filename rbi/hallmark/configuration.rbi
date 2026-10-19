@@ -42,6 +42,14 @@ module Hallmark
     sig { returns(String) }
     attr_accessor :stamps
 
+    # The app root the extractor reads policy code under
+    sig { returns(String) }
+    attr_accessor :root
+
+    # Whether to read guards from policy code (HALLMARK_EXTRACT=off: no)
+    sig { returns(T::Boolean) }
+    attr_accessor :extract
+
     sig { returns(T.nilable(Mapping)) }
     attr_reader :mapping
 
@@ -61,6 +69,8 @@ module Hallmark
       @sidecar_jar = T.let(T.unsafe(nil), T.nilable(String))
       @sidecar_heap = T.let(T.unsafe(nil), Integer)
       @stamps = T.let(T.unsafe(nil), String)
+      @root = T.let(T.unsafe(nil), String)
+      @extract = T.let(T.unsafe(nil), T::Boolean)
       @mapping = T.let(T.unsafe(nil), T.nilable(Mapping))
       @mode = T.let(T.unsafe(nil), T.nilable(String))
     end

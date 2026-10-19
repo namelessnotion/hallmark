@@ -6,14 +6,17 @@ module Hallmark
   # expression tree. Guards compose with `&`, `|` and `~` (not), the same
   # operators DeclarativePolicy uses in its rule DSL.
   #
-  # In the phase 0 spike guards are written by hand; phase 2 extracts them
-  # from policy code.
+  # Guards are written by hand, inferred from stamps, or extracted from
+  # policy code (`Hallmark::Extractor`). An extracted guard may hold opaque
+  # leaves, calls the extractor could not read; those never reach Alloy, so
+  # such a guard is checked through `#bounds` (docs/adr/0003).
   #
   # Guards over tenants read the current tenant `cur` and the record's tenant
   # `r.tenant`; see `Guard::DSL#role`, `#in_current_tenant` and
   # `#outside_tenants`.
   class Guard
-    KINDS = %i[none logged_in owner admin role public in_current_tenant outside_tenants permitted and or not].freeze
+    KINDS = %i[none never logged_in owner admin role public in_current_tenant outside_tenants permitted opaque and or
+               not].freeze
 
     # Where a role check looks: outside any tenant (nil), in the current
     # tenant, in the record's tenant, or in any tenant at all.
@@ -39,6 +42,7 @@ module Hallmark
     def to_alloy(op = nil)
       case kind
       when :none then "unguarded"
+      when :never then "(not unguarded)"
       when :logged_in then "authenticated[p]"
       when :owner then "r.owner = p"
       when :admin then "isAdmin[p]"
@@ -47,6 +51,7 @@ module Hallmark
       when :in_current_tenant then "r.tenant = cur"
       when :outside_tenants then "no r.tenant"
       when :permitted then "permitted[p, #{op || raise(ArgumentError, "permitted needs the exposure's op")}, r]"
+      when :opaque then raise ArgumentError, "the opaque call #{operands[0]} cannot be modeled; check a bound instead"
       when :and then "(#{operands[0].to_alloy(op)} and #{operands[1].to_alloy(op)})"
       when :or then "(#{operands[0].to_alloy(op)} or #{operands[1].to_alloy(op)})"
       when :not then "(not #{operands[0].to_alloy(op)})"
@@ -97,6 +102,7 @@ module Hallmark
     def to_s
       case kind
       when :none then "no check"
+      when :never then "never"
       when :logged_in then "logged_in"
       when :owner then "owner"
       when :admin then "admin"
@@ -105,6 +111,7 @@ module Hallmark
       when :in_current_tenant then "in_current_tenant"
       when :outside_tenants then "outside_tenants"
       when :permitted then "permitted"
+      when :opaque then "opaque(`#{operands[0]}`)"
       when :and then "(#{operands[0]} & #{operands[1]})"
       when :or then "(#{operands[0]} | #{operands[1]})"
       when :not then "~#{operands[0]}"
@@ -114,12 +121,67 @@ module Hallmark
 
     def inspect = "#<Hallmark::Guard #{self}>"
 
+    # Whether any leaf is a call the extractor could not read.
+    def opaque? = leaves.any? { |leaf| leaf.kind == :opaque }
+
+    # The opaque leaves, each once, left to right.
+    def opaque_leaves = leaves.select { |leaf| leaf.kind == :opaque }.uniq
+
+    # Opaque-free guards around this one (docs/adr/0003): the lower bound
+    # holds only where this guard holds whatever the opaque calls return
+    # (each opaque leaf false where it allows, true where it is negated), the
+    # upper bound wherever some outcome of them would let it hold. Constants
+    # are folded away, so a bound may be `none` or `never`.
+    def bounds = [bound(true), bound(false)]
+
+    def lower = bound(true)
+    def upper = bound(false)
+
     def ==(other)
       other.is_a?(Guard) && kind == other.kind && operands == other.operands
     end
     alias eql? ==
 
     def hash = [kind, operands].hash
+
+    # `&`, `|` and `~` with `none` (true) and `never` (false) folded away.
+    def self.conjoin(left, right)
+      return right if left.kind == :none
+      return left if right.kind == :none
+      return left if left.kind == :never
+      return right if right.kind == :never
+
+      left & right
+    end
+
+    def self.disjoin(left, right)
+      return left if left.kind == :none || right.kind == :never
+      return right if right.kind == :none || left.kind == :never
+
+      left | right
+    end
+
+    def self.negate(guard)
+      case guard.kind
+      when :none then new(:never)
+      when :never then new(:none)
+      when :not then guard.operands[0]
+      else ~guard
+      end
+    end
+
+    protected
+
+    # `lower` is true for the lower bound; a negation swaps the two.
+    def bound(lower)
+      case kind
+      when :opaque then Guard.new(lower ? :never : :none)
+      when :and then Guard.conjoin(operands[0].bound(lower), operands[1].bound(lower))
+      when :or then Guard.disjoin(operands[0].bound(lower), operands[1].bound(lower))
+      when :not then Guard.negate(operands[0].bound(!lower))
+      else self
+      end
+    end
 
     private
 

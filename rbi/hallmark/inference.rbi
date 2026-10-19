@@ -33,11 +33,15 @@ module Hallmark
       sig { params(basis: T.nilable(String)).returns(T.nilable(String)) }
       def basis=(basis); end
 
+      # The rule as read from code, when an extractor read it
+      sig { returns(T.nilable(Extractor::Extracted)) }
+      def extracted; end
+
       sig do
         params(policy: String, rule: String, resource: String, op: Symbol, stamps: T::Array[Stamp],
-               guard: T.nilable(Guard), basis: T.nilable(String)).void
+               guard: T.nilable(Guard), basis: T.nilable(String), extracted: T.nilable(Extractor::Extracted)).void
       end
-      def initialize(policy:, rule:, resource:, op:, stamps:, guard: nil, basis: nil); end
+      def initialize(policy:, rule:, resource:, op:, stamps:, guard: nil, basis: nil, extracted: nil); end
 
       sig { returns(String) }
       def key; end
@@ -67,10 +71,11 @@ module Hallmark
     sig { returns(T::Array[String]) }
     attr_reader :unchecked
 
-    sig { params(mapping: Mapping, stamp_set: StampSet).void }
-    def initialize(mapping, stamp_set)
+    sig { params(mapping: Mapping, stamp_set: StampSet, extractor: T.nilable(Extractor)).void }
+    def initialize(mapping, stamp_set, extractor: nil)
       @mapping = T.let(T.unsafe(nil), Mapping)
       @stamps = T.let(T.unsafe(nil), T::Array[Stamp])
+      @extractor = T.let(T.unsafe(nil), T.nilable(Extractor))
       @coverage = T.let(T.unsafe(nil), Coverage)
       @units = T.let(T.unsafe(nil), T::Array[Unit])
       @exposures = T.let(T.unsafe(nil), T::Array[Exposure])
@@ -94,8 +99,17 @@ module Hallmark
     sig { params(policy: String, rule: String, resource: String, stamps: T::Array[Stamp]).returns(T.nilable(Unit)) }
     def unit_for(policy, rule, resource, stamps); end
 
+    sig { params(stamped: T::Array[String]).returns(T::Array[Unit]) }
+    def code_units(stamped); end
+
     sig { params(unit: Unit).void }
     def assign_guard(unit); end
+
+    sig { params(unit: Unit).returns(T.nilable([Guard, String])) }
+    def extracted_part(unit); end
+
+    sig { params(unit: Unit).returns(T.nilable([Guard, String])) }
+    def inferred_part(unit); end
 
     sig { params(allows: T::Array[Stamp], resource: Mapping::Resource).returns(Guard) }
     def inferred_guard(allows, resource); end

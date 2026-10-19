@@ -59,6 +59,36 @@ module Hallmark
     sig { returns(Integer) }
     def hash; end
 
+    sig { returns(T::Boolean) }
+    def opaque?; end
+
+    sig { returns(T::Array[Guard]) }
+    def opaque_leaves; end
+
+    # [lower, upper]
+    sig { returns([Guard, Guard]) }
+    def bounds; end
+
+    sig { returns(Guard) }
+    def lower; end
+
+    sig { returns(Guard) }
+    def upper; end
+
+    sig { params(left: Guard, right: Guard).returns(Guard) }
+    def self.conjoin(left, right); end
+
+    sig { params(left: Guard, right: Guard).returns(Guard) }
+    def self.disjoin(left, right); end
+
+    sig { params(guard: Guard).returns(Guard) }
+    def self.negate(guard); end
+
+    protected
+
+    sig { params(lower: T::Boolean).returns(Guard) }
+    def bound(lower); end
+
     private
 
     sig { params(tenant: T.nilable(Symbol)).returns(String) }

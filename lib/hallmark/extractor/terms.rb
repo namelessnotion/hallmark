@@ -1,0 +1,137 @@
+# typed: strict
+# frozen_string_literal: true
+
+module Hallmark
+  class Extractor
+    # What Ruby expressions in policy code mean in catalog terms, keyed by
+    # their normalized source (`Terms.normalize`). Seeded from the mapping,
+    # then extended by its `term` declarations, which win:
+    #
+    #   principal ..., from: :user   user, user.present? (logged_in); user.nil?, user.blank?
+    #   resource ..., owner: :author record.author == user, record.author_id == user.id (owner)
+    #   resource ..., public_if: :published?   record.published? (public_record)
+    #   resource ..., tenant: :user, with current_tenant :seller
+    #                                record.user == seller, record.user_id == seller.id (in_current_tenant)
+    #   platform_role :staff         user.staff, user.staff? (role(:staff))
+    #   resource ..., permits: :collaborator_for?   user.collaborator_for?(record) (permitted)
+    #
+    # A record is never a class in a record-level check, so
+    # `record.is_a?(Class)` is false.
+    class Terms
+      include Guard::DSL
+
+      RECORD = "record"
+
+      def initialize(mapping)
+        @mapping = mapping
+        @global = {}
+        @by_resource = {}
+        seed
+        mapping.terms.each { |source, guard| @global[Terms.normalize(source)] = guard }
+      end
+
+      # The guard a normalized expression stands for when checking a record
+      # of `resource`, or nil.
+      def lookup(source, resource)
+        @global[source] || ((table = resource && @by_resource[resource]) && table[source])
+      end
+
+      # A comparison, in either order. `==` and `eql?` both read as "==".
+      def compare(left, right, resource)
+        lookup("#{left} == #{right}", resource) || lookup("#{right} == #{left}", resource)
+      end
+
+      # Normalized Ruby source: Prism's own reading of it, with spacing,
+      # parentheses around a lone expression, `self.` and the `@` of
+      # instance variables dropped, so `@record.user != seller` and
+      # `record.user != self.seller` both normalize the same way.
+      def self.normalize(source)
+        node = Prism.parse(source.to_s).value.statements.body.first
+        node ? Canonical.new({}).render(node) : source.to_s
+      end
+
+      private
+
+      def seed
+        user = @mapping.principal_source.is_a?(Symbol) ? @mapping.principal_source.to_s : "user"
+        [user, "#{user}.present?"].each { |source| @global[source] = logged_in }
+        ["#{user}.nil?", "#{user}.blank?"].each { |source| @global[source] = ~logged_in }
+        @mapping.platform_roles.each do |name|
+          ["#{user}.#{name}", "#{user}.#{name.delete_suffix("?")}?"].each { |source| @global[source] = role(name) }
+        end
+        @global["#{RECORD}.is_a?(Class)"] = Guard.new(:never)
+        @mapping.resources.each_value { |resource| seed_resource(resource, user) }
+      end
+
+      def seed_resource(resource, user)
+        terms = @by_resource[resource.name] = {}
+        if (reader = resource.owner).is_a?(Symbol)
+          terms["#{RECORD}.#{reader} == #{user}"] = owner
+          terms["#{RECORD}.#{reader}_id == #{user}.id"] = owner
+        end
+        terms["#{RECORD}.#{resource.public_if}"] = public_record if resource.public_if.is_a?(Symbol)
+        terms["#{user}.#{resource.permits}(#{RECORD})"] = permitted if resource.permits.is_a?(Symbol)
+        seed_tenant(terms, resource)
+      end
+
+      def seed_tenant(terms, resource)
+        current = @mapping.current_tenant_source
+        reader = resource.tenant
+        return unless current.is_a?(Symbol) && reader.is_a?(Symbol)
+
+        terms["#{RECORD}.#{reader} == #{current}"] = in_current_tenant
+        terms["#{RECORD}.#{reader}_id == #{current}.id"] = in_current_tenant
+      end
+    end
+
+    # Renders a Prism node as normalized source. `locals` maps a local
+    # variable's name to the node it was assigned and the locals in force
+    # there, so `seller = record.user; seller == user` reads as
+    # `record.user == user`.
+    class Canonical
+      OPERATORS = %i[== != eql? equal? < > <= >= === =~].freeze
+
+      def initialize(locals)
+        @locals = locals
+      end
+
+      def render(node)
+        case node
+        when Prism::CallNode then call(node)
+        when Prism::LocalVariableReadNode then local(node)
+        when Prism::InstanceVariableReadNode then node.name.to_s.delete_prefix("@")
+        when Prism::ParenthesesNode then parentheses(node)
+        when Prism::SymbolNode then ":#{node.unescaped}"
+        when Prism::SelfNode then "self"
+        else node.slice.gsub(/\s+/, " ")
+        end
+      end
+
+      private
+
+      def call(node)
+        receiver = node.receiver
+        name = node.name.to_s
+        return "!#{render(receiver)}" if node.name == :! && receiver
+        return "#{render(receiver)} #{name} #{arguments(node).first}" if OPERATORS.include?(node.name) && receiver
+
+        prefix = receiver && !receiver.is_a?(Prism::SelfNode) ? "#{render(receiver)}." : ""
+        args = arguments(node)
+        "#{prefix}#{name}#{"(#{args.join(", ")})" if args.any?}"
+      end
+
+      def arguments(node) = (node.arguments&.arguments || []).map { |arg| render(arg) }
+
+      def local(node)
+        assigned = @locals[node.name.to_s]
+        assigned ? Canonical.new(assigned[1]).render(assigned[0]) : node.name.to_s
+      end
+
+      def parentheses(node)
+        body = node.body
+        inner = body.is_a?(Prism::StatementsNode) && body.body.size == 1 ? body.body.first : nil
+        inner ? render(inner) : node.slice
+      end
+    end
+  end
+end

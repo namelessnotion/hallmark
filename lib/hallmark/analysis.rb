@@ -53,13 +53,14 @@ module Hallmark
 
     # Adds the exposures inferred from recorded stamps: a StampSet, or a path
     # to a JSONL file or a stamp directory. The mapping must be complete
-    # first, since inference reads its resources, rules and roles.
+    # first, since inference reads its resources, rules and roles. Guards
+    # read from policy code under `c.root` join in (`Extractor.load`).
     def add_stamps(source)
       raise ConfigurationError, "stamps are declared twice in #{name}" if @inference
 
       set = source.is_a?(StampSet) ? source : StampSet.load(source.to_s)
       @mapping.validate!
-      inference = Inference.new(@mapping, set)
+      inference = Inference.new(@mapping, set, extractor: Extractor.load(@mapping))
       @inference = inference
       inference.exposures.each do |exposure|
         add_exposure(action: exposure.action, op: exposure.op, resource: exposure.resource, guard: exposure.guard,

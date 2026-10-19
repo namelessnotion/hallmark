@@ -53,7 +53,7 @@ module Hallmark
     READ_RULES = %w[index? show? edit?].freeze
 
     attr_reader :principal_name, :principal_source, :principal_roles, :resources, :grants, :tenancy,
-                :current_tenant_source, :platform_roles, :rules, :unchecked_allowed
+                :current_tenant_source, :platform_roles, :rules, :unchecked_allowed, :terms
 
     def initialize
       @principal_name = "User"
@@ -66,6 +66,7 @@ module Hallmark
       @platform_roles = []
       @rules = {}
       @unchecked_allowed = []
+      @terms = {}
     end
 
     # An intended permission: every holder of `role` may `op` every record of
@@ -196,6 +197,21 @@ module Hallmark
       READ_RULES.include?(name) ? :read : :write
     end
 
+    # What a Ruby expression in policy code means, for the extractor
+    # (`Hallmark::Extractor`), when the mapping's other declarations do not
+    # say. The source is matched against rule bodies after normalizing
+    # spacing, parentheses, `self.` and instance variables (`@seller` reads
+    # as `seller`); a comparison matches either way round.
+    #
+    #   term "user.role_admin_for?(seller)", role(:admin, tenant: :current)
+    #   term "user.role_admin_for?(record.user)", role(:admin, tenant: :record)
+    def term(source, guard)
+      raise ConfigurationError, "the term for #{source} must be a Hallmark::Guard" unless guard.is_a?(Guard)
+      raise ConfigurationError, "term #{source} is mapped twice" if @terms.key?(source.to_s)
+
+      @terms[source.to_s] = guard
+    end
+
     # Entry points that may finish without an authorization call, such as a
     # public landing page, so they are not flagged as unchecked (threat 10).
     def allow_unchecked(*entry_points)
@@ -250,6 +266,7 @@ module Hallmark
       @rules = @rules.dup
       @platform_roles = @platform_roles.dup
       @unchecked_allowed = @unchecked_allowed.dup
+      @terms = @terms.dup
     end
 
     # A rule's declared resource must be mapped.

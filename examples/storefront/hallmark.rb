@@ -8,6 +8,7 @@
 # summarize.
 #
 # Run: bin/hallmark check examples/storefront/hallmark.rb
+#      bin/hallmark extract examples/storefront/hallmark.rb   (the guards app/policies gives)
 
 Hallmark.analyze "Storefront" do
   map do
@@ -22,6 +23,11 @@ Hallmark.analyze "Storefront" do
     grant :admin, :read, "Link"
     grant :admin, :write, "Link"
     grant :marketing, :read, "Link"
+
+    # What the role checks in app/policies mean, for `hallmark extract`.
+    term "user.role_owner_for?(seller)", role(:owner, tenant: :current)
+    term "user.role_admin_for?(seller)", role(:admin, tenant: :current)
+    term "user.role_marketing_for?(seller)", role(:marketing, tenant: :current)
   end
 
   seller_team = role(:owner, tenant: :current) | role(:admin, tenant: :current)

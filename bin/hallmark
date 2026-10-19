@@ -11,6 +11,8 @@ USAGE = <<~TEXT.freeze
                               A FILE that only maps (config/hallmark.rb) is checked against the
                               stamps the test suite recorded.
     hallmark model FILE       print the Alloy model generated for FILE
+    hallmark extract FILE     print the guard read from each policy rule's code under the app root
+                              (FILE's directory, or its parent when FILE is in config/)
     hallmark install-alloy    download Alloy #{Hallmark::ALLOY_VERSION} and verify its checksum
     hallmark install-sidecar  build the solver sidecar (needs a JDK 17+; installs Alloy first)
     hallmark version
@@ -18,16 +20,55 @@ USAGE = <<~TEXT.freeze
   Environment: HALLMARK_ALLOY_JAR, HALLMARK_JAVA, HALLMARK_SCOPE, HALLMARK_TIMEOUT,
                HALLMARK_SOLVER (cli or sidecar), HALLMARK_SAT_SOLVER (sat4j, minisat, glucose),
                HALLMARK_SIDECAR_JAR, HALLMARK_SIDECAR_HEAP (MB, default 512),
-               HALLMARK_STAMPS (default tmp/hallmark)
+               HALLMARK_STAMPS (default tmp/hallmark), HALLMARK_ROOT (the app whose policy code is read),
+               HALLMARK_EXTRACT (off: guards from stamps and the mapping only)
 TEXT
 
 def load_analyses(files)
   abort USAGE if files.empty?
-  files.each { |file| load_file(file) }
+  files.each do |file|
+    use_root(file)
+    load_file(file)
+  end
   # A mapping with no analyze block: infer the exposures from recorded stamps.
   Hallmark.analyze(File.basename(Dir.pwd)) { stamps } if Hallmark.analyses.empty? && Hallmark.configuration.mapping
   abort "No `Hallmark.analyze` blocks found in #{files.join(", ")}" if Hallmark.analyses.empty?
   Hallmark.analyses
+end
+
+# The app a mapping file belongs to: the parent of its config/ directory
+# (config/hallmark.rb), else the file's own directory. HALLMARK_ROOT wins.
+def use_root(file)
+  return if ENV.key?("HALLMARK_ROOT")
+
+  dir = File.dirname(File.expand_path(file))
+  Hallmark.configuration.root = File.basename(dir) == "config" ? File.dirname(dir) : dir
+end
+
+# Each rule the extractor reads under the app root, with its guard; the
+# bounds when calls in it could not be read (docs/adr/0003).
+def print_extracted(files)
+  abort USAGE unless files.size == 1
+  file = files.fetch(0)
+  use_root(file)
+  load_file(file)
+  mapping = Hallmark.analyses.last&.mapping || Hallmark.configuration.mapping
+  abort "No mapping found in #{file}" unless mapping
+
+  root = Hallmark.configuration.root
+  extractor = Hallmark::Extractor.load(mapping, root)
+  abort "No policy code under #{root} (looked in #{Hallmark::Extractor::DIRS.join(", ")})" unless extractor
+
+  extractor.rules.each { |rule| puts extracted_lines(rule) }
+end
+
+def extracted_lines(rule)
+  checked = rule.resource ? "on #{rule.resource}" : "no mapped resource"
+  head = "#{rule.key} (#{rule.location}; #{checked})"
+  return [head, "  #{rule.guard}"] if rule.exact?
+
+  [head, "  lower: #{rule.lower}", "  upper: #{rule.upper}",
+   *rule.opaque_leaves.map { |leaf| "  not read: `#{leaf.operands[0]}` (#{leaf.operands[1]})" }]
 end
 
 # The CLI does not boot the app, so a mapping that names an app class by
@@ -50,6 +91,8 @@ begin
     exit(Hallmark::Report.exit_code(reports))
   when "model"
     load_analyses(ARGV).each { |analysis| puts Hallmark::ModelBuilder.new(analysis).source }
+  when "extract"
+    print_extracted(ARGV)
   when "install-alloy"
     puts Hallmark::AlloyInstaller.new.install
   when "install-sidecar"

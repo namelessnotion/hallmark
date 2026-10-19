@@ -49,12 +49,13 @@ module Hallmark
       attr_reader :results
 
       sig do
-        params(mapping: T.nilable(Mapping), stamps: T.nilable(T.any(StampSet, String)),
+        params(mapping: T.nilable(Mapping), stamps: T.nilable(T.any(StampSet, String)), root: T.nilable(String),
                solver: T.nilable(Solver::Backend)).void
       end
-      def initialize(mapping: nil, stamps: nil, solver: nil)
+      def initialize(mapping: nil, stamps: nil, root: nil, solver: nil)
         @mapping = T.let(T.unsafe(nil), T.nilable(Mapping))
         @stamps = T.let(T.unsafe(nil), T.nilable(T.any(StampSet, String)))
+        @root = T.let(T.unsafe(nil), T.nilable(String))
         @solver = T.let(T.unsafe(nil), T.nilable(Solver::Backend))
         @policy = T.let(T.unsafe(nil), String)
         @results = T.let(T.unsafe(nil), T::Array[RuleCheck::Result])
@@ -118,9 +119,9 @@ module Hallmark
     class HaveNoCounterexample < Matcher
       sig do
         params(rule: T.any(String, Symbol), mapping: T.nilable(Mapping), stamps: T.nilable(T.any(StampSet, String)),
-               solver: T.nilable(Solver::Backend)).void
+               root: T.nilable(String), solver: T.nilable(Solver::Backend)).void
       end
-      def initialize(rule, mapping: nil, stamps: nil, solver: nil)
+      def initialize(rule, mapping: nil, stamps: nil, root: nil, solver: nil)
         @rule = T.let(T.unsafe(nil), String)
       end
 

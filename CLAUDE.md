@@ -19,8 +19,9 @@ Phase 0 (spike) is done. Phase 1's deliverables are built: step 1
 (tenant-aware catalog and DSL), step 2 (collectors, stamp store, Railtie),
 step 3 (solver sidecar) and step 4 (RSpec matchers). Its exit gate, Hallmark
 on three real apps, passed on Oct 19, 2026, so phase 1 is done. Phase 2 (the
-extractor) started Oct 19, 2026; its plan is "Phase 2 (extractor)" below and
-`docs/PLAN.md` ("Roadmap", "Phase 2 plan"). The gate's record is in
+extractor) started Oct 19, 2026, and its step 1 (Pundit and Action Policy
+rules read from code) was done the same day; the plan is "Phase 2
+(extractor)" below and `docs/PLAN.md` ("Roadmap", "Phase 2 plan"). The gate's record is in
 "Phase 1 (core gem): the gate" below. The first real-app run (original Gumroad on Pundit, Oct 16, 2026, not
 a gate app) is in "First run on original Gumroad" below. Gate runs so far:
 GitLab (DeclarativePolicy, Oct 17, 2026) and Forem (Pundit, Oct 18, 2026),
@@ -92,6 +93,18 @@ Built:
   The `:hallmark` tag sets the subject and runs tagged groups last.
   `examples/storefront/link_policy_spec.rb` runs both on the buggy and fixed
   Storefront. `docs/PLAN.md` ("The shipped matchers") has the choices.
+- Extractor (phase 2 step 1, Oct 19, 2026; `lib/hallmark/extractor.rb` and
+  `lib/hallmark/extractor/`): reads Pundit and Action Policy rules from
+  `app/policies` under `c.root` with Prism, never loading them
+  (`SourceIndex`), translates each into a guard (`MethodTranslator`) over
+  terms from the mapping and its `term "source", guard` declarations
+  (`Terms`). Calls it cannot read become `Guard` kind `:opaque`, which
+  `to_alloy` refuses; `Guard#bounds` gives the lower and upper bounds, and a
+  rule's checked guard is the lower bound OR its inferred guard
+  (`docs/adr/0003`). `Inference`, `RuleCheck` and the matchers take the
+  extractor (`Extractor.load(mapping, root)`, nil without `app/policies` or
+  with `HALLMARK_EXTRACT=off`). `hallmark extract FILE` prints the guards.
+  `docs/PLAN.md` ("The shipped extractor") has the details and limits.
 
 Not built yet, but designed and validated as hand-written models in
 `research/models` (see its README for each check's expected result):
@@ -109,7 +122,7 @@ explicit permission on one record, for Gumroad's collaborators).
 bundle install
 bin/hallmark install-alloy                 # Alloy 6.2.0 to ~/.cache/hallmark, SHA-256 verified; needs Java 17+
 bin/hallmark install-sidecar               # also builds the sidecar jar (javac + jar from a JDK 17+); no extra download
-bundle exec rake test                      # 221 tests; the 20 integration tests skip without the jar or sidecar
+bundle exec rake test                      # 247 tests; the 20 integration tests skip without the jar or sidecar
 bundle exec rubocop                        # lint
 bundle exec srb tc                         # type-check lib/ against rbi/; `rake` runs tests, rubocop, then this
 bin/hallmark check examples/medium_clone/hallmark.rb    # exits 1 (two counterexamples, expected)
@@ -119,6 +132,7 @@ bin/hallmark check examples/storefront/hallmark_fixed.rb
 HALLMARK_SOLVER=sidecar bin/hallmark check examples/storefront/hallmark.rb   # same findings via the sidecar
 bundle exec rspec examples/storefront/link_policy_spec.rb   # the matchers, buggy and fixed; passes (sidecar if built)
 bin/hallmark model FILE                    # print the generated Alloy model; the fastest way to debug
+bin/hallmark extract examples/storefront/hallmark.rb    # guards read from examples/storefront/app/policies
 bundle exec rake fixtures:regenerate       # refresh test/fixtures/{medium_clone,storefront} from a real run
 java -jar ~/.cache/hallmark/alloy-6.2.0.jar exec -c '*' research/models/tenancy.als
 ```
@@ -133,7 +147,12 @@ timestamp, so revert that.
 Settings come from the environment (`HALLMARK_ALLOY_JAR`, `HALLMARK_JAVA`,
 `HALLMARK_SCOPE`, `HALLMARK_TIMEOUT`, `HALLMARK_SOLVER`, `HALLMARK_SAT_SOLVER`,
 `HALLMARK_SIDECAR_JAR`, `HALLMARK_SIDECAR_HEAP`, `HALLMARK_STAMPS`,
-`HALLMARK_MODE`, `HALLMARK_RUN`) or `Hallmark.configure`.
+`HALLMARK_MODE`, `HALLMARK_RUN`, `HALLMARK_ROOT`, `HALLMARK_EXTRACT`) or
+`Hallmark.configure`. `HALLMARK_RUN` names the run the collectors write;
+`hallmark check` ignores it and reads the newest run in `HALLMARK_STAMPS`, so
+to check an older run, point `HALLMARK_STAMPS` at its file (found Oct 19,
+2026). `HALLMARK_ROOT` is the app the extractor reads; the CLI sets it from
+the mapping file (the parent of `config/`, else the file's directory).
 `HALLMARK_SOLVER` picks the backend (`cli`, the default, or `sidecar`);
 until Oct 15, 2026 it named the SAT solver, and a SAT solver name there now
 raises with a pointer to `HALLMARK_SAT_SOLVER`. `HALLMARK_SAT_SOLVER=minisat`
@@ -148,6 +167,7 @@ Test suite, Railtie installs collectors              lib/hallmark/railtie.rb, co
   -> each decision: Collectors::Facts reads facts via the mapping -> Stamp
   -> StampStore: queue, flusher thread, tmp/hallmark/*.jsonl  stamp_store.rb, stamp.rb
 Hallmark.analyze block (`stamps` loads a StampSet: Inference builds the exposures and Coverage)
+  + Extractor: app/policies parsed with Prism, rules as guards   extractor.rb, extractor/*
   -> Analysis (Mapping + Exposures, each with a Guard)       lib/hallmark/analysis.rb, mapping.rb, guard.rb
   -> ModelBuilder: Alloy source, one assert + check per exposure   model_builder.rb
   -> Hallmark.solver (c.solver)                                    solver.rb
@@ -340,7 +360,9 @@ phase 3. Steps, in order:
 1. Extractor core and the Pundit and Action Policy front end
    (`lib/hallmark/extractor/`, `term` in the map block, `hallmark extract`),
    on Gumroad: F6 from its own specs with no probe spec, on both checkouts,
-   then gone with the fix.
+   then gone with the fix. Done Oct 19, 2026 (stamps of run 3's
+   differential pair; outputs in
+   `~/Repos/hallmark-findings/gumroad-b6c62aa/extract1/`, log "Run 4").
 2. Drift (three-valued `Guard#evaluate` over stamp facts; fails `check`).
 3. Static entry points: controller `authorize` calls and filters,
    `verify_authorized` skips, record loading through the current tenant
@@ -514,7 +536,8 @@ indices). In each checkout, with `PATH="$(mise where ruby@3.4.3)/bin:$PATH"`
 (rbenv's shims fail on Gumroad's `.ruby-version`), run `HALLMARK_RUN=<id>
 CI=true DISABLE_SPRING=1 bin/rspec spec/policies/link_policy_spec.rb
 <slice_specs.txt>`, then from this checkout `HALLMARK_STAMPS=<checkout>/tmp/hallmark
-HALLMARK_RUN=<id> bin/hallmark check <checkout>/config/hallmark.rb`. A run
+bin/hallmark check <checkout>/config/hallmark.rb` (it reads the newest run;
+for another, set `HALLMARK_STAMPS` to that run's file). A run
 id cannot contain `-`. `HALLMARK_MODE=off` runs the Pundit checkout without
 the collectors.
 

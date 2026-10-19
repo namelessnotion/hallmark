@@ -8,9 +8,10 @@ module Hallmark
   # alone, named after the rule ("LinkPolicy#update?").
   #
   # A rule's guard is the mapping's hand-written one (`rule ..., guard:`),
-  # else the one inferred from its allow-stamps (docs/adr/0002). A rule with
-  # neither has nothing to check, so its verdict is :not_observed: a coverage
-  # gap, never a finding and never a pass.
+  # else the lower bound of the guard read from its code (when an extractor
+  # is given; docs/adr/0003) OR the one inferred from its allow-stamps
+  # (docs/adr/0002). A rule with none has nothing to check, so its verdict
+  # is :not_observed: a coverage gap, never a finding and never a pass.
   #
   #   check = Hallmark::RuleCheck.new(mapping, Hallmark::StampSet.load("tmp/hallmark"))
   #   check.check("LinkPolicy", ["update?"]).each { |result| puts result.lines }
@@ -38,15 +39,15 @@ module Hallmark
 
     attr_reader :mapping, :stamps
 
-    def initialize(mapping, stamps = StampSet.new)
+    def initialize(mapping, stamps = StampSet.new, extractor: nil)
       @mapping = mapping.validate!
       @stamps = stamps
-      @units = Inference.new(mapping, stamps).units
+      @units = Inference.new(mapping, stamps, extractor: extractor).units
     end
 
     # The rules known for a policy, sorted: those stamped against a record of
-    # a mapped resource, and those with a hand-written guard. Rules no test
-    # called are not known; the policy's code is not read until phase 2.
+    # a mapped resource, those read from its code (with an extractor), and
+    # those with a hand-written guard.
     def rules(policy)
       name = Naming.class_name(policy)
       stamped = @units.select { |unit| unit.policy == name }.map(&:rule)
@@ -95,10 +96,8 @@ module Hallmark
       result = Result.new(policy: unit.policy, rule: unit.rule)
       guard = unit.guard
       unless guard
-        denies = unit.denies.size
         result.verdict = :not_observed
-        result.reason = "no allow-stamp was recorded (#{denies} deny-stamp#{"s" unless denies == 1}) " \
-                        "and the mapping declares no guard for it"
+        result.reason = unguarded(unit)
         return result
       end
 
@@ -120,6 +119,14 @@ module Hallmark
       Result.new(policy: rule.policy, rule: rule.name,
                  exposure: Exposure.new(action: rule.key, op: op, resource: resource, guard: guard,
                                         basis: "hand-written for #{rule.key}"))
+    end
+
+    def unguarded(unit)
+      denies = unit.denies.size
+      stamped = "no allow-stamp was recorded (#{denies} deny-stamp#{"s" unless denies == 1})"
+      return "#{stamped} and the mapping declares no guard for it" unless unit.extracted
+
+      "#{stamped}, and its code allows only through calls Hallmark could not read; declare a `term` for them"
     end
 
     # LinkPolicy checks Link, when Link is mapped.

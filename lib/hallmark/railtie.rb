@@ -25,6 +25,7 @@ module Hallmark
       next unless Collectors.enabled?(configuration.mode, environment)
 
       configuration.stamps = app.root.join(configuration.stamps).to_s
+      configuration.root = app.root.to_s
       Collectors.install!
     end
   end

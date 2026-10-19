@@ -126,10 +126,19 @@ module Hallmark
         hidden = gap.combinations.size - COMBINATIONS_SHOWN
         lines << "    and #{hidden} more" if hidden.positive?
       end
+      lines.concat(opaque_lines(coverage))
       coverage_lists(coverage).each do |title, names|
         lines << "  #{title}: #{names.join(", ")}" if names.any?
       end
       lines
+    end
+
+    # Calls inside rules the extractor could not read (docs/adr/0003).
+    def opaque_lines(coverage)
+      return [] if coverage.opaque.empty?
+
+      ["  Calls in rules that Hallmark could not read (the checked guard assumes each one denies):",
+       *coverage.opaque.map { |entry| "    #{entry}" }]
     end
 
     # The coverage lists printed after the per-rule gaps, by title.
@@ -137,6 +146,7 @@ module Hallmark
       {
         "Rules with no observed allow" => coverage.never_allowed,
         "Rules no entry point enforced (seen only in queries or outside requests)" => coverage.unreached,
+        "Rules read from code that no test called (no entry point known)" => coverage.code_only,
         "Rules checked against a class or a name, not a record (not modeled)" => coverage.class_level,
         "Rules with no op (declare `rule POLICY, NAME, op:` in the map block)" => coverage.without_op,
         "Unmapped resources" => coverage.unmapped,

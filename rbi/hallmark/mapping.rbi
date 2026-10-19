@@ -169,6 +169,10 @@ module Hallmark
     sig { returns(T::Array[String]) }
     attr_reader :unchecked_allowed
 
+    # Declared terms for the extractor: Ruby source => guard
+    sig { returns(T::Hash[String, Guard]) }
+    attr_reader :terms
+
     sig { returns(T::Hash[String, Resource]) }
     attr_reader :resources
 
@@ -197,6 +201,7 @@ module Hallmark
       @principal_roles = T.let(T.unsafe(nil), Collectors::Source)
       @rules = T.let(T.unsafe(nil), T::Hash[String, Rule])
       @unchecked_allowed = T.let(T.unsafe(nil), T::Array[String])
+      @terms = T.let(T.unsafe(nil), T::Hash[String, Guard])
     end
 
     sig { params(role: T.any(String, Symbol), op: Symbol, resource: T.any(String, Symbol, T::Module[T.anything])).void }
@@ -259,6 +264,10 @@ module Hallmark
 
     sig { params(entry_points: T.any(String, Symbol)).returns(T::Array[String]) }
     def allow_unchecked(*entry_points); end
+
+    # Checked at run time, since callers without Sorbet can pass anything
+    sig { params(source: T.any(String, Symbol), guard: Object).returns(Guard) }
+    def term(source, guard); end
 
     sig { params(name: T.any(String, Symbol, T::Module[T.anything])).returns(Resource) }
     def fetch(name); end

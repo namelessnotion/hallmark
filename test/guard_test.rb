@@ -25,6 +25,43 @@ class GuardTest < Minitest::Test
     assert_raises(ArgumentError) { permitted.to_alloy }
   end
 
+  def opaque(call) = Hallmark::Guard.new(:opaque, call, "app/policies/link_policy.rb:3")
+  def never = Hallmark::Guard.new(:never)
+
+  # docs/adr/0003: an opaque leaf denies in the lower bound and allows in the
+  # upper one, swapped under a negation; constants fold away.
+  def test_bounds_replace_opaque_leaves_by_polarity
+    guard = (logged_in & (opaque("user.beta?") | owner)) | ~opaque("user.banned?")
+
+    assert_predicate guard, :opaque?
+    assert_equal logged_in & owner, guard.lower
+    assert_equal none, guard.upper
+    assert_equal [guard.lower, guard.upper], guard.bounds
+    assert_equal 2, guard.opaque_leaves.size
+  end
+
+  def test_a_negated_opaque_leaf_denies_in_the_lower_bound
+    guard = logged_in & ~opaque("user.banned?")
+
+    assert_equal never, guard.lower
+    assert_equal logged_in, guard.upper
+  end
+
+  def test_bounds_of_a_guard_without_opaque_leaves_are_the_guard
+    guard = logged_in & ~owner
+
+    refute_predicate guard, :opaque?
+    assert_equal [guard, guard], guard.bounds
+    assert_equal never, opaque("x").lower
+    assert_equal none, opaque("x").upper
+  end
+
+  def test_opaque_leaves_never_reach_alloy
+    assert_raises(ArgumentError) { (logged_in & opaque("user.beta?")).to_alloy }
+    assert_equal "(not unguarded)", never.to_alloy
+    assert_equal "(logged_in & opaque(`user.beta?`))", (logged_in & opaque("user.beta?")).to_s
+  end
+
   def test_operators_compose_with_explicit_parentheses
     guard = logged_in & (owner | ~public_record)
     assert_equal "(authenticated[p] and (r.owner = p or (not r in Public)))", guard.to_alloy

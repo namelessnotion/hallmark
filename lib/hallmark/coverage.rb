@@ -21,6 +21,12 @@ module Hallmark
   # `redirected` lists entry points excused from threat 10 by Inference: a
   # GET or HEAD they redirected with no authorization call, while another
   # request to them reached a rule.
+  #
+  # With the extractor (docs/adr/0003), a rule read exactly from code has no
+  # not-observed region, since the code says what it allows everywhere; a
+  # rule with opaque leaves keeps its stamp regions and lists each call
+  # (`opaque`), whose outcome the checked lower bound assumes denies.
+  # `code_only` lists rules read from code that no stamp shows.
   class Coverage
     # One fact a stamp records, as a dimension of the fact space: a boolean,
     # or the set of roles held in one place (`roles` is true).
@@ -30,10 +36,16 @@ module Hallmark
     # "logged_in & ~in_current_tenant & record_roles=[]".
     Gap = Struct.new(:rule, :resource, :op, :allows, :denies, :combinations, keyword_init: true)
 
+    # A call inside a rule the extractor could not read.
+    Opaque = Struct.new(:rule, :call, :location, keyword_init: true) do
+      def to_s = "#{rule}: `#{call}`#{" (#{location})" if location}"
+    end
+
     # Facts an anonymous visitor never has.
     ANONYMOUS_LACKS = %i[owner permitted record_roles current_roles roles].freeze
 
-    attr_reader :gaps, :never_allowed, :unreached, :class_level, :without_op, :unmapped, :redirected
+    attr_reader :gaps, :never_allowed, :unreached, :class_level, :without_op, :unmapped, :redirected, :opaque,
+                :code_only
 
     def initialize(mapping, stamps)
       @mapping = mapping
@@ -47,10 +59,19 @@ module Hallmark
       @without_op = []
       @unmapped = []
       @redirected = []
+      @opaque = []
+      @code_only = []
     end
 
     def observe(unit)
-      @never_allowed << unit.key if unit.allows.empty?
+      extracted = unit.extracted
+      if extracted
+        observe_extracted(unit, extracted)
+        # A rule no stamp shows is listed under `code_only` instead.
+        return if extracted.exact? || unit.stamps.empty?
+      elsif unit.allows.empty?
+        @never_allowed << unit.key
+      end
       combinations = not_observed(unit.stamps, @mapping.fetch(unit.resource))
       return if combinations.empty?
 
@@ -59,7 +80,8 @@ module Hallmark
     end
 
     def empty?
-      [@gaps, @never_allowed, @unreached, @class_level, @without_op, @unmapped, @redirected].all?(&:empty?)
+      [@gaps, @never_allowed, @unreached, @class_level, @without_op, @unmapped, @redirected, @opaque,
+       @code_only].all?(&:empty?)
     end
 
     # Fact combinations, as conjunctions, that none of `stamps` covers.
@@ -74,6 +96,14 @@ module Hallmark
     end
 
     private
+
+    def observe_extracted(unit, extracted)
+      @never_allowed << unit.key if unit.guard.nil? && unit.stamps.any?
+      extracted.opaque_leaves.each do |leaf|
+        entry = Opaque.new(rule: unit.key, call: leaf.operands[0], location: leaf.operands[1])
+        @opaque << entry unless @opaque.include?(entry)
+      end
+    end
 
     # Every role the mapping or any stamp names.
     def role_universe(stamps)

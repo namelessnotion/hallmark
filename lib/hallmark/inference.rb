@@ -2,15 +2,18 @@
 # frozen_string_literal: true
 
 module Hallmark
-  # Turns recorded stamps into exposures, until the phase 2 extractor can
-  # read guards from policy code (docs/adr/0002).
+  # Turns recorded stamps, and the guards the extractor read from policy
+  # code, into exposures (docs/adr/0002 and 0003).
   #
   # A rule's inferred guard is the OR of its allow-stamps, each the
   # conjunction of the facts that held. Only true facts become literals: the
   # catalog allows more as a principal gains roles, ownership or membership,
   # so dropping the false ones changes no verdict and keeps guards readable.
-  # A hand-written guard (`rule ..., guard:` in the map block) replaces the
-  # inferred one.
+  # With an extractor, a rule's guard is the lower bound of its extracted
+  # guard OR the inferred one: both are access the app certainly grants.
+  # Rules the code defines that no stamp shows become units too, with no
+  # entry point. A hand-written guard (`rule ..., guard:` in the map block)
+  # replaces both.
   #
   # An exposure is an entry point, keyed as in docs/adr/0001: its guard is the
   # AND of the rules it enforced (`authorize`, `authorize!`) on one kind of
@@ -27,7 +30,7 @@ module Hallmark
     include Guard::DSL
 
     # One rule as checked against one kind of record.
-    Unit = Struct.new(:policy, :rule, :resource, :op, :stamps, :guard, :basis, keyword_init: true) do
+    Unit = Struct.new(:policy, :rule, :resource, :op, :stamps, :guard, :basis, :extracted, keyword_init: true) do
       def key = "#{policy}##{rule}"
       def allows = stamps.select(&:allow?)
       def denies = stamps.reject(&:allow?)
@@ -40,11 +43,13 @@ module Hallmark
 
     attr_reader :units, :exposures, :coverage, :unchecked
 
-    def initialize(mapping, stamp_set)
+    def initialize(mapping, stamp_set, extractor: nil)
       @mapping = mapping
       @stamps = stamp_set.stamps
+      @extractor = extractor
       @coverage = Coverage.new(mapping, @stamps)
-      @units = build_units
+      stamped = build_units
+      @units = (stamped + code_units(stamped.map(&:key))).sort_by { |unit| [unit.policy, unit.rule, unit.resource] }
       @exposures = build_exposures
       @unchecked = classify_unchecked(stamp_set.unchecked)
     end
@@ -101,21 +106,64 @@ module Hallmark
       end
 
       unit = Unit.new(policy: policy, rule: rule, resource: resource, op: op,
-                      stamps: with_outside_tenants(stamps, @mapping.fetch(resource)))
+                      stamps: with_outside_tenants(stamps, @mapping.fetch(resource)),
+                      extracted: @extractor&.fetch(policy, rule))
       assign_guard(unit)
       @coverage.observe(unit)
       unit
     end
 
+    # Rules the extractor read that have no unit from stamps, on the
+    # resource the mapping or the policy's name gives them.
+    def code_units(stamped)
+      extractor = @extractor
+      return [] unless extractor
+
+      extractor.rules.filter_map do |extracted|
+        resource = extracted.resource
+        next if resource.nil? || stamped.include?(extracted.key)
+        next unless (op = @mapping.op_for(extracted.policy, extracted.rule))
+
+        unit = Unit.new(policy: extracted.policy, rule: extracted.rule, resource: resource, op: op, stamps: [],
+                        extracted: extracted)
+        assign_guard(unit)
+        @coverage.observe(unit)
+        unit
+      end
+    end
+
     def assign_guard(unit)
-      allows = unit.allows
       if (written = @mapping.rules[unit.key]&.guard)
         unit.guard = written
         unit.basis = "hand-written for #{unit.key}"
-      elsif allows.any?
-        unit.guard = inferred_guard(allows, @mapping.fetch(unit.resource))
-        unit.basis = "inferred from #{allows.size} allow-stamp#{"s" unless allows.size == 1} of #{unit.key}"
+        return
       end
+
+      parts = [extracted_part(unit), inferred_part(unit)].compact
+      return if parts.empty?
+
+      unit.guard = parts.map(&:first).reduce { |left, right| Guard.disjoin(left, right) }
+      unit.basis = parts.map(&:last).join("; ")
+    end
+
+    # The extracted guard's lower bound, unless it allows nothing for sure.
+    def extracted_part(unit)
+      extracted = unit.extracted
+      return nil unless extracted
+
+      lower = extracted.lower
+      return nil if lower.kind == :never
+
+      bounded = extracted.exact? ? "" : ", lower bound"
+      [lower, "extracted from #{unit.key} (#{extracted.location}#{bounded})"]
+    end
+
+    def inferred_part(unit)
+      allows = unit.allows
+      return nil if allows.empty?
+
+      [inferred_guard(allows, @mapping.fetch(unit.resource)),
+       "inferred from #{allows.size} allow-stamp#{"s" unless allows.size == 1} of #{unit.key}"]
     end
 
     # Printed as the literals every allow-stamp shares, AND the OR of the
@@ -177,7 +225,11 @@ module Hallmark
       links = Hash.new { |hash, key| hash[key] = [] }
       @units.each do |unit|
         unit.entry_points.each { |entry_point| links[entry_point] << unit }
-        @coverage.unreached << unit.key if unit.entry_points.empty?
+        if unit.stamps.empty?
+          @coverage.code_only << unit.key
+        elsif unit.entry_points.empty?
+          @coverage.unreached << unit.key
+        end
       end
       links.keys.sort.flat_map { |entry_point| exposures_of(entry_point, links.fetch(entry_point)) }
     end

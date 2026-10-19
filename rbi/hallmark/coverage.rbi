@@ -50,6 +50,23 @@ module Hallmark
       def initialize(rule:, resource:, op:, allows:, denies:, combinations:); end
     end
 
+    class Opaque
+      sig { returns(String) }
+      def rule; end
+
+      sig { returns(String) }
+      def call; end
+
+      sig { returns(T.nilable(String)) }
+      def location; end
+
+      sig { params(rule: String, call: String, location: T.nilable(String)).void }
+      def initialize(rule:, call:, location: nil); end
+
+      sig { returns(String) }
+      def to_s; end
+    end
+
     sig { returns(T::Array[Gap]) }
     attr_reader :gaps
 
@@ -73,6 +90,14 @@ module Hallmark
     sig { returns(T::Array[String]) }
     attr_reader :redirected
 
+    # Calls inside rules that the extractor could not read
+    sig { returns(T::Array[Opaque]) }
+    attr_reader :opaque
+
+    # Rules read from code that no stamp shows
+    sig { returns(T::Array[String]) }
+    attr_reader :code_only
+
     sig { params(mapping: Mapping, stamps: T::Array[Stamp]).void }
     def initialize(mapping, stamps)
       @mapping = T.let(T.unsafe(nil), Mapping)
@@ -86,6 +111,8 @@ module Hallmark
       @without_op = T.let(T.unsafe(nil), T::Array[String])
       @unmapped = T.let(T.unsafe(nil), T::Array[String])
       @redirected = T.let(T.unsafe(nil), T::Array[String])
+      @opaque = T.let(T.unsafe(nil), T::Array[Opaque])
+      @code_only = T.let(T.unsafe(nil), T::Array[String])
     end
 
     sig { params(unit: Inference::Unit).void }
@@ -98,6 +125,9 @@ module Hallmark
     def not_observed(stamps, resource); end
 
     private
+
+    sig { params(unit: Inference::Unit, extracted: Extractor::Extracted).void }
+    def observe_extracted(unit, extracted); end
 
     sig { params(stamps: T::Array[Stamp]).returns(T::Array[String]) }
     def role_universe(stamps); end

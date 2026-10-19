@@ -13,8 +13,9 @@ is found, the report says "no counterexample within scope N", never "safe".
 
 ## Status
 
-Phase 1 in progress. It works end to end, on hand-written guards or on
-guards inferred from what the app's test suite did:
+Phase 2 in progress. It works end to end, on hand-written guards, on
+guards inferred from what the app's test suite did, and on guards read from
+Pundit and Action Policy code:
 
 - the pattern catalog (`data/hallmark/catalog.als`), after Near and Jackson's
   SPACE (ICSE 2016): ownership, public objects, authentication, explicit
@@ -35,19 +36,22 @@ guards inferred from what the app's test suite did:
 - RSpec matchers (`require "hallmark/rspec"`): `satisfy_catalog` and
   `have_no_counterexample(:update?)` check a policy's rules one at a time,
   on the sidecar by default
+- an extractor that reads Pundit and Action Policy rules from
+  `app/policies` with Prism, without loading the app, so rules no test
+  reached are checked too (`hallmark extract` prints what it read)
 
 Phase 1 is done: its deliverables are built, and its gate (Hallmark run on
 one real app per authorization library, each with a confirmed real bug)
 passed on Oct 19, 2026.
 
-Not built yet: extracting guards from Pundit, Action Policy and DeclarativePolicy code,
-field-level mapping, and the graphql-ruby schema walk (phase 2); shadow and
-sampled runtime modes, plus GraphQL tracing (phase 3). The models for those
-live in `research/models`.
+Not built yet (phase 2): reading DeclarativePolicy code, controllers and
+routes, drift reports and SARIF output. Phase 3: shadow and sampled runtime
+modes, the graphql-ruby schema walk and tracing, and field-level mapping.
+The models for those live in `research/models`.
 
 ## Requirements
 
-- Ruby 3.2 or newer
+- Ruby 3.2 or newer; the gem depends on `rexml` and `prism`
 - Java 17 or newer, on `PATH` or set with `HALLMARK_JAVA`; a JDK (with
   `javac` and `jar`) to build the optional solver sidecar
 
@@ -272,16 +276,17 @@ It also fails, with its own message, when the solver gave no verdict
 (unknown: raise `HALLMARK_TIMEOUT` or lower the scope) and when a rule has
 nothing to check: no allow-stamp and no hand-written guard. That last case
 is "not observed", a coverage gap rather than a finding, but not a pass.
-`satisfy_catalog` covers the rules the stamps show plus those with a
-hand-written guard; a rule no test called is not known to it. `not_to`
-passes only on a counterexample.
+`satisfy_catalog` covers the rules the stamps show, those read from the
+policy code, and those with a hand-written guard. `not_to` passes only on a
+counterexample.
 
 Where the pieces come from:
 
 - **Mapping:** `let(:hallmark_mapping)` in the example group, else the
   configured mapping (the Railtie loads `config/hallmark.rb`), else
   `config/hallmark.rb` under the working directory.
-- **Guards:** `rule ..., guard:` in the mapping, else inferred from stamps:
+- **Guards:** `rule ..., guard:` in the mapping, else read from the policy
+  code under `let(:hallmark_root)` or the app root, OR inferred from stamps:
   `let(:hallmark_stamps)` (a `StampSet` or a path), else the run the
   collectors are recording in this process, else the run written last in
   `tmp/hallmark`. A hand-written guard on a rule no stamp shows checks the
@@ -289,8 +294,9 @@ Where the pieces come from:
   one given with `rule ..., resource:`.
 - **Solver:** the sidecar, started on the first check and stopped after the
   suite, unless `HALLMARK_SOLVER` or `c.solver` names a backend; the CLI when
-  the sidecar is not built. Storefront's five examples take about 1.7 s on
-  the sidecar (most of it the JVM start) and 4.3 s on the CLI.
+  the sidecar is not built. Storefront's eight examples take about 1.8 to
+  2 s on the sidecar (most of it the JVM start) and 7 s on the CLI (Oct 19,
+  2026).
 
 The `:hallmark` tag makes the policy class (or a name in a string) the
 subject, since Pundit and Action Policy cannot build a policy without a
@@ -305,6 +311,58 @@ on the buggy and fixed Storefront:
 ```bash
 bundle exec rspec examples/storefront/link_policy_spec.rb
 ```
+
+## Reading guards from policy code
+
+When the app root has `app/policies`, Hallmark also reads each Pundit or
+Action Policy rule there and translates it into a guard over catalog terms.
+It parses the code with Prism and never loads it. The root is the Rails
+root under the Railtie, the parent of `config/` for `hallmark check
+config/hallmark.rb`, and `let(:hallmark_root)` in a matcher's group.
+`HALLMARK_EXTRACT=off` turns this off.
+
+It reads boolean operators, `if`/`unless`, early returns, `raise`, Action
+Policy's `allow!`, `deny!`, pre-checks, `alias_rule` and default rule, calls
+to the policy's other rules and private helpers, `super`, local variables,
+and Rails class attributes set in the class body. The mapping says what
+the rest means. Some terms come from what it already declares:
+
+| Code | Guard |
+| --- | --- |
+| `user`, `user.present?` | `logged_in` |
+| `record.author == user` (with `owner: :author`) | `owner` |
+| `record.published?` (with `public_if: :published?`) | `public_record` |
+| `record.user == seller` (with `tenant: :user` and `current_tenant :seller`) | `in_current_tenant` |
+| `user.staff?` (with `platform_role :staff`) | `role(:staff)` |
+| `user.collaborator_for?(record)` (with `permits: :collaborator_for?`) | `permitted` |
+
+`term` declares the others:
+
+```ruby
+term "user.role_admin_for?(seller)", role(:admin, tenant: :current)
+term "user.collaborator_for?(record)", permitted
+```
+
+A call it cannot read stays in the guard as an opaque leaf. Findings come
+only from what the rule allows whatever those calls return (the guard's
+lower bound, `docs/adr/0003`), and the report lists each such call under
+coverage. A rule's checked guard is that lower bound OR the guard inferred
+from its stamps; a hand-written `rule ..., guard:` still replaces both.
+
+```console
+$ bin/hallmark extract examples/storefront/hallmark.rb
+LinkPolicy#edit? (app/policies/link_policy.rb:5; on Link)
+  (logged_in & (((role(:owner, tenant: :current) | role(:admin, tenant: :current)) | role(:marketing, tenant: :current)) & in_current_tenant))
+LinkPolicy#update? (app/policies/link_policy.rb:11; on Link)
+  (logged_in & (role(:owner, tenant: :current) | role(:admin, tenant: :current)))
+```
+
+Rules no test called are checked by the matchers and listed under coverage
+by `hallmark check`. Until Hallmark reads controllers too, an entry point
+appears only when a stamp shows it, and its guard comes from the rules
+alone, so an action that loads the record through the current tenant can
+still get a false counterexample from a rule that does not check the
+tenant itself.
 
 ## How it works
 
@@ -340,7 +398,9 @@ from the stamp store down runs afterwards, in CI or on your machine.
 | `HALLMARK_SIDECAR_HEAP` | sidecar heap cap, in MB | `512` |
 | `HALLMARK_STAMPS` | where collectors write stamps and `check` reads them | `tmp/hallmark` |
 | `HALLMARK_MODE` | `test` to collect in any Rails environment, `off` to never collect | collect in `test` only |
-| `HALLMARK_RUN` | run id in stamp file names, shared by parallel test workers | a timestamp |
+| `HALLMARK_RUN` | run id in stamp file names, shared by parallel test workers (`check` reads the newest run; name a file in `HALLMARK_STAMPS` for another) | a timestamp |
+| `HALLMARK_ROOT` | the app whose `app/policies` the extractor reads | the working directory; the Rails root under the Railtie; the mapping file's app for the CLI |
+| `HALLMARK_EXTRACT` | `off` to check stamps and hand-written guards only | on |
 
 The same settings are available in Ruby through `Hallmark.configure`.
 
@@ -351,13 +411,15 @@ data/hallmark/catalog.als   the pattern catalog shipped with the gem
 lib/hallmark/               mapping, guards, model builder, solver clients, decoder
 solver/src/                 the solver sidecar (Java, built by `hallmark install-sidecar`)
 lib/hallmark/collectors/    runtime hooks for each authorization library and controllers
+lib/hallmark/extractor/     reads guards from policy code with Prism
 lib/hallmark/rspec.rb       the RSpec matchers (`require "hallmark/rspec"`)
 rbi/                        Sorbet signatures for lib/ (no sorbet-runtime needed)
 sorbet/rbi/                 Tapioca-generated RBIs for the gems lib/ hooks into
 bin/hallmark                command-line interface (also the gem executable)
 examples/medium_clone/      the SPACE paper's example, buggy and fixed
 examples/storefront/        a Gumroad-shaped store with per-seller roles, buggy and fixed,
-                            and an RSpec spec using the matchers
+                            its policy code (app/policies, fixed/app/policies) and an
+                            RSpec spec using the matchers
 research/models/            hand-written models for memberships, GraphQL,
                             DeclarativePolicy, revocation and role config
 test/                       unit tests (no Java) and integration tests

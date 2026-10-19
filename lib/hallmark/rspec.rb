@@ -24,7 +24,9 @@ module Hallmark
   #            configured one (`Hallmark.configure { |c| c.map { ... } }`, which
   #            the Railtie loads from config/hallmark.rb), else
   #            config/hallmark.rb under the working directory
-  #   guards   the mapping's `rule ..., guard:`, else inferred from stamps:
+  #   guards   the mapping's `rule ..., guard:`, else read from policy code
+  #            under `let(:hallmark_root)` or `c.root` (the Rails root under
+  #            the Railtie; docs/adr/0003) OR inferred from stamps:
   #            `let(:hallmark_stamps)` (a StampSet or a path), else the run the
   #            collectors are recording in this process (flushed first), else
   #            the run written last in `c.stamps` (tmp/hallmark)
@@ -126,9 +128,10 @@ module Hallmark
 
       # `stamps` is a StampSet or a path to stamps (a JSONL file or a stamp
       # directory). Each option defaults as described on Hallmark::RSpec.
-      def initialize(mapping: nil, stamps: nil, solver: nil)
+      def initialize(mapping: nil, stamps: nil, root: nil, solver: nil)
         @mapping = mapping
         @stamps = stamps
+        @root = root
         @solver = solver
         @policy = ""
         @results = []
@@ -163,7 +166,9 @@ module Hallmark
 
       def run(actual)
         @policy = policy_name(actual)
-        check = RuleCheck.new(@mapping || RSpec.mapping, stamp_set)
+        mapping = @mapping || RSpec.mapping
+        check = RuleCheck.new(mapping, stamp_set,
+                              extractor: Extractor.load(mapping, @root || Hallmark.configuration.root))
         check.check(@policy, rule_names, solver: @solver || RSpec.solver)
       end
 
@@ -229,8 +234,8 @@ module Hallmark
 
     # `have_no_counterexample(:update?)`: one rule's guard, checked on its own.
     class HaveNoCounterexample < Matcher
-      def initialize(rule, mapping: nil, stamps: nil, solver: nil)
-        super(mapping: mapping, stamps: stamps, solver: solver)
+      def initialize(rule, mapping: nil, stamps: nil, root: nil, solver: nil)
+        super(mapping: mapping, stamps: stamps, root: root, solver: solver)
         @rule = rule.to_s
       end
 
@@ -250,9 +255,10 @@ module Hallmark
 
       private
 
-      # `let(:hallmark_mapping)` and `let(:hallmark_stamps)` override the
-      # configured mapping and stamps for one example group.
-      def hallmark_options = %i[mapping stamps].to_h { |option| [option, hallmark_let(:"hallmark_#{option}")] }
+      # `let(:hallmark_mapping)`, `let(:hallmark_stamps)` and
+      # `let(:hallmark_root)` override the configured mapping, stamps and the
+      # app root whose policy code is read, for one example group.
+      def hallmark_options = %i[mapping stamps root].to_h { |option| [option, hallmark_let(:"hallmark_#{option}")] }
 
       def hallmark_let(name) = respond_to?(name) ? public_send(name) : nil
     end
