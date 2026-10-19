@@ -23,7 +23,11 @@ below. The first real-app run (original Gumroad on Pundit, Oct 16, 2026, not
 a gate app) is in "First run on original Gumroad" below. Gate runs so far:
 GitLab (DeclarativePolicy, Oct 17, 2026) and Forem (Pundit, Oct 18, 2026),
 both meeting the gate's criteria, in "GitLab slice" and "Forem slice" below;
-Action Policy (the Gumroad port) has not started.
+Action Policy (the Gumroad port, Oct 19, 2026) meets every criterion but the
+confirmed real bug, which waits on an open question, in "Gumroad Action
+Policy port" below. That run found the controller hook running after
+controllers' own `before_action`s (fixed Oct 19, 2026); GitLab and Forem
+predate the fix and should be rerun.
 
 Built:
 
@@ -99,7 +103,7 @@ explicit permission on one record, for Gumroad's collaborators).
 bundle install
 bin/hallmark install-alloy                 # Alloy 6.2.0 to ~/.cache/hallmark, SHA-256 verified; needs Java 17+
 bin/hallmark install-sidecar               # also builds the sidecar jar (javac + jar from a JDK 17+); no extra download
-bundle exec rake test                      # 220 tests; the 20 integration tests skip without the jar or sidecar
+bundle exec rake test                      # 221 tests; the 20 integration tests skip without the jar or sidecar
 bundle exec rubocop                        # lint
 bundle exec srb tc                         # type-check lib/ against rbi/; `rake` runs tests, rubocop, then this
 bin/hallmark check examples/medium_clone/hallmark.rb    # exits 1 (two counterexamples, expected)
@@ -428,6 +432,36 @@ both fixed in Hallmark: Ruby 3.3.0 rejects an anonymous block forwarded
 from inside a block, and RSpec cannot stub on any instance a method a
 prepended module defines.
 
+### Gumroad Action Policy port
+
+Built and run Oct 19, 2026. The port is a worktree of `~/Repos/gumroad` at
+`~/Repos/gumroad-action-policy`, branch `action-policy-port`, forked from
+`b6c62aa` (the first Pundit run's commit); local only, not pushed (step 1's
+GitLab fork is not made). Three commits: guide phase 1 (`7502225c3`), phase
+2 (`72f87bce5`) and a missed Pundit helper (`c311c6287`). The Gemfile path
+entry and `config/hallmark.rb` stay uncommitted. Private log:
+`~/Repos/hallmark-findings/gumroad.md`, "Run 3"; outputs and patches in
+`~/Repos/hallmark-findings/gumroad-action-policy-b6c62aa/`.
+
+Results: the policy specs and 9,614 controller, presenter, policy and
+channel examples fail in exactly the same places on both checkouts (local
+setup only: no Stripe test credentials, no Vite build). On the slice the
+two adapters wrote byte-identical stamps, and `hallmark check` gave
+identical reports on both backends: 14 checks, no counterexample, no
+unknown, about 2 s per run. With the first run's probe spec, both report F6
+and F7. The slice's only real bug is F6 (no security impact found), so the
+gate waits on the open question below.
+
+To rerun: run both checkouts' specs one after the other, never at once
+(they share the `gumroad_test` database and Elasticsearch's `-test`
+indices). In each checkout, with `PATH="$(mise where ruby@3.4.3)/bin:$PATH"`
+(rbenv's shims fail on Gumroad's `.ruby-version`), run `HALLMARK_RUN=<id>
+CI=true DISABLE_SPRING=1 bin/rspec spec/policies/link_policy_spec.rb
+<slice_specs.txt>`, then from this checkout `HALLMARK_STAMPS=<checkout>/tmp/hallmark
+HALLMARK_RUN=<id> bin/hallmark check <checkout>/config/hallmark.rb`. A run
+id cannot contain `-`. `HALLMARK_MODE=off` runs the Pundit checkout without
+the collectors.
+
 Passing the gate, per app (decided Oct 15, 2026):
 
 - a declared slice (Gumroad: `LinkPolicy` and the controllers that call it);
@@ -592,7 +626,7 @@ Railtie lands.
 - Reserving the `hallmark` name on RubyGems.
 - Whether any target app needs JRuby, and whether any uses schema-per-tenant.
 - Whether a confirmed authorization flaw with no security impact counts as
-  a gate app's "confirmed real bug" (the first Gumroad run found one; see the
-  private findings log).
+  a gate app's "confirmed real bug" (the first Gumroad run found one, F6;
+  see the private findings log). The Action Policy gate waits on it.
 - Whether and when to report Forem's live finding through dev.to/security
   (it counts as Forem's gate bug, decided Oct 18, 2026).
