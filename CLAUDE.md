@@ -18,8 +18,9 @@ Jackson's SPACE (ICSE 2016).
 Phase 0 (spike) is done. Phase 1's deliverables are built: step 1
 (tenant-aware catalog and DSL), step 2 (collectors, stamp store, Railtie),
 step 3 (solver sidecar) and step 4 (RSpec matchers). Its exit gate, Hallmark
-on three real apps, passed on Oct 19, 2026, so phase 1 is done; phase 2 (the
-extractor, `docs/PLAN.md` "Roadmap") is next. The gate's record is in
+on three real apps, passed on Oct 19, 2026, so phase 1 is done. Phase 2 (the
+extractor) started Oct 19, 2026; its plan is "Phase 2 (extractor)" below and
+`docs/PLAN.md` ("Roadmap", "Phase 2 plan"). The gate's record is in
 "Phase 1 (core gem): the gate" below. The first real-app run (original Gumroad on Pundit, Oct 16, 2026, not
 a gate app) is in "First run on original Gumroad" below. Gate runs so far:
 GitLab (DeclarativePolicy, Oct 17, 2026) and Forem (Pundit, Oct 18, 2026),
@@ -257,7 +258,9 @@ the quantified variables named `p`, `r` and `cur`.
   `ruby -wc` on `lib/`);
   `# frozen_string_literal: true` everywhere; the test task runs with warnings
   on and should stay warning-free.
-- No runtime dependencies beyond `rexml`. No network access at runtime except
+- No runtime dependencies beyond `rexml` and `prism` (`>= 1.2`, for the
+  extractor; added Oct 19, 2026, since Ruby 3.2 bundles none and 3.3.0
+  bundles 0.19, an older API). No network access at runtime except
   `hallmark install-alloy`. Never vendor the Alloy jar.
 - Design rule: never run the solver on a request path. Requests only append
   events.
@@ -325,6 +328,32 @@ the quantified variables named `p`, `r` and `cur`.
   open questions included) in the same change.
 - `.gitlab-ci.yml` (ruby:3.4-bookworm plus openjdk-17) has not run yet; check
   the first pipeline.
+
+## Phase 2 (extractor)
+
+Planned Oct 19, 2026 (`docs/PLAN.md`, "Phase 2 plan"; bounds in
+`docs/adr/0003`). The GraphQL schema walk and field-level mapping moved to
+phase 3. Steps, in order:
+
+0. Phase 1 loose ends: push `main` and check the first CI pipeline; the
+   Forem run's report wording.
+1. Extractor core and the Pundit and Action Policy front end
+   (`lib/hallmark/extractor/`, `term` in the map block, `hallmark extract`),
+   on Gumroad: F6 from its own specs with no probe spec, on both checkouts,
+   then gone with the fix.
+2. Drift (three-valued `Guard#evaluate` over stamp facts; fails `check`).
+3. Static entry points: controller `authorize` calls and filters,
+   `verify_authorized` skips, record loading through the current tenant
+   (the data-side gap), routes dumped at test boot, Grape if it fits.
+4. DeclarativePolicy front end, on GitLab: !132952 from `ProjectPolicy`
+   alone; Forem's finding from `ArticlePolicy` alone.
+5. SARIF (`hallmark check --sarif FILE`).
+6. Gate: the three phase 1 apps on wider slices plus two of Mastodon, HCB
+   and rubygems.org; every phase 1 bug from code, compared with SPACE.
+
+The extractor reads source and never boots the app, so it runs on the
+host's Ruby. Opaque leaves (calls it cannot translate) never reach Alloy:
+findings come from the lower bound, the rest is coverage.
 
 ## Phase 1 (core gem): the gate
 
