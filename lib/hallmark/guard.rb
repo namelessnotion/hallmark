@@ -137,6 +137,25 @@ module Hallmark
     def lower = bound(true)
     def upper = bound(false)
 
+    # Whether this guard holds where `facts` says what each leaf is (a
+    # `StampFacts`, or a Hash from leaf to true or false): true, false or
+    # nil, unknown. Three-valued: an opaque leaf, or one `facts` cannot
+    # answer, is unknown, `and` is false when either side is, `or` is true
+    # when either side is, and anything else touching an unknown is unknown.
+    def evaluate(facts)
+      case kind
+      when :none then true
+      when :never then false
+      when :opaque then nil
+      when :and then both(operands[0].evaluate(facts), operands[1].evaluate(facts))
+      when :or then either(operands[0].evaluate(facts), operands[1].evaluate(facts))
+      when :not
+        value = operands[0].evaluate(facts)
+        value.nil? ? nil : !value
+      else facts[self]
+      end
+    end
+
     def ==(other)
       other.is_a?(Guard) && kind == other.kind && operands == other.operands
     end
@@ -184,6 +203,18 @@ module Hallmark
     end
 
     private
+
+    def both(left, right)
+      return false if left == false || right == false
+
+      left && right ? true : nil
+    end
+
+    def either(left, right)
+      return true if left || right
+
+      left == false && right == false ? false : nil
+    end
 
     def role_set(tenant)
       case tenant

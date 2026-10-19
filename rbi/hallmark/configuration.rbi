@@ -42,6 +42,11 @@ module Hallmark
     sig { returns(String) }
     attr_accessor :stamps
 
+    # The run analyses read from a stamp directory (HALLMARK_RUN); nil for
+    # the newest
+    sig { returns(T.nilable(String)) }
+    attr_accessor :run
+
     # The app root the extractor reads policy code under
     sig { returns(String) }
     attr_accessor :root
@@ -69,6 +74,7 @@ module Hallmark
       @sidecar_jar = T.let(T.unsafe(nil), T.nilable(String))
       @sidecar_heap = T.let(T.unsafe(nil), Integer)
       @stamps = T.let(T.unsafe(nil), String)
+      @run = T.let(T.unsafe(nil), T.nilable(String))
       @root = T.let(T.unsafe(nil), String)
       @extract = T.let(T.unsafe(nil), T::Boolean)
       @mapping = T.let(T.unsafe(nil), T.nilable(Mapping))

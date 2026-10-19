@@ -71,6 +71,10 @@ module Hallmark
     sig { returns(T::Array[String]) }
     attr_reader :unchecked
 
+    # Stamps the extracted guards contradict, in unit order
+    sig { returns(T::Array[Drift]) }
+    attr_reader :drift
+
     sig { params(mapping: Mapping, stamp_set: StampSet, extractor: T.nilable(Extractor)).void }
     def initialize(mapping, stamp_set, extractor: nil)
       @mapping = T.let(T.unsafe(nil), Mapping)
@@ -80,6 +84,7 @@ module Hallmark
       @units = T.let(T.unsafe(nil), T::Array[Unit])
       @exposures = T.let(T.unsafe(nil), T::Array[Exposure])
       @unchecked = T.let(T.unsafe(nil), T::Array[String])
+      @drift = T.let(T.unsafe(nil), T::Array[Drift])
     end
 
     private
@@ -119,18 +124,6 @@ module Hallmark
 
     sig { params(sets: T::Array[T::Array[Guard]]).returns(T::Array[T::Array[Guard]]) }
     def minimal(sets); end
-
-    sig { params(stamp: Stamp, resource: Mapping::Resource).returns(T::Array[Guard]) }
-    def literals(stamp, resource); end
-
-    sig { params(stamp: Stamp, resource: Mapping::Resource).returns(T::Array[Guard]) }
-    def record_literals(stamp, resource); end
-
-    sig { params(stamp: Stamp, resource: Mapping::Resource, out: T::Array[Guard]).void }
-    def tenant_literals(stamp, resource, out); end
-
-    sig { params(stamp: Stamp, resource: Mapping::Resource).returns(T::Array[Guard]) }
-    def record_tenant_literals(stamp, resource); end
 
     sig { returns(T::Array[Exposure]) }
     def build_exposures; end

@@ -75,6 +75,10 @@ module Hallmark
     sig { returns(Guard) }
     def upper; end
 
+    # nil is unknown
+    sig { params(facts: T.any(StampFacts, T::Hash[Guard, T::Boolean])).returns(T.nilable(T::Boolean)) }
+    def evaluate(facts); end
+
     sig { params(left: Guard, right: Guard).returns(Guard) }
     def self.conjoin(left, right); end
 
@@ -90,6 +94,12 @@ module Hallmark
     def bound(lower); end
 
     private
+
+    sig { params(left: T.nilable(T::Boolean), right: T.nilable(T::Boolean)).returns(T.nilable(T::Boolean)) }
+    def both(left, right); end
+
+    sig { params(left: T.nilable(T::Boolean), right: T.nilable(T::Boolean)).returns(T.nilable(T::Boolean)) }
+    def either(left, right); end
 
     sig { params(tenant: T.nilable(Symbol)).returns(String) }
     def role_set(tenant); end

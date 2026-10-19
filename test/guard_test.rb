@@ -56,6 +56,28 @@ class GuardTest < Minitest::Test
     assert_equal none, opaque("x").upper
   end
 
+  # Kleene's three values: nil is unknown, and only a side that decides the
+  # result alone escapes it.
+  def test_evaluate_is_three_valued
+    facts = { logged_in => true, owner => false }
+    guards = [logged_in & owner, logged_in | opaque("user.beta?"), owner & opaque("user.beta?"),
+              logged_in & opaque("user.beta?"), owner | ~opaque("user.beta?"), public_record, ~logged_in, none, never]
+
+    assert_equal [false, true, false, nil, nil, nil, false, true, false],
+                 guards.map { |guard| guard.evaluate(facts) }, "a leaf the facts do not answer is unknown"
+  end
+
+  # Neither bound has an opaque leaf, so where every fact is known the
+  # bounds have a value even when the guard does not.
+  def test_bounds_evaluate_where_the_guard_is_unknown
+    guard = logged_in & opaque("user.beta?")
+    facts = { logged_in => true }
+
+    values = [guard, *guard.bounds].map { |each| each.evaluate(facts) }
+
+    assert_equal [nil, false, true], values
+  end
+
   def test_opaque_leaves_never_reach_alloy
     assert_raises(ArgumentError) { (logged_in & opaque("user.beta?")).to_alloy }
     assert_equal "(not unguarded)", never.to_alloy

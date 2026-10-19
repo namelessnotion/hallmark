@@ -6,9 +6,8 @@ module Hallmark
   # code, into exposures (docs/adr/0002 and 0003).
   #
   # A rule's inferred guard is the OR of its allow-stamps, each the
-  # conjunction of the facts that held. Only true facts become literals: the
-  # catalog allows more as a principal gains roles, ownership or membership,
-  # so dropping the false ones changes no verdict and keeps guards readable.
+  # conjunction of the facts that held (`StampFacts#literals`, true facts
+  # only).
   # With an extractor, a rule's guard is the lower bound of its extracted
   # guard OR the inferred one: both are access the app certainly grants.
   # Rules the code defines that no stamp shows become units too, with no
@@ -26,6 +25,9 @@ module Hallmark
   # other request to the same entry point reached a rule: a branch such as
   # `return redirect_to root_path unless feature_enabled?` before
   # `authorize`. Those are listed under coverage instead.
+  #
+  # Stamps the extracted guard contradicts are drift (`Drift`), which also
+  # fails the report.
   class Inference
     include Guard::DSL
 
@@ -41,7 +43,7 @@ module Hallmark
     REDIRECTS = [301, 302, 303, 307, 308].freeze
     SAFE_VERBS = %w[GET HEAD].freeze
 
-    attr_reader :units, :exposures, :coverage, :unchecked
+    attr_reader :units, :exposures, :coverage, :unchecked, :drift
 
     def initialize(mapping, stamp_set, extractor: nil)
       @mapping = mapping
@@ -51,6 +53,7 @@ module Hallmark
       stamped = build_units
       @units = (stamped + code_units(stamped.map(&:key))).sort_by { |unit| [unit.policy, unit.rule, unit.resource] }
       @exposures = build_exposures
+      @drift = Drift.find(mapping, @units)
       @unchecked = classify_unchecked(stamp_set.unchecked)
     end
 
@@ -169,7 +172,7 @@ module Hallmark
     # Printed as the literals every allow-stamp shares, AND the OR of the
     # rest, sorted so that the guard does not depend on test order.
     def inferred_guard(allows, resource)
-      sets = minimal(allows.map { |stamp| literals(stamp, resource) }.uniq)
+      sets = minimal(allows.map { |stamp| StampFacts.new(@mapping, resource, stamp).literals }.uniq)
       common = sets.reduce(:&) || []
       alternatives = sets.map { |set| set - common }.reject(&:empty?).map { |set| conjunction(set) }
       conjunction([*common, *alternatives.sort_by(&:to_s).reduce(:|)])
@@ -180,45 +183,6 @@ module Hallmark
     # A conjunction whose literals include another's adds nothing to the OR.
     def minimal(sets)
       sets.reject { |set| sets.any? { |other| other != set && (other - set).empty? } }
-    end
-
-    def literals(stamp, resource)
-      out = record_literals(stamp, resource)
-      out << permitted if stamp.permitted && resource.permits?
-      roles = Array(stamp.roles)
-      if @mapping.tenancy
-        tenant_literals(stamp, resource, out)
-        # Outside tenants users hold only platform roles (docs/PLAN.md).
-        roles &= @mapping.platform_roles
-      end
-      roles.sort.each { |name| out << role(name) }
-      out
-    end
-
-    def record_literals(stamp, resource)
-      out = []
-      out << logged_in if stamp.logged_in
-      out << public_record if stamp.public_record && resource.public? && !resource.always_public?
-      out << owner if stamp.owner && resource.owned?
-      out
-    end
-
-    # Where the record lives, then roles; no membership literal, since
-    # holding a role in a tenant implies membership there. A record with no
-    # tenant gets `outside_tenants`, so that an owner's allow on a personal
-    # record does not stand for records in a tenant.
-    def tenant_literals(stamp, resource, out)
-      out.concat(record_tenant_literals(stamp, resource)) if resource.tenanted?
-      Array(stamp.current_roles).sort.each { |name| out << role(name, tenant: :current) }
-    end
-
-    # Where the record lives: outside tenants, in the current tenant, or in
-    # another, with the roles held there.
-    def record_tenant_literals(stamp, resource)
-      return [outside_tenants] if resource.tenant_optional? && stamp.outside_tenants
-      return [in_current_tenant] if stamp.in_current_tenant
-
-      Array(stamp.record_roles).sort.map { |name| role(name, tenant: :record) }
     end
 
     def build_exposures

@@ -36,6 +36,10 @@ module Hallmark
     sig { returns(T::Array[String]) }
     attr_reader :unchecked
 
+    # Stamped decisions the extracted guards contradict
+    sig { returns(T::Array[Drift]) }
+    attr_reader :drift
+
     sig { returns(T.nilable(Coverage)) }
     attr_reader :coverage
 
@@ -46,6 +50,7 @@ module Hallmark
       @verified = T.let(T.unsafe(nil), T::Array[Exposure])
       @unknown = T.let(T.unsafe(nil), T::Array[Unknown])
       @unchecked = T.let(T.unsafe(nil), T::Array[String])
+      @drift = T.let(T.unsafe(nil), T::Array[Drift])
       @coverage = T.let(T.unsafe(nil), T.nilable(Coverage))
     end
 
@@ -76,6 +81,15 @@ module Hallmark
     sig { returns(String) }
     def summary; end
 
+    sig { params(total: Integer).returns(T::Array[String]) }
+    def problems(total); end
+
+    sig { returns(T::Array[String]) }
+    def drift_lines; end
+
+    sig { params(item: Drift).returns(T::Array[String]) }
+    def self.drift_lines(item); end
+
     sig { returns(T::Array[String]) }
     def unknown_lines; end
 
@@ -93,5 +107,10 @@ module Hallmark
 
     sig { params(coverage: Coverage).returns(T::Hash[String, T::Array[String]]) }
     def coverage_lists(coverage); end
+
+    private
+
+    sig { params(exposure: Exposure, receipt: Receipt).void }
+    def read(exposure, receipt); end
   end
 end

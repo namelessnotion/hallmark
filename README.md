@@ -38,14 +38,15 @@ Pundit and Action Policy code:
   on the sidecar by default
 - an extractor that reads Pundit and Action Policy rules from
   `app/policies` with Prism, without loading the app, so rules no test
-  reached are checked too (`hallmark extract` prints what it read)
+  reached are checked too (`hallmark extract` prints what it read), and
+  drift: a stamped decision the rule's code contradicts fails the check
 
 Phase 1 is done: its deliverables are built, and its gate (Hallmark run on
 one real app per authorization library, each with a confirmed real bug)
 passed on Oct 19, 2026.
 
 Not built yet (phase 2): reading DeclarativePolicy code, controllers and
-routes, drift reports and SARIF output. Phase 3: shadow and sampled runtime
+routes, and SARIF output. Phase 3: shadow and sampled runtime
 modes, the graphql-ruby schema walk and tracing, and field-level mapping.
 The models for those live in `research/models`.
 
@@ -74,9 +75,10 @@ FAIL  PostsController#update (write Post)
       intended pattern: Authentication
 ```
 
-`hallmark check` exits 1 when it finds a counterexample, else 2 when a check
-ran out of time or memory (unknown, never read as "no counterexample"), else
-0, so it can gate CI.
+`hallmark check` exits 1 when it finds a counterexample, an entry point
+that never authorized, or drift, else 2 when a check ran out of time or
+memory (unknown, never read as "no counterexample"), else 0, so it can gate
+CI.
 
 ### The solver sidecar
 
@@ -357,6 +359,20 @@ LinkPolicy#update? (app/policies/link_policy.rb:11; on Link)
   (logged_in & (role(:owner, tenant: :current) | role(:admin, tenant: :current)))
 ```
 
+Stamps check the reading in turn. An allow where the rule's upper bound is
+false (no outcome of the unread calls could allow), or a deny, a raise
+included, where its lower bound is true, is drift: the extractor or a
+`term` is wrong. `hallmark check` lists each one under "Drift" with the
+rule's file and line and the stamp's facts, and exits 1. A fact a stamp did
+not record leaves the bound unknown, which is never drift, and a rule with
+a hand-written guard has none.
+
+```text
+DRIFT LinkPolicy#update? (Link) at app/policies/link_policy.rb:11: allowed, but its code allows only where (logged_in & (role(:owner, tenant: :current) | role(:admin, tenant: :current))) (upper bound), false here
+      facts: logged_in & in_current_tenant & record_roles=[marketing] & current_roles=[marketing]
+      stamped at: LinksController#update
+```
+
 Rules no test called are checked by the matchers and listed under coverage
 by `hallmark check`. Until Hallmark reads controllers too, an entry point
 appears only when a stamp shows it, and its guard comes from the rules
@@ -398,7 +414,7 @@ from the stamp store down runs afterwards, in CI or on your machine.
 | `HALLMARK_SIDECAR_HEAP` | sidecar heap cap, in MB | `512` |
 | `HALLMARK_STAMPS` | where collectors write stamps and `check` reads them | `tmp/hallmark` |
 | `HALLMARK_MODE` | `test` to collect in any Rails environment, `off` to never collect | collect in `test` only |
-| `HALLMARK_RUN` | run id in stamp file names, shared by parallel test workers (`check` reads the newest run; name a file in `HALLMARK_STAMPS` for another) | a timestamp |
+| `HALLMARK_RUN` | run id in stamp file names, shared by parallel test workers; also the run `check` and the analysis `stamps` read from a stamp directory | a timestamp when writing; the newest run when reading |
 | `HALLMARK_ROOT` | the app whose `app/policies` the extractor reads | the working directory; the Rails root under the Railtie; the mapping file's app for the CLI |
 | `HALLMARK_EXTRACT` | `off` to check stamps and hand-written guards only | on |
 

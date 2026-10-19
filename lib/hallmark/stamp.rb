@@ -65,7 +65,10 @@ module Hallmark
     # same run. `run:` picks another run.
     def self.load(path, run: nil)
       files = files(path, run: run)
-      raise Error, "no stamps found in #{path}; run the test suite with Hallmark's collectors installed" if files.empty?
+      if files.empty?
+        raise Error, "no stamps found in #{path}#{" for run #{run}" if run}; " \
+                     "run the test suite with Hallmark's collectors installed"
+      end
 
       read(files)
     end

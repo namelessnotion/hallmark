@@ -53,6 +53,54 @@ class CLITest < Minitest::Test
     end
   end
 
+  # A deny the code explains in the older run, a query (no entry point, so
+  # no solver) the code allows denied in it; HALLMARK_RUN picks the run.
+  def test_check_fails_on_drift_in_the_run_hallmark_run_names
+    Dir.mktmpdir("hallmark-cli") do |dir|
+      config = drift_app(dir)
+      stamps = File.join(dir, "tmp", "hallmark")
+      write_run(stamps, "old", owner: true, mtime: Time.now - 60)
+      write_run(stamps, "new", owner: false, mtime: Time.now)
+
+      output, _error, status = hallmark_in(stamps, nil, "check", config)
+
+      assert_equal 0, status.exitstatus, output
+      output, _error, status = hallmark_in(stamps, "old", "check", config)
+
+      assert_equal 1, status.exitstatus, output
+      assert_includes output, "DRIFT PostPolicy#update? (Post) at app/policies/post_policy.rb:2: denied, but its " \
+                              "code allows wherever (logged_in & owner) (lower bound), true here\n      facts: " \
+                              "logged_in & owner\n      stamped at: outside a request"
+      _output, error, status = hallmark_in(stamps, "missing", "check", config)
+
+      assert_equal 2, status.exitstatus
+      assert_match(/no stamps found in .* for run missing/, error)
+    end
+  end
+
+  def hallmark_in(stamps, run, *)
+    Open3.capture3({ "HALLMARK_STAMPS" => stamps, "HALLMARK_RUN" => run, "HALLMARK_ROOT" => nil }, RbConfig.ruby, BIN,
+                   *)
+  end
+
+  def drift_app(dir)
+    FileUtils.mkdir_p([File.join(dir, "config"), File.join(dir, "app", "policies")])
+    File.write(File.join(dir, "app", "policies", "post_policy.rb"),
+               "class PostPolicy\n  def update?\n    user && record.user == user\n  end\nend\n")
+    File.join(dir, "config", "hallmark.rb").tap do |file|
+      File.write(file, "Hallmark.configure { |c| c.map { resource \"Post\", owner: :user } }\n")
+    end
+  end
+
+  def write_run(stamps, run, owner:, mtime:)
+    FileUtils.mkdir_p(stamps)
+    file = File.join(stamps, "stamps-#{run}-1.jsonl")
+    stamp = Hallmark::Stamp.new(policy: "PostPolicy", rule: "update?", resource: "Post", class_level: false,
+                                enforced: false, decision: "deny", logged_in: true, owner: owner, roles: [])
+    File.write(file, "#{stamp.to_json_line}\n")
+    File.utime(mtime, mtime, file)
+  end
+
   def test_other_errors_in_the_file_are_not_reworded
     Dir.mktmpdir("hallmark-cli") do |dir|
       file = File.join(dir, "hallmark.rb")

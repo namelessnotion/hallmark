@@ -6,7 +6,8 @@ module Hallmark
   # counterexample, the exposures with none within scope, those the solver
   # gave no verdict for (unknown: out of time or memory), and, when the
   # exposures came from stamps, the entry points that ran with no
-  # authorization call (threat 10) and what the stamps did not cover.
+  # authorization call (threat 10), the stamps the rule's code contradicts
+  # (drift) and what the stamps did not cover.
   class Report
     # Not-observed combinations printed per rule; the rest are counted.
     COMBINATIONS_SHOWN = 8
@@ -14,10 +15,10 @@ module Hallmark
     # An exposure the solver gave no verdict for, and why.
     Unknown = Struct.new(:exposure, :reason)
 
-    attr_reader :analysis, :findings, :verified, :unknown, :unchecked, :coverage
+    attr_reader :analysis, :findings, :verified, :unknown, :unchecked, :drift, :coverage
 
-    # Exit status for several reports: 1 on any counterexample or unchecked
-    # entry point, else 2 on any unknown, else 0.
+    # Exit status for several reports: 1 on any counterexample, unchecked
+    # entry point or drift, else 2 on any unknown, else 0.
     def self.exit_code(reports)
       codes = reports.map(&:exit_code)
       codes.include?(1) ? 1 : codes.max || 0
@@ -30,26 +31,16 @@ module Hallmark
       @unknown = []
       inference = analysis.inference
       @unchecked = inference ? inference.unchecked : []
+      @drift = inference ? inference.drift : []
       @coverage = inference&.coverage
-      analysis.exposures.each do |exposure|
-        command = receipt[exposure.check_name]
-        raise SolverError, "Alloy returned no result for #{exposure.action}" unless command
-
-        instance = command.instance
-        if (reason = command.reason)
-          @unknown << Unknown.new(exposure, reason)
-        elsif instance
-          @findings << Finding.from(exposure, instance, analysis.mapping)
-        else
-          @verified << exposure
-        end
-      end
+      analysis.exposures.each { |exposure| read(exposure, receipt) }
     end
 
     # An unchecked entry point fails the run like a counterexample: it is a
-    # request the app served with no authorization at all. An unknown is not
-    # a failure, but it is not clean either.
-    def failed? = findings.any? || unchecked.any?
+    # request the app served with no authorization at all. So does drift,
+    # since the guards checked may not be the app's. An unknown is not a
+    # failure, but it is not clean either.
+    def failed? = findings.any? || unchecked.any? || drift.any?
     def clean? = !failed? && unknown.empty?
 
     def exit_code
@@ -67,6 +58,7 @@ module Hallmark
       end
       lines.concat(unknown_lines)
       verified.each { |exposure| lines << Report.ok_line(exposure) }
+      lines.concat(drift_lines)
       lines << ""
       lines << summary
       lines.concat(coverage_lines)
@@ -95,13 +87,41 @@ module Hallmark
 
     def summary
       total = findings.size + verified.size + unknown.size
-      problems = []
-      problems << "#{count(findings.size, "counterexample")} in #{count(total, "check")}" if findings.any?
-      problems << count(unchecked.size, "unchecked entry point") if unchecked.any?
-      problems << unknown_summary(total) if unknown.any?
+      problems = problems(total)
       return "#{problems.join(", ")}." if problems.any?
 
       "No counterexamples in #{total} checks (bounded: scope #{Hallmark.configuration.scope})."
+    end
+
+    def problems(total)
+      out = []
+      out << "#{count(findings.size, "counterexample")} in #{count(total, "check")}" if findings.any?
+      out << count(unchecked.size, "unchecked entry point") if unchecked.any?
+      out << "#{count(drift.size, "drifting decision")} (stamps the rule's code contradicts)" if drift.any?
+      out << unknown_summary(total) if unknown.any?
+      out
+    end
+
+    # The drift section: each stamped decision the rule's extracted guard
+    # contradicts, with the rule's source line and the stamp's facts.
+    def drift_lines
+      return [] if drift.empty?
+
+      lines = ["", "Drift (stamped decisions the rule's code contradicts; the extractor or a `term` is wrong):"]
+      drift.each { |item| lines.concat(Report.drift_lines(item)) }
+      lines
+    end
+
+    def self.drift_lines(item)
+      raised = " (raised #{item.raised.join(", ")})" if item.raised.any?
+      claim = if item.allow?
+                "allowed, but its code allows only where #{item.bound} (upper bound), false here"
+              else
+                "denied#{raised}, but its code allows wherever #{item.bound} (lower bound), true here"
+              end
+      ["DRIFT #{item.rule} (#{item.resource}) at #{item.location}: #{claim}",
+       "      facts: #{item.facts}",
+       "      stamped at: #{item.seen.join(", ")}"]
     end
 
     def unknown_lines = unknown.map { |item| Report.unknown_line(item.exposure, item.reason) }
@@ -153,6 +173,23 @@ module Hallmark
         "Entry points that redirected a GET without an authorization call (authorized in other requests)" =>
           coverage.redirected
       }
+    end
+
+    private
+
+    # Files one exposure's verdict.
+    def read(exposure, receipt)
+      command = receipt[exposure.check_name]
+      raise SolverError, "Alloy returned no result for #{exposure.action}" unless command
+
+      instance = command.instance
+      if (reason = command.reason)
+        @unknown << Unknown.new(exposure, reason)
+      elsif instance
+        @findings << Finding.from(exposure, instance, analysis.mapping)
+      else
+        @verified << exposure
+      end
     end
   end
 end

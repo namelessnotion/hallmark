@@ -91,7 +91,7 @@ A stamp whose decision was deny, including a rule that raised.
 A combination of facts the app neither allowed nor denied in any stamp; reported as a coverage gap, never as a finding.
 
 **Drift**:
-Disagreement between a rule's extracted guard and the decisions stamped at run time.
+Disagreement between a rule's extracted guard and the decisions stamped at run time: an allow-stamp where the guard's upper bound is false, or a deny-stamp where its lower bound is true.
 
 ### Results
 

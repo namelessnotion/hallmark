@@ -71,7 +71,8 @@ module Hallmark
       end
 
       # The stamps guards are inferred from: the run being recorded in this
-      # process when the collectors are on, else the run written last.
+      # process when the collectors are on, else the run `c.run` names
+      # (HALLMARK_RUN), else the run written last.
       # Empty when there are none (every rule is then not observed unless its
       # guard is hand-written).
       def stamps
@@ -81,7 +82,8 @@ module Hallmark
           return StampSet.read(StampSet.files(store.dir, run: store.run))
         end
 
-        StampSet.read(StampSet.files(Hallmark.configuration.stamps))
+        config = Hallmark.configuration
+        StampSet.read(StampSet.files(config.stamps, run: config.run))
       end
 
       def install(config)

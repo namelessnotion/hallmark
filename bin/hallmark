@@ -6,8 +6,8 @@ require_relative "../lib/hallmark"
 
 USAGE = <<~TEXT.freeze
   Usage:
-    hallmark check FILE...    run the analyses declared in FILEs; exit 1 on any counterexample
-                              or unchecked entry point, else 2 on any unknown (or error), else 0.
+    hallmark check FILE...    run the analyses declared in FILEs; exit 1 on any counterexample,
+                              unchecked entry point or drift, else 2 on any unknown (or error), else 0.
                               A FILE that only maps (config/hallmark.rb) is checked against the
                               stamps the test suite recorded.
     hallmark model FILE       print the Alloy model generated for FILE
@@ -20,7 +20,8 @@ USAGE = <<~TEXT.freeze
   Environment: HALLMARK_ALLOY_JAR, HALLMARK_JAVA, HALLMARK_SCOPE, HALLMARK_TIMEOUT,
                HALLMARK_SOLVER (cli or sidecar), HALLMARK_SAT_SOLVER (sat4j, minisat, glucose),
                HALLMARK_SIDECAR_JAR, HALLMARK_SIDECAR_HEAP (MB, default 512),
-               HALLMARK_STAMPS (default tmp/hallmark), HALLMARK_ROOT (the app whose policy code is read),
+               HALLMARK_STAMPS (default tmp/hallmark), HALLMARK_RUN (the run to read; default the newest),
+               HALLMARK_ROOT (the app whose policy code is read),
                HALLMARK_EXTRACT (off: guards from stamps and the mapping only)
 TEXT
 

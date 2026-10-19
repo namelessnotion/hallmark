@@ -20,7 +20,7 @@ Phase 0 (spike) is done. Phase 1's deliverables are built: step 1
 step 3 (solver sidecar) and step 4 (RSpec matchers). Its exit gate, Hallmark
 on three real apps, passed on Oct 19, 2026, so phase 1 is done. Phase 2 (the
 extractor) started Oct 19, 2026, and its step 1 (Pundit and Action Policy
-rules read from code) was done the same day; the plan is "Phase 2
+rules read from code) and step 2 (drift) were done the same day; the plan is "Phase 2
 (extractor)" below and `docs/PLAN.md` ("Roadmap", "Phase 2 plan"). The gate's record is in
 "Phase 1 (core gem): the gate" below. The first real-app run (original Gumroad on Pundit, Oct 16, 2026, not
 a gate app) is in "First run on original Gumroad" below. Gate runs so far:
@@ -105,6 +105,17 @@ Built:
   extractor (`Extractor.load(mapping, root)`, nil without `app/policies` or
   with `HALLMARK_EXTRACT=off`). `hallmark extract FILE` prints the guards.
   `docs/PLAN.md` ("The shipped extractor") has the details and limits.
+- Drift (phase 2 step 2, Oct 19, 2026; `lib/hallmark/drift.rb`,
+  `stamp_facts.rb`): `StampFacts` is the one reading of a stamp's facts in
+  catalog terms, shared by `Inference` (`#literals`, the inferred guard's
+  true facts) and drift (`#[]`, one leaf as true, false or nil, unknown).
+  `Guard#evaluate(facts)` is three-valued (opaque leaves unknown). An
+  allow-stamp where the extracted upper bound is false, or a deny-stamp
+  (raises included) where the lower bound is true, is a `Drift`
+  (`Inference#drift`); unknown is never drift, and a rule with a
+  hand-written guard has none. `Report` lists drift in its own section with
+  the rule's file:line and the stamp's facts, and drift exits 1. The
+  matchers do not report it yet. `docs/PLAN.md` ("The shipped drift").
 
 Not built yet, but designed and validated as hand-written models in
 `research/models` (see its README for each check's expected result):
@@ -122,7 +133,7 @@ explicit permission on one record, for Gumroad's collaborators).
 bundle install
 bin/hallmark install-alloy                 # Alloy 6.2.0 to ~/.cache/hallmark, SHA-256 verified; needs Java 17+
 bin/hallmark install-sidecar               # also builds the sidecar jar (javac + jar from a JDK 17+); no extra download
-bundle exec rake test                      # 247 tests; the 20 integration tests skip without the jar or sidecar
+bundle exec rake test                      # 261 tests; the 20 integration tests skip without the jar or sidecar
 bundle exec rubocop                        # lint
 bundle exec srb tc                         # type-check lib/ against rbi/; `rake` runs tests, rubocop, then this
 bin/hallmark check examples/medium_clone/hallmark.rb    # exits 1 (two counterexamples, expected)
@@ -148,10 +159,11 @@ Settings come from the environment (`HALLMARK_ALLOY_JAR`, `HALLMARK_JAVA`,
 `HALLMARK_SCOPE`, `HALLMARK_TIMEOUT`, `HALLMARK_SOLVER`, `HALLMARK_SAT_SOLVER`,
 `HALLMARK_SIDECAR_JAR`, `HALLMARK_SIDECAR_HEAP`, `HALLMARK_STAMPS`,
 `HALLMARK_MODE`, `HALLMARK_RUN`, `HALLMARK_ROOT`, `HALLMARK_EXTRACT`) or
-`Hallmark.configure`. `HALLMARK_RUN` names the run the collectors write;
-`hallmark check` ignores it and reads the newest run in `HALLMARK_STAMPS`, so
-to check an older run, point `HALLMARK_STAMPS` at its file (found Oct 19,
-2026). `HALLMARK_ROOT` is the app the extractor reads; the CLI sets it from
+`Hallmark.configure`. `HALLMARK_RUN` names the run the collectors write and
+(`c.run`) the run `hallmark check`, an analysis's `stamps` and the matchers'
+fallback read from a stamp directory; unset, they read the newest run in
+`HALLMARK_STAMPS` (before Oct 19, 2026, reading ignored it, so step 1's
+recipes name a stamp file instead). `HALLMARK_ROOT` is the app the extractor reads; the CLI sets it from
 the mapping file (the parent of `config/`, else the file's directory).
 `HALLMARK_SOLVER` picks the backend (`cli`, the default, or `sidecar`);
 until Oct 15, 2026 it named the SAT solver, and a SAT solver name there now
@@ -168,6 +180,7 @@ Test suite, Railtie installs collectors              lib/hallmark/railtie.rb, co
   -> StampStore: queue, flusher thread, tmp/hallmark/*.jsonl  stamp_store.rb, stamp.rb
 Hallmark.analyze block (`stamps` loads a StampSet: Inference builds the exposures and Coverage)
   + Extractor: app/policies parsed with Prism, rules as guards   extractor.rb, extractor/*
+  -> StampFacts reads each stamp as guard leaves: Inference's literals, Drift's evaluation   stamp_facts.rb, drift.rb
   -> Analysis (Mapping + Exposures, each with a Guard)       lib/hallmark/analysis.rb, mapping.rb, guard.rb
   -> ModelBuilder: Alloy source, one assert + check per exposure   model_builder.rb
   -> Hallmark.solver (c.solver)                                    solver.rb
@@ -175,7 +188,7 @@ Hallmark.analyze block (`stamps` loads a StampSet: Inference builds the exposure
      Solver::Sidecar#check: JSON-RPC to a long-lived JVM           solver/sidecar.rb, child_process.rb, solver/src/
   -> Receipt: verdict per check (counterexample, none, unknown);  receipt.rb
      CLI witnesses from XML, sidecar witnesses as JSON tuples
-  -> Report and Finding: witness explained in app terms            report.rb, finding.rb
+  -> Report and Finding: witness explained in app terms, plus drift  report.rb, finding.rb
 
 RSpec: require "hallmark/rspec"                                    lib/hallmark/rspec.rb
   -> matcher finds the mapping (let, configuration, config/hallmark.rb) and the stamps
@@ -368,6 +381,10 @@ phase 3. Steps, in order:
    differential pair; outputs in
    `~/Repos/hallmark-findings/gumroad-b6c62aa/extract1/`, log "Run 4").
 2. Drift (three-valued `Guard#evaluate` over stamp facts; fails `check`).
+   Done Oct 19, 2026: no drift on step 1's Gumroad inputs on either
+   checkout (38 stamps on rules read from code, all definite and agreeing);
+   a wrong `role_admin_for?` term gives 4 (outputs in
+   `~/Repos/hallmark-findings/gumroad-b6c62aa/drift2/`, log "Run 5").
 3. Static entry points: controller `authorize` calls and filters,
    `verify_authorized` skips, record loading through the current tenant
    (the data-side gap), routes dumped at test boot, Grape if it fits.
@@ -696,7 +713,8 @@ the gate's critical path):
    `register_ordering` ignores changes once `--order` is given). Added
    `rule ..., resource:` for a hand-written guard on a rule no stamp shows.
 
-`bin/hallmark check` exits 1 on any counterexample, else 2 on any unknown,
+`bin/hallmark check` exits 1 on any counterexample, unchecked entry point or
+drift, else 2 on any unknown,
 else 0 (`Report.exit_code`; errors also exit 2). Exposures are keyed by entry point
 (`docs/adr/0001`); `Exposure#action` becomes the entry point when the
 Railtie lands.

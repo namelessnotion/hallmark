@@ -26,7 +26,7 @@ module Hallmark
     # Only `test` exists so far: collectors on, stamps from the test suite.
     MODES = %w[test off].freeze
 
-    attr_accessor :alloy_jar, :java, :scope, :timeout, :sat_solver, :sidecar_heap, :stamps, :root, :extract
+    attr_accessor :alloy_jar, :java, :scope, :timeout, :sat_solver, :sidecar_heap, :stamps, :run, :root, :extract
     attr_writer :sidecar_jar
     attr_reader :mapping, :mode, :solver
 
@@ -44,6 +44,10 @@ module Hallmark
         self.solver = backend
       end
       @stamps = ENV.fetch("HALLMARK_STAMPS", DEFAULT_STAMPS)
+      # The run analyses read from a stamp directory; nil reads the newest.
+      # Collectors name the run they write from HALLMARK_RUN too
+      # (`StampStore`), else from the time.
+      @run = ENV.fetch("HALLMARK_RUN", nil)
       # The app whose policy code the extractor reads; the Railtie and the
       # CLI set it. HALLMARK_EXTRACT=off checks stamps and hand-written
       # guards only.
