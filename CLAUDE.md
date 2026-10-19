@@ -412,13 +412,13 @@ blobless clone at `~/Repos/forem` (not forked). Slice: `ArticlePolicy` and
 organization is optional (`tenant_optional: true`, built for this run).
 Forem's history has no past authorization fix inside a policy that the
 catalog can see, so the bug is live: one finding, confirmed with a probe
-spec and unreported; details only in the private log
+spec and reported by Anthony to security@dev.to (Oct 19, 2026); details
+only in the private log
 `~/Repos/hallmark-findings/forem.md` (keep them out of this repository until
 Forem has fixed it). 790 examples, 0 failures with the collectors on; 33
 checks in 2.9 s (CLI) and 2.4 s (sidecar), no unknown, 7 counterexamples
 from that one finding. Anthony accepted it as Forem's gate bug (Oct 18,
-2026), so Forem meets the gate's criteria; reporting it is an open question
-below.
+2026), so Forem meets the gate's criteria.
 
 The mapping (`config/hallmark.rb`), a local initializer
 (`config/initializers/zz_hallmark.rb`, `HALLMARK_LIB`) and the probe spec are
@@ -470,8 +470,9 @@ identical reports on both backends: 14 checks, no counterexample, no
 unknown, about 2 s per run. With the first run's probe spec, both report F6
 and F7. The slice's only real bug is F6 (no security impact found); Anthony
 decided on Oct 19, 2026 that it counts as the gate's confirmed real bug, so
-Action Policy meets the gate and phase 1's gate is passed. Reporting it is
-an open question below.
+Action Policy meets the gate and phase 1's gate is passed. Not reported to
+Gumroad (decided Oct 19, 2026): nothing leaks, since the redirect target
+denies.
 
 To rerun: run both checkouts' specs one after the other, never at once
 (they share the `gumroad_test` database and Elasticsearch's `-test`
@@ -646,8 +647,3 @@ Railtie lands.
 - First-class adapter: Action Policy, Pundit or DeclarativePolicy.
 - Reserving the `hallmark` name on RubyGems.
 - Whether any target app needs JRuby, and whether any uses schema-per-tenant.
-- Whether and when to report Gumroad's F6 through its `SECURITY.md` (a
-  live flaw with no security impact found; it counts as the Action Policy
-  gate bug, decided Oct 19, 2026).
-- Whether and when to report Forem's live finding through dev.to/security
-  (it counts as Forem's gate bug, decided Oct 18, 2026).
