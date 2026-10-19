@@ -1,10 +1,12 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "hallmark/rspec"
 require_relative "support/fixture_solver"
 
 # Drift: stamps the shop fixture's policy code contradicts (docs/adr/0003),
-# and the facts evaluator Inference and drift share; no Java.
+# in the report and the matchers, and the facts evaluator Inference and drift
+# share; no Java.
 class DriftTest < Minitest::Test
   include Hallmark::Guard::DSL
 
@@ -129,6 +131,51 @@ class DriftTest < Minitest::Test
     assert_includes report.to_s, "DRIFT LinkPolicy#update? (Link) at app/policies/link_policy.rb:14: denied " \
                                  "(raised ActiveRecord::RecordNotFound), but its code allows wherever #{lower} " \
                                  "(lower bound), true here\n"
+  end
+
+  def matcher(stamps, rule = nil, solver: FixtureSolver.new)
+    options = { mapping: analysis([]).mapping, stamps: Hallmark::StampSet.new(stamps), solver: solver }
+    rule ? Hallmark::RSpec::HaveNoCounterexample.new(rule, **options) : Hallmark::RSpec::SatisfyCatalog.new(**options)
+  end
+
+  def drifting = [stamp(rule: "update?", **as_admin), stamp(rule: "edit?", **as_marketer)]
+
+  # The guard checked has no counterexample, but the stamps contradict the
+  # code it was read from, so the matcher fails as `hallmark check` does.
+  def test_a_matcher_fails_on_drift_in_the_rule_it_checks
+    check = matcher(drifting, :edit?)
+
+    refute check.matches?("LinkPolicy")
+    item = check.results.fetch(0).drifts.fetch(0)
+    message = check.failure_message
+
+    assert_equal "expected LinkPolicy#edit? to have no counterexample within scope 5; 1 with no counterexample in " \
+                 "1 rule, 1 drifting decision (stamps the rule's code contradicts):\n\n" \
+                 "ok    LinkPolicy#edit? (read Link)\n#{Hallmark::Report.drift_lines(item).join("\n")}\n\n" \
+                 "#{Hallmark::RSpec::Matcher::DRIFT_NOTE}", message
+    assert_includes message, "DRIFT LinkPolicy#edit? (Link) at app/policies/link_policy.rb:8: allowed, but its code " \
+                             "allows only where "
+  end
+
+  def test_drift_in_another_rule_leaves_a_matcher_alone
+    assert matcher(drifting, :update?).matches?("LinkPolicy")
+
+    check = matcher(drifting)
+
+    refute check.matches?("LinkPolicy")
+    assert_includes check.failure_message, "DRIFT LinkPolicy#edit? (Link)"
+    refute_includes check.failure_message, "DRIFT LinkPolicy#update?"
+  end
+
+  # A counterexample on a guard the stamps contradict is suspect too.
+  def test_not_to_fails_on_drift_even_with_a_counterexample
+    solver = FixtureSolver.new("safe_LinkPolicy_edit_read_Link" => :counterexample)
+    check = matcher(drifting, :edit?, solver: solver)
+
+    refute check.does_not_match?("LinkPolicy")
+    assert_predicate check.results.fetch(0), :counterexample?
+    assert_includes check.failure_message_when_negated, "1 counterexample in 1 rule, 1 drifting decision"
+    assert matcher([stamp(rule: "edit?", **as_admin)], :edit?, solver: solver).does_not_match?("LinkPolicy")
   end
 
   # Every literal Inference builds from a stamp holds for that stamp.

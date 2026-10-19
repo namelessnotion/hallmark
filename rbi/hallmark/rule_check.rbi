@@ -35,11 +35,18 @@ module Hallmark
       sig { params(reason: String).returns(String) }
       def reason=(reason); end
 
+      # The rule's drift on this kind of record; nil or empty for none
+      sig { returns(T.nilable(T::Array[Drift])) }
+      def drift; end
+
+      sig { returns(T::Array[Drift]) }
+      def drifts; end
+
       sig do
         params(policy: String, rule: String, exposure: T.nilable(Exposure), verdict: T.nilable(Symbol),
-               finding: T.nilable(Finding), reason: T.nilable(String)).void
+               finding: T.nilable(Finding), reason: T.nilable(String), drift: T.nilable(T::Array[Drift])).void
       end
-      def initialize(policy:, rule:, exposure: nil, verdict: nil, finding: nil, reason: nil); end
+      def initialize(policy:, rule:, exposure: nil, verdict: nil, finding: nil, reason: nil, drift: nil); end
 
       sig { returns(String) }
       def key; end
@@ -50,8 +57,16 @@ module Hallmark
       sig { returns(T::Boolean) }
       def none?; end
 
+      sig { returns(T::Boolean) }
+      def drift?; end
+
       sig { returns(T::Array[String]) }
       def lines; end
+
+      private
+
+      sig { returns(T::Array[String]) }
+      def verdict_lines; end
     end
 
     sig { returns(Mapping) }
@@ -65,6 +80,7 @@ module Hallmark
       @mapping = T.let(T.unsafe(nil), Mapping)
       @stamps = T.let(T.unsafe(nil), StampSet)
       @units = T.let(T.unsafe(nil), T::Array[Inference::Unit])
+      @drift = T.let(T.unsafe(nil), T::Array[Drift])
     end
 
     sig { params(policy: T.any(String, T::Module[T.anything])).returns(T::Array[String]) }

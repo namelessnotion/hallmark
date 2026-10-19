@@ -16,7 +16,9 @@ module Hallmark
   # a counterexample (printed as `hallmark check` prints it), on an unknown
   # verdict, and on a rule with nothing to check (no allow-stamp and no
   # hand-written guard: not observed, which is a coverage gap and not a
-  # finding, but not a pass either).
+  # finding, but not a pass either). Drift in a rule it checks (a stamped
+  # decision the rule's code contradicts) fails it too, either way, as it
+  # fails `hallmark check`: the guard checked is suspect.
   #
   # Where the pieces come from:
   #
@@ -125,6 +127,9 @@ module Hallmark
       NOT_OBSERVED_NOTE = "Not observed means there was no guard to check: a coverage gap, not a finding. Exercise " \
                           "an allowed case in a spec that runs before this one (with the collectors on), or " \
                           "declare `rule POLICY, NAME, guard: ...` in the map block."
+      DRIFT_NOTE = "Drift means a stamped decision contradicts the rule's code as Hallmark read it, so the guard " \
+                   "checked is suspect: fix the `term` for the call it misreads (or report an extractor bug), or " \
+                   "declare `rule POLICY, NAME, guard: ...` in the map block."
 
       attr_reader :results
 
@@ -141,14 +146,14 @@ module Hallmark
 
       def matches?(actual)
         @results = run(actual)
-        @results.any? && @results.all?(&:none?)
+        @results.any? && @results.all?(&:none?) && !drift?
       end
 
-      # `not_to` passes only on a counterexample; an unknown or a rule with
-      # nothing to check fails it too.
+      # `not_to` passes only on a counterexample with no drift; an unknown or
+      # a rule with nothing to check fails it too.
       def does_not_match?(actual)
         @results = run(actual)
-        @results.any?(&:counterexample?)
+        @results.any?(&:counterexample?) && !drift?
       end
 
       def failure_message
@@ -165,6 +170,7 @@ module Hallmark
       def target = @policy
       def expectation = "have no counterexample within scope #{scope}"
       def rule_names = nil
+      def drift? = @results.any?(&:drift?)
 
       def run(actual)
         @policy = policy_name(actual)
@@ -199,7 +205,15 @@ module Hallmark
           number = @results.count { |result| result.verdict == verdict }
           "#{number} #{label(verdict, number)}" if number.positive?
         end
-        "#{counts.join(", ")} in #{@results.size} rule#{"s" unless @results.size == 1}"
+        "#{counts.join(", ")} in #{@results.size} rule#{"s" unless @results.size == 1}#{drift_count}"
+      end
+
+      # Worded as `hallmark check`'s summary words it.
+      def drift_count
+        drifting = @results.sum { |result| result.drifts.size }
+        return "" if drifting.zero?
+
+        ", #{drifting} drifting decision#{"s" unless drifting == 1} (stamps the rule's code contradicts)"
       end
 
       def label(verdict, number)
@@ -211,15 +225,18 @@ module Hallmark
         end
       end
 
-      # Counterexamples first, as `hallmark check` prints them, then a note
-      # on each verdict that is neither a pass nor a finding.
+      # Counterexamples first, as `hallmark check` prints them, each rule's
+      # drift under it, then a note on each verdict that is neither a pass
+      # nor a finding, and on drift.
       def details
         order = %i[counterexample unknown not_observed none]
         verdicts = @results.map(&:verdict)
         lines = @results.sort_by.with_index { |result, index| [order.index(result.verdict) || 0, index] }
                         .flat_map(&:lines)
-        lines << "" << UNKNOWN_NOTE if verdicts.include?(:unknown)
-        lines << "" << NOT_OBSERVED_NOTE if verdicts.empty? || verdicts.include?(:not_observed)
+        notes = { UNKNOWN_NOTE => verdicts.include?(:unknown),
+                  NOT_OBSERVED_NOTE => verdicts.empty? || verdicts.include?(:not_observed),
+                  DRIFT_NOTE => drift? }
+        notes.each { |note, due| lines << "" << note if due }
         lines.join("\n")
       end
     end

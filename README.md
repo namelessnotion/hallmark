@@ -40,6 +40,7 @@ Pundit and Action Policy code:
   `app/policies` with Prism, without loading the app, so rules no test
   reached are checked too (`hallmark extract` prints what it read), and
   drift: a stamped decision the rule's code contradicts fails the check
+  and the matchers
 
 Phase 1 is done: its deliverables are built, and its gate (Hallmark run on
 one real app per authorization library, each with a confirmed real bug)
@@ -278,9 +279,11 @@ It also fails, with its own message, when the solver gave no verdict
 (unknown: raise `HALLMARK_TIMEOUT` or lower the scope) and when a rule has
 nothing to check: no allow-stamp and no hand-written guard. That last case
 is "not observed", a coverage gap rather than a finding, but not a pass.
-`satisfy_catalog` covers the rules the stamps show, those read from the
-policy code, and those with a hand-written guard. `not_to` passes only on a
-counterexample.
+Drift in a rule it checks (see "Reading guards from policy code") fails it
+too, with the drift lines `hallmark check` prints under the rule's verdict,
+since the guard it checked was read wrongly. `satisfy_catalog` covers the
+rules the stamps show, those read from the policy code, and those with a
+hand-written guard. `not_to` passes only on a counterexample with no drift.
 
 Where the pieces come from:
 
@@ -363,7 +366,8 @@ Stamps check the reading in turn. An allow where the rule's upper bound is
 false (no outcome of the unread calls could allow), or a deny, a raise
 included, where its lower bound is true, is drift: the extractor or a
 `term` is wrong. `hallmark check` lists each one under "Drift" with the
-rule's file and line and the stamp's facts, and exits 1. A fact a stamp did
+rule's file and line and the stamp's facts, and exits 1; a matcher checking
+that rule fails with the same lines. A fact a stamp did
 not record leaves the bound unknown, which is never drift, and a rule with
 a hand-written guard has none.
 

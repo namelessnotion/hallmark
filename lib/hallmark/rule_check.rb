@@ -13,6 +13,10 @@ module Hallmark
   # (docs/adr/0002). A rule with none has nothing to check, so its verdict
   # is :not_observed: a coverage gap, never a finding and never a pass.
   #
+  # A rule's drift (`Drift`: stamps its code, as the extractor read it,
+  # contradicts) rides on its result whatever the verdict, since the guard
+  # checked was built on a reading the stamps disagree with.
+  #
   #   check = Hallmark::RuleCheck.new(mapping, Hallmark::StampSet.load("tmp/hallmark"))
   #   check.check("LinkPolicy", ["update?"]).each { |result| puts result.lines }
   class RuleCheck
@@ -20,13 +24,21 @@ module Hallmark
     # (with `finding`), :none (no counterexample within scope), :unknown (the
     # solver gave no verdict; `reason` says why) or :not_observed (nothing to
     # check; `reason` says why). `exposure` is nil only when not observed.
-    Result = Struct.new(:policy, :rule, :exposure, :verdict, :finding, :reason, keyword_init: true) do
+    # `drift` is the rule's drift on that kind of record (nil for none).
+    Result = Struct.new(:policy, :rule, :exposure, :verdict, :finding, :reason, :drift, keyword_init: true) do
       def key = "#{policy}##{rule}"
       def counterexample? = verdict == :counterexample
       def none? = verdict == :none
+      def drifts = drift || []
+      def drift? = drifts.any?
 
-      # The rule as `hallmark check` would print it.
-      def lines
+      # The rule as `hallmark check` would print it: its verdict, then its
+      # drift.
+      def lines = verdict_lines + drifts.flat_map { |item| Report.drift_lines(item) }
+
+      private
+
+      def verdict_lines
         found = finding
         checked = exposure
         return Report.finding_lines(found) if found
@@ -42,7 +54,9 @@ module Hallmark
     def initialize(mapping, stamps = StampSet.new, extractor: nil)
       @mapping = mapping.validate!
       @stamps = stamps
-      @units = Inference.new(mapping, stamps, extractor: extractor).units
+      inference = Inference.new(mapping, stamps, extractor: extractor)
+      @units = inference.units
+      @drift = inference.drift
     end
 
     # The rules known for a policy, sorted: those stamped against a record of
@@ -93,7 +107,8 @@ module Hallmark
     end
 
     def from_unit(unit)
-      result = Result.new(policy: unit.policy, rule: unit.rule)
+      drift = @drift.select { |item| item.rule == unit.key && item.resource == unit.resource }
+      result = Result.new(policy: unit.policy, rule: unit.rule, drift: drift)
       guard = unit.guard
       unless guard
         result.verdict = :not_observed

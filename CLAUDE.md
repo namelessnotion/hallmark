@@ -115,7 +115,9 @@ Built:
   (`Inference#drift`); unknown is never drift, and a rule with a
   hand-written guard has none. `Report` lists drift in its own section with
   the rule's file:line and the stamp's facts, and drift exits 1. The
-  matchers do not report it yet. `docs/PLAN.md` ("The shipped drift").
+  matchers fail on drift in the rules they check (`RuleCheck::Result#drift`,
+  printed with `Report.drift_lines`; `not_to` fails on it too).
+  `docs/PLAN.md` ("The shipped drift").
 
 Not built yet, but designed and validated as hand-written models in
 `research/models` (see its README for each check's expected result):
@@ -133,7 +135,7 @@ explicit permission on one record, for Gumroad's collaborators).
 bundle install
 bin/hallmark install-alloy                 # Alloy 6.2.0 to ~/.cache/hallmark, SHA-256 verified; needs Java 17+
 bin/hallmark install-sidecar               # also builds the sidecar jar (javac + jar from a JDK 17+); no extra download
-bundle exec rake test                      # 261 tests; the 20 integration tests skip without the jar or sidecar
+bundle exec rake test                      # 264 tests; the 20 integration tests skip without the jar or sidecar
 bundle exec rubocop                        # lint
 bundle exec srb tc                         # type-check lib/ against rbi/; `rake` runs tests, rubocop, then this
 bin/hallmark check examples/medium_clone/hallmark.rb    # exits 1 (two counterexamples, expected)
