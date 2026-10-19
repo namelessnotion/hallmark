@@ -117,11 +117,13 @@ module Hallmark
         # Runs one rule called on a policy, and stamps it unless it runs
         # inside `authorize` or another rule. The record is the policy's
         # `@record`, where Pundit's generated policies keep it.
-        def query(policy, rule, &)
+        # The block is named: Ruby 3.3.0 rejects an anonymous block parameter
+        # used inside another block (a SyntaxError; Forem runs 3.3.0).
+        def query(policy, rule, &rule_body)
           return yield if !Collectors.active? || Thread.current[:hallmark_pundit_rule]
 
           record = policy.instance_variable_get(:@record)
-          within_rule { Collectors.observe(policy: policy, rule: rule, record: record, enforced: false, &) }
+          within_rule { Collectors.observe(policy: policy, rule: rule, record: record, enforced: false, &rule_body) }
         end
 
         # Marks the thread as inside a rule while the block runs, so the
