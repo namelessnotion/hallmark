@@ -10,9 +10,14 @@ module Hallmark
     # no entry point, as with Action Policy and DeclarativePolicy, so the rule
     # feeds its guard but ties to no entry point.
     #
-    # A policy spec's `permit` matcher (pundit/rspec) builds the policy and
-    # calls each rule itself; prepending `permit` stamps those calls as
-    # queries, which feed rule guards but tie no rule to an entry point.
+    # Policy specs often skip `authorize` and call the rule themselves
+    # (`described_class.new(user, record).public_send(:update?)`, as Forem's
+    # do, and as the `permit` matcher of pundit/rspec and pundit-matchers'
+    # `permit_actions` do). Pundit policies are plain classes with no common
+    # base, so each policy class gets a prepended module wrapping its rules,
+    # the public methods ending in `?`. A direct call is stamped as a query:
+    # it feeds the rule's guard and ties the rule to no entry point. Calls
+    # made inside `authorize`, or from another rule, are not stamped again.
     module PunditHook
       # Prepended on Pundit::Authorization.
       module Authorize
@@ -29,7 +34,7 @@ module Hallmark
 
           rule = rule.to_s
           begin
-            result = super
+            result = PunditHook.within_rule { super }
           rescue ::Pundit::NotAuthorizedError => e
             policy = e.policy unless e.policy.is_a?(Module)
             PunditHook.decide(policy || hallmark_policy(record, policy_class), rule, record, allowed: false)
@@ -67,47 +72,8 @@ module Hallmark
         end
       end
 
-      # Prepended on Pundit::RSpec::Matchers: the matcher it returns is
-      # handed a stand-in for the policy class.
-      module Permit
-        def permit(user, record)
-          matcher = super
-          matcher.singleton_class.prepend(PermitMatcher)
-          matcher
-        end
-      end
-
-      # Prepended on one `permit` matcher, so it checks the stand-in.
-      module PermitMatcher
-        def matches?(policy) = super(ObservedPolicy.new(policy))
-        def does_not_match?(policy) = super(ObservedPolicy.new(policy))
-      end
-
-      # Stands in for the policy class a `permit` matcher is given: builds the
-      # real policy, and stamps each rule the matcher calls on it.
-      class ObservedPolicy
-        def initialize(policy_class)
-          @policy_class = policy_class
-        end
-
-        def new(user, record) = ObservedRule.new(@policy_class.new(user, record), record)
-        def to_s = @policy_class.to_s
-        def inspect = @policy_class.inspect
-      end
-
-      # The matcher calls `public_send(rule)` on what `new` returned.
-      class ObservedRule
-        def initialize(policy, record)
-          @policy = policy
-          @record = record
-        end
-
-        def public_send(rule, *args)
-          Collectors.observe(policy: @policy, rule: rule, record: @record, enforced: false) do
-            @policy.public_send(rule, *args)
-          end
-        end
-      end
+      # Policy classes of the other libraries, which their own hooks observe.
+      OTHER_POLICIES = %w[ActionPolicy::Policy::Core DeclarativePolicy::Base].freeze
 
       class << self
         def install
@@ -115,21 +81,57 @@ module Hallmark
 
           @installed = true
           ::Pundit::Authorization.prepend(Authorize)
-          install_rspec
+          # Policies loaded so far (Rails eager loads them before the Railtie
+          # installs the collectors), then each class body Ruby finishes from
+          # now on (autoloaded policies, and reopened ones).
+          ObjectSpace.each_object(Class) { |klass| observe_rules(klass) }
+          @tracer = TracePoint.new(:end) { |trace| observe_rules(trace.self) }
+          @tracer.enable
         end
 
-        # pundit/rspec usually loads after the app, and so after the Railtie
-        # installs the collectors; then the hook waits for the suite to start.
-        def install_rspec
-          if defined?(::Pundit::RSpec::Matchers)
-            return if @rspec_installed
+        # Wraps the rules of a Pundit policy class. Never raises: it runs
+        # while the app loads its classes.
+        def observe_rules(klass)
+          return unless policy_class?(klass)
 
-            @rspec_installed = true
-            ::Pundit::RSpec::Matchers.prepend(Permit)
-          elsif !@rspec_waiting && defined?(::RSpec) && ::RSpec.respond_to?(:configure)
-            @rspec_waiting = true
-            ::RSpec.configure { |config| config.before(:suite) { PunditHook.install_rspec } }
+          wrappers = @wrappers ||= {}.compare_by_identity
+          wrapper = wrappers[klass] ||= Module.new.tap { |rules| klass.prepend(rules) }
+          (klass.public_instance_methods - Object.public_instance_methods).each do |rule|
+            wrap(wrapper, rule) if rule.end_with?("?") && !wrapper.method_defined?(rule, false)
           end
+        rescue StandardError => e
+          Collectors.warn_once(e)
+        end
+
+        # A class named like a Pundit policy (`LinkPolicy`) that Pundit could
+        # build with `new(user, record)`, and no other library's policy.
+        # The arity check leaves out Rails' own `*Policy` classes.
+        def policy_class?(klass)
+          return false unless klass.is_a?(Class) && !klass.singleton_class? && klass < Object
+          return false unless module_name(klass)&.end_with?("Policy")
+          return false if klass.ancestors.any? { |ancestor| OTHER_POLICIES.include?(module_name(ancestor)) }
+
+          takes_user_and_record?(klass.instance_method(:initialize))
+        end
+
+        # Runs one rule called on a policy, and stamps it unless it runs
+        # inside `authorize` or another rule. The record is the policy's
+        # `@record`, where Pundit's generated policies keep it.
+        def query(policy, rule, &)
+          return yield if !Collectors.active? || Thread.current[:hallmark_pundit_rule]
+
+          record = policy.instance_variable_get(:@record)
+          within_rule { Collectors.observe(policy: policy, rule: rule, record: record, enforced: false, &) }
+        end
+
+        # Marks the thread as inside a rule while the block runs, so the
+        # rules it calls are not stamped.
+        def within_rule
+          outer = Thread.current[:hallmark_pundit_rule]
+          Thread.current[:hallmark_pundit_rule] = true
+          yield
+        ensure
+          Thread.current[:hallmark_pundit_rule] = outer
         end
 
         # Stamps one `authorize` call under the current request's entry point,
@@ -145,6 +147,25 @@ module Hallmark
         rescue StandardError => e
           Collectors.warn_once(e)
         end
+
+        private
+
+        # Defines one rule on a policy class's wrapper module, passing the
+        # arguments, the block and the result through untouched.
+        def wrap(wrapper, rule)
+          wrapper.define_method(rule) do |*args, **kwargs, &block|
+            PunditHook.query(self, rule) { super(*args, **kwargs, &block) }
+          end
+        end
+
+        def takes_user_and_record?(method)
+          kinds = method.parameters.map(&:first)
+          required = kinds.count(:req)
+          required <= 2 && !kinds.include?(:keyreq) && (kinds.include?(:rest) || required + kinds.count(:opt) >= 2)
+        end
+
+        # A class's own name, even when it overrides `name`.
+        def module_name(mod) = Module.instance_method(:name).bind_call(mod)
       end
     end
   end

@@ -37,64 +37,44 @@ module Hallmark
         def hallmark_policy(record, policy_class); end
       end
 
-      # Prepended on Pundit::RSpec::Matchers.
-      module Permit
-        sig { params(user: T.untyped, record: T.untyped).returns(T.untyped) }
-        def permit(user, record); end
-      end
-
-      # Prepended on the singleton class of one `permit` matcher.
-      module PermitMatcher
-        sig { params(policy: T.untyped).returns(T::Boolean) }
-        def matches?(policy); end
-
-        sig { params(policy: T.untyped).returns(T::Boolean) }
-        def does_not_match?(policy); end
-      end
-
-      class ObservedPolicy
-        sig { params(policy_class: T.untyped).void }
-        def initialize(policy_class)
-          @policy_class = T.let(policy_class, T.untyped)
-        end
-
-        sig { params(user: T.untyped, record: T.untyped).returns(ObservedRule) }
-        def new(user, record); end
-
-        sig { returns(String) }
-        def to_s; end
-
-        sig { returns(String) }
-        def inspect; end
-      end
-
-      class ObservedRule
-        sig { params(policy: T.untyped, record: T.untyped).void }
-        def initialize(policy, record)
-          @policy = T.let(policy, T.untyped)
-          @record = T.let(record, T.untyped)
-        end
-
-        sig { params(rule: T.any(String, Symbol), args: T.untyped).returns(T.untyped) }
-        def public_send(rule, *args); end
-      end
+      OTHER_POLICIES = T.let(T.unsafe(nil), T::Array[String])
 
       @installed = T.let(nil, T.nilable(T::Boolean))
-      @rspec_installed = T.let(nil, T.nilable(T::Boolean))
-      @rspec_waiting = T.let(nil, T.nilable(T::Boolean))
+      @tracer = T.let(nil, T.nilable(TracePoint))
+      @wrappers = T.let(nil, T.nilable(T::Hash[T::Class[T.anything], T::Module[T.anything]]))
 
       class << self
         sig { void }
         def install; end
 
-        sig { void }
-        def install_rspec; end
+        sig { params(klass: T.untyped).void }
+        def observe_rules(klass); end
+
+        sig { params(klass: T.untyped).returns(T::Boolean) }
+        def policy_class?(klass); end
+
+        sig { params(policy: T.untyped, rule: Symbol, block: T.proc.returns(T.untyped)).returns(T.untyped) }
+        def query(policy, rule, &block); end
+
+        sig { params(block: T.proc.returns(T.untyped)).returns(T.untyped) }
+        def within_rule(&block); end
 
         sig do
           params(policy: T.untyped, query: String, record: T.untyped, allowed: T::Boolean,
                  raised: T.nilable(String)).void
         end
         def decide(policy, query, record, allowed:, raised: nil); end
+
+        private
+
+        sig { params(wrapper: T::Module[T.anything], rule: Symbol).void }
+        def wrap(wrapper, rule); end
+
+        sig { params(method: UnboundMethod).returns(T::Boolean) }
+        def takes_user_and_record?(method); end
+
+        sig { params(mod: T::Module[T.anything]).returns(T.nilable(String)) }
+        def module_name(mod); end
       end
     end
   end
