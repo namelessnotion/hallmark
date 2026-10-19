@@ -55,9 +55,19 @@ module Hallmark
     end
   end
 
+  # A route the app defines, as "Controller#action" with its HTTP verb
+  # ("GET", "GET|POST", or "" for any) and path. The Railtie records every
+  # route at the end of a test run, so Hallmark knows the entry points no
+  # test reached (phase 2 step 3).
+  Route = Struct.new(:entry_point, :verb, :path, keyword_init: true) do
+    def to_json_line
+      JSON.generate({ "type" => "route", "entry_point" => entry_point, "verb" => verb, "path" => path })
+    end
+  end
+
   # The stamps of one run, read back from JSONL.
   class StampSet
-    attr_reader :stamps, :unchecked
+    attr_reader :stamps, :unchecked, :routes
 
     # A JSONL file, or a directory of them (`tmp/hallmark`), in which case
     # every file of the latest run (the one with the most recently written
@@ -107,6 +117,7 @@ module Hallmark
     def self.parse(lines)
       stamps = []
       unchecked = []
+      routes = []
       lines.each do |line|
         next if line.strip.empty?
 
@@ -117,14 +128,18 @@ module Hallmark
         when "unchecked"
           unchecked << Unchecked.new(entry_point: data.fetch("entry_point").to_s, status: data["status"],
                                      verb: data["verb"])
+        when "route"
+          routes << Route.new(entry_point: data.fetch("entry_point").to_s, verb: data["verb"].to_s,
+                              path: data["path"].to_s)
         end
       end
-      new(stamps, unchecked)
+      new(stamps, unchecked, routes)
     end
 
-    def initialize(stamps = [], unchecked = [])
+    def initialize(stamps = [], unchecked = [], routes = [])
       @stamps = stamps.uniq
       @unchecked = unchecked.uniq
+      @routes = routes.uniq
     end
   end
 end

@@ -118,9 +118,30 @@ module Hallmark
     def to_json_line; end
   end
 
+  class Route
+    sig { returns(String) }
+    def entry_point; end
+
+    sig { returns(String) }
+    def verb; end
+
+    sig { returns(String) }
+    def path; end
+
+    sig { params(entry_point: String, verb: String, path: String).void }
+    def initialize(entry_point:, verb:, path:); end
+
+    sig { returns(String) }
+    def to_json_line; end
+  end
+
   class StampSet
     sig { returns(T::Array[Stamp]) }
     attr_reader :stamps
+
+    # The app's routes, recorded at the end of the run; empty before Oct 19, 2026
+    sig { returns(T::Array[Route]) }
+    attr_reader :routes
 
     # Requests that finished without an authorization call, deduplicated
     sig { returns(T::Array[Unchecked]) }
@@ -142,10 +163,11 @@ module Hallmark
     sig { params(lines: T::Array[String]).returns(StampSet) }
     def self.parse(lines); end
 
-    sig { params(stamps: T::Array[Stamp], unchecked: T::Array[Unchecked]).void }
-    def initialize(stamps = [], unchecked = [])
+    sig { params(stamps: T::Array[Stamp], unchecked: T::Array[Unchecked], routes: T::Array[Route]).void }
+    def initialize(stamps = [], unchecked = [], routes = [])
       @stamps = T.let(T.unsafe(nil), T::Array[Stamp])
       @unchecked = T.let(T.unsafe(nil), T::Array[Unchecked])
+      @routes = T.let(T.unsafe(nil), T::Array[Route])
     end
   end
 end

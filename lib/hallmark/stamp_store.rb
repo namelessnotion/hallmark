@@ -28,7 +28,7 @@ module Hallmark
 
     def path = File.join(dir, "stamps-#{run}-#{@pid}.jsonl")
 
-    # Queues a Stamp or Unchecked event; never blocks on I/O.
+    # Queues a Stamp, Unchecked or Route event; never blocks on I/O.
     def record(event)
       @lock.synchronize do
         reset if @pid != Process.pid

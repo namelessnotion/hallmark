@@ -28,7 +28,12 @@ module Hallmark
   # not-observed region, since the code says what it allows everywhere; a
   # rule with opaque leaves keeps its stamp regions and lists each call
   # (`opaque`), whose outcome the checked lower bound assumes denies.
-  # `code_only` lists rules read from code that no stamp shows.
+  # `code_only` lists rules read from code that no stamp or unreached route
+  # shows. Of the routes no test reached (phase 2 step 3): `routes_unread`
+  # are in controllers outside `app/controllers` (gems, engines),
+  # `routes_unchecked` call no authorization in the code Hallmark reads, and
+  # `routes_unresolved` authorize a record whose class or rule it could not
+  # tell.
   class Coverage
     # One fact a stamp records, as a dimension of the fact space: a boolean,
     # or the set of roles held in one place (`roles` is true).
@@ -47,7 +52,7 @@ module Hallmark
     ANONYMOUS_LACKS = %i[owner permitted record_roles current_roles roles].freeze
 
     attr_reader :gaps, :never_allowed, :unreached, :class_level, :without_op, :unmapped, :redirected, :opaque,
-                :code_only, :exempt
+                :code_only, :exempt, :routes_unread, :routes_unchecked, :routes_unresolved
 
     def initialize(mapping, stamps)
       @mapping = mapping
@@ -62,6 +67,9 @@ module Hallmark
       @unmapped = []
       @redirected = []
       @exempt = []
+      @routes_unread = []
+      @routes_unchecked = []
+      @routes_unresolved = []
       @opaque = []
       @code_only = []
     end
@@ -84,7 +92,7 @@ module Hallmark
 
     def empty?
       [@gaps, @never_allowed, @unreached, @class_level, @without_op, @unmapped, @redirected, @opaque,
-       @code_only, @exempt].all?(&:empty?)
+       @code_only, @exempt, @routes_unread, @routes_unchecked, @routes_unresolved].all?(&:empty?)
     end
 
     # Fact combinations, as conjunctions, that none of `stamps` covers.

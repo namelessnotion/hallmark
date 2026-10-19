@@ -11,6 +11,7 @@ module Hallmark
   class Report
     # Not-observed combinations printed per rule; the rest are counted.
     COMBINATIONS_SHOWN = 8
+    ROUTES_SHOWN = 12
 
     # An exposure the solver gave no verdict for, and why.
     Unknown = Struct.new(:exposure, :reason)
@@ -150,7 +151,7 @@ module Hallmark
       coverage_lists(coverage).each do |title, names|
         lines << "  #{title}: #{names.join(", ")}" if names.any?
       end
-      lines
+      lines.concat(route_lines(coverage))
     end
 
     # Calls inside rules the extractor could not read (docs/adr/0003).
@@ -177,7 +178,29 @@ module Hallmark
       }
     end
 
+    # Routes no test reached, which can be many in a whole app: each list
+    # shows its first ROUTES_SHOWN names and counts the rest.
+    def route_lists(coverage)
+      {
+        "Routes no test reached whose code authorizes a record Hallmark could not resolve to a rule" =>
+          coverage.routes_unresolved,
+        "Routes no test reached with no authorization call in the code Hallmark reads" =>
+          coverage.routes_unchecked,
+        "Routes no test reached in controllers outside app/controllers" => coverage.routes_unread
+      }
+    end
+
     private
+
+    def route_lines(coverage)
+      route_lists(coverage).filter_map do |title, names|
+        next if names.empty?
+
+        hidden = names.size - ROUTES_SHOWN
+        more = hidden.positive? ? " and #{hidden} more" : ""
+        "  #{title} (#{names.size}): #{names.first(ROUTES_SHOWN).join(", ")}#{more}"
+      end
+    end
 
     # Files one exposure's verdict.
     def read(exposure, receipt)

@@ -40,6 +40,18 @@ class LinksController < ApplicationController
     authorize links.first
   end
 
+  def duplicate
+    authorize Link.where(user: current_seller).find(params[:id])
+  end
+
+  def variants
+    authorize Link.find_by(user_id: current_seller.id), :index?
+  end
+
+  def copy
+    authorize Link.find_by(owner: current_seller)
+  end
+
   private
 
   def set_link

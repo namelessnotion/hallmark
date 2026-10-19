@@ -11,6 +11,7 @@ class ControllersExtractorTest < Minitest::Test
   def controllers(reader: :current_seller)
     mapping = Hallmark::Mapping.new
     mapping.current_tenant(:seller, controller: reader)
+    mapping.resource("Link", tenant: :user)
     Hallmark::Extractor::Controllers.new(mapping, ROOT)
   end
 
@@ -46,6 +47,28 @@ class ControllersExtractorTest < Minitest::Test
     assert_nil loading("LinksController#index")
     assert_nil loading("LinksController#show")
     assert_nil controllers.fetch("MissingController#show")
+  end
+
+  # A load filtered by the resource's tenant (`tenant: :user`) is scoped;
+  # a filter on another column is not.
+  def test_a_load_filtered_by_the_tenant_keyword_is_scoped
+    assert_equal :scoped, loading("LinksController#duplicate")
+    assert_equal :scoped, loading("LinksController#variants")
+    assert_equal :unscoped, loading("LinksController#copy")
+  end
+
+  # The policy from the record's class (or Pundit's namespace), the rule
+  # from the call or the action.
+  def test_resolves_the_rule_an_authorize_call_checks
+    rules = %w[edit destroy publish variants preview].to_h do |action|
+      [action, controllers.fetch("LinksController##{action}").authorizations.map { |found| [found.policy, found.rule] }]
+    end
+
+    assert_equal({ "edit" => [%w[LinkPolicy edit?]], "destroy" => [%w[LinkPolicy destroy?]],
+                   "publish" => [%w[Seller::LinkPolicy publish?]], "variants" => [%w[LinkPolicy index?]],
+                   "preview" => [[nil, "preview?"]] }, rules)
+    assert controllers.fetch("LinksController#edit").checked
+    refute controllers.fetch("Admin::ReportsController#index").checked
   end
 
   # Without the controllers' reader nothing can be scoped.

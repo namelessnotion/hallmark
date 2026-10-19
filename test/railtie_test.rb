@@ -22,8 +22,16 @@ class RailtieTest < Minitest::Test
               "SHOP_EAGER_LOAD" => eager_load ? "1" : nil }
       output, error, status = Open3.capture3(env, RbConfig.ruby, "-I", File.join(ROOT, "lib"), APP, root)
       assert_predicate status, :success?, error
-      JSON.parse(output.lines.last)
+      JSON.parse(output.lines.last).merge("routes" => routes_after_exit(root))
     end
+  end
+
+  # The routes the Railtie recorded when the child process exited.
+  def routes_after_exit(root)
+    dir = File.join(root, "tmp", "hallmark")
+    return nil unless File.directory?(dir) && Hallmark::StampSet.files(dir).any?
+
+    Hallmark::StampSet.load(dir).routes.map { |route| [route.entry_point, route.verb, route.path] }.sort
   end
 
   def write_models(root, models)
@@ -43,6 +51,11 @@ class RailtieTest < Minitest::Test
     assert_equal [200, 200], result.fetch("statuses")
     assert_equal [["PunditShop::LinksController#edit", "edit?", "allow"]], result.fetch("stamps")
     assert_equal ["PunditShop::LinksController#show"], result.fetch("unchecked")
+  end
+
+  def test_records_the_apps_routes_when_the_run_ends
+    assert_equal [["PunditShop::LinksController#edit", "GET", "/links/:id/edit(.:format)"],
+                  ["PunditShop::LinksController#show", "GET", "/links/:id(.:format)"]], boot("test").fetch("routes")
   end
 
   # Rails sets up autoloading after config initializers, so the mapping

@@ -2,9 +2,9 @@
 
 module Hallmark
   class StampStore
-    # A Stamp or Unchecked waiting to be written, or a queue to signal once
+    # A Stamp, Unchecked or Route waiting to be written, or a queue to signal once
     # everything before it is written
-    Event = T.type_alias { T.any(Stamp, Unchecked, Thread::Queue) }
+    Event = T.type_alias { T.any(Stamp, Unchecked, Route, Thread::Queue) }
 
     sig { returns(String) }
     attr_reader :dir
@@ -21,14 +21,14 @@ module Hallmark
       @pid = T.let(T.unsafe(nil), Integer)
       @queue = T.let(T.unsafe(nil), Thread::Queue)
       @thread = T.let(T.unsafe(nil), T.nilable(Thread))
-      @seen = T.let(T.unsafe(nil), T::Set[T.any(Stamp, Unchecked)])
+      @seen = T.let(T.unsafe(nil), T::Set[T.any(Stamp, Unchecked, Route)])
       @file = T.let(T.unsafe(nil), T.nilable(File))
     end
 
     sig { returns(String) }
     def path; end
 
-    sig { params(event: T.any(Stamp, Unchecked)).returns(Thread::Queue) }
+    sig { params(event: T.any(Stamp, Unchecked, Route)).returns(Thread::Queue) }
     def record(event); end
 
     sig { void }

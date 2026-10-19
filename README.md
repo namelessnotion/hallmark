@@ -46,8 +46,8 @@ Phase 1 is done: its deliverables are built, and its gate (Hallmark run on
 one real app per authorization library, each with a confirmed real bug)
 passed on Oct 19, 2026.
 
-Not built yet (phase 2): reading DeclarativePolicy code and routes, and
-SARIF output. Phase 3: shadow and sampled runtime
+Not built yet (phase 2): reading DeclarativePolicy code and Grape
+endpoints, and SARIF output. Phase 3: shadow and sampled runtime
 modes, the graphql-ruby schema walk and tracing, and field-level mapping.
 The models for those live in `research/models`.
 
@@ -378,8 +378,7 @@ DRIFT LinkPolicy#update? (Link) at app/policies/link_policy.rb:11: allowed, but 
 ```
 
 Rules no test called are checked by the matchers and listed under coverage
-by `hallmark check`. An entry point appears only when a stamp shows it
-(routes are not read yet).
+by `hallmark check` (or checked through a route, below).
 
 Hallmark also reads `app/controllers`, for two things stamps cannot say.
 First, how an entry point loaded the record it authorizes. Name the
@@ -397,6 +396,15 @@ check the tenant itself gives no false counterexample there.
 action the controller leaves out of `after_action :verify_authorized` (or
 skips with `skip_after_action`) is exempt, so an unchecked request there is
 listed under coverage instead of failing, with no `allow_unchecked` line.
+
+The Railtie also records the app's routes when the test run ends. A route
+no test reached is checked from code: each `authorize` call in it resolves
+to a policy (from `policy_class:`/`with:`, or the record's model class) and
+a rule (from the call, or the action's name), and the rule's guard read
+from code becomes the route's exposure. Routes Hallmark cannot read that
+way (an authorize call it cannot resolve, no authorization call it can
+see, a controller outside `app/controllers`) are listed under coverage, not
+failed.
 
 ## How it works
 

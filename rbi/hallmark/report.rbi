@@ -13,6 +13,7 @@ module Hallmark
     attr_reader :verified
 
     COMBINATIONS_SHOWN = T.let(T.unsafe(nil), Integer)
+    ROUTES_SHOWN = T.let(T.unsafe(nil), Integer)
 
     class Unknown
       sig { returns(Exposure) }
@@ -107,6 +108,12 @@ module Hallmark
 
     sig { params(coverage: Coverage).returns(T::Hash[String, T::Array[String]]) }
     def coverage_lists(coverage); end
+
+    sig { params(coverage: Coverage).returns(T::Hash[String, T::Array[String]]) }
+    def route_lists(coverage); end
+
+    sig { params(coverage: Coverage).returns(T::Array[String]) }
+    def route_lines(coverage); end
 
     private
 

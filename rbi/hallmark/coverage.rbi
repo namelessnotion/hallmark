@@ -94,6 +94,18 @@ module Hallmark
     sig { returns(T::Array[String]) }
     attr_reader :exempt
 
+    # Routes no test reached: in controllers outside app/controllers, with no
+    # authorization call in their code, and with an authorize call Hallmark
+    # could not resolve to a rule
+    sig { returns(T::Array[String]) }
+    attr_reader :routes_unread
+
+    sig { returns(T::Array[String]) }
+    attr_reader :routes_unchecked
+
+    sig { returns(T::Array[String]) }
+    attr_reader :routes_unresolved
+
     # Calls inside rules that the extractor could not read
     sig { returns(T::Array[Opaque]) }
     attr_reader :opaque
@@ -116,6 +128,9 @@ module Hallmark
       @unmapped = T.let(T.unsafe(nil), T::Array[String])
       @redirected = T.let(T.unsafe(nil), T::Array[String])
       @exempt = T.let(T.unsafe(nil), T::Array[String])
+      @routes_unread = T.let(T.unsafe(nil), T::Array[String])
+      @routes_unchecked = T.let(T.unsafe(nil), T::Array[String])
+      @routes_unresolved = T.let(T.unsafe(nil), T::Array[String])
       @opaque = T.let(T.unsafe(nil), T::Array[Opaque])
       @code_only = T.let(T.unsafe(nil), T::Array[String])
     end

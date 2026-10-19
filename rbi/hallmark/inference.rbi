@@ -79,6 +79,8 @@ module Hallmark
     def initialize(mapping, stamp_set, extractor: nil)
       @mapping = T.let(T.unsafe(nil), Mapping)
       @stamps = T.let(T.unsafe(nil), T::Array[Stamp])
+      @routes = T.let(T.unsafe(nil), T::Array[Route])
+      @reached = T.let(T.unsafe(nil), T::Array[String])
       @extractor = T.let(T.unsafe(nil), T.nilable(Extractor))
       @coverage = T.let(T.unsafe(nil), Coverage)
       @units = T.let(T.unsafe(nil), T::Array[Unit])
@@ -88,15 +90,6 @@ module Hallmark
     end
 
     private
-
-    sig { params(events: T::Array[Unchecked]).returns(T::Array[String]) }
-    def classify_unchecked(events); end
-
-    sig { params(entry_point: String).returns(T::Boolean) }
-    def verify_skipped?(entry_point); end
-
-    sig { params(event: Unchecked).returns(T::Boolean) }
-    def redirect_before_check?(event); end
 
     sig { params(entry_point: String, resource: String).returns(T.nilable(String)) }
     def scoped_load(entry_point, resource); end
@@ -133,6 +126,18 @@ module Hallmark
 
     sig { returns(T::Array[Exposure]) }
     def build_exposures; end
+
+    sig { returns(T::Array[Exposure]) }
+    def route_exposures; end
+
+    sig { params(entry_point: String, read: Extractor::Controllers::EntryPoint).returns(T::Array[Exposure]) }
+    def route_exposures_of(entry_point, read); end
+
+    sig { params(authorization: Extractor::Controllers::Authorization).returns(T.nilable(Unit)) }
+    def route_unit(authorization); end
+
+    sig { params(extracted: T.nilable(Extractor::Extracted)).returns(T.nilable(Unit)) }
+    def code_unit(extracted); end
 
     sig { params(entry_point: String, units: T::Array[Unit]).returns(T::Array[Exposure]) }
     def exposures_of(entry_point, units); end

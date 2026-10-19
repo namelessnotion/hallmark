@@ -110,7 +110,11 @@ Built:
   the controllers' current tenant reader (`current_tenant :seller,
   controller: :current_seller`) gets `in_current_tenant` in its exposure,
   and one the app exempts from `verify_authorized` is excused from threat
-  10 (`docs/PLAN.md`, "The shipped controllers").
+  10 (`UncheckedRequests`). The Railtie records the app's routes into the
+  stamp file at exit (`Collectors::Routes`, `Route`, `StampSet#routes`), and
+  routes no test reached become exposures from the rules their code
+  authorizes, or coverage lines (`docs/PLAN.md`, "The shipped
+  controllers").
 - Drift (phase 2 step 2, Oct 19, 2026; `lib/hallmark/drift.rb`,
   `stamp_facts.rb`): `StampFacts` is the one reading of a stamp's facts in
   catalog terms, shared by `Inference` (`#literals`, the inferred guard's
@@ -141,7 +145,7 @@ explicit permission on one record, for Gumroad's collaborators).
 bundle install
 bin/hallmark install-alloy                 # Alloy 6.2.0 to ~/.cache/hallmark, SHA-256 verified; needs Java 17+
 bin/hallmark install-sidecar               # also builds the sidecar jar (javac + jar from a JDK 17+); no extra download
-bundle exec rake test                      # 273 tests; the 20 integration tests skip without the jar or sidecar
+bundle exec rake test                      # 277 tests; the 20 integration tests skip without the jar or sidecar
 bundle exec rubocop                        # lint
 bundle exec srb tc                         # type-check lib/ against rbi/; `rake` runs tests, rubocop, then this
 bin/hallmark check examples/medium_clone/hallmark.rb    # exits 1 (two counterexamples, expected)
@@ -396,12 +400,13 @@ phase 3. Steps, in order:
    `~/Repos/hallmark-findings/gumroad-b6c62aa/drift2/`, log "Run 5").
 3. Static entry points: controller `authorize` calls and filters,
    `verify_authorized` skips, record loading through the current tenant
-   (the data-side gap), routes dumped at test boot, Grape if it fits. First
-   half done Oct 19, 2026 (`Extractor::Controllers`; Gumroad log "Run 5"):
-   record loading and `verify_authorized`. Left: routes, unstamped entry
-   points, Grape.
-4. DeclarativePolicy front end, on GitLab: !132952 from `ProjectPolicy`
-   alone; Forem's finding from `ArticlePolicy` alone.
+   (the data-side gap), routes recorded at the end of a test run. Done Oct
+   19, 2026 (`Extractor::Controllers`, `Collectors::Routes`,
+   `UncheckedRequests`; Gumroad log "Run 5" and "Run 6"). Grape moved to
+   step 4.
+4. DeclarativePolicy front end, on GitLab, with Grape endpoints (collector
+   and reader): !132952 from `ProjectPolicy` alone; Forem's finding from
+   `ArticlePolicy` alone.
 5. SARIF (`hallmark check --sarif FILE`).
 6. Gate: the three phase 1 apps on wider slices plus two of Mastodon, HCB
    and rubygems.org; every phase 1 bug from code, compared with SPACE.

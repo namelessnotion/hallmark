@@ -23,7 +23,7 @@ class ExtractedInferenceTest < Minitest::Test
     Hallmark::Stamp.new(**defaults, entry_point: entry_point, rule: rule, decision: decision, **facts)
   end
 
-  def analysis(stamps, unchecked = [], controller: nil)
+  def analysis(stamps, unchecked = [], controller: nil, routes: [])
     Hallmark::Analysis.build("Shop") do
       map do
         tenant "User", membership: "TeamMembership", self: :owner, roles_in: :team_roles_for
@@ -36,9 +36,11 @@ class ExtractedInferenceTest < Minitest::Test
         term "user.role_admin_for?(seller)", role(:admin, tenant: :current)
         term "user.role_marketing_for?(seller)", role(:marketing, tenant: :current)
       end
-      stamps Hallmark::StampSet.new(stamps, unchecked)
+      stamps Hallmark::StampSet.new(stamps, unchecked, routes)
     end
   end
+
+  def route(entry_point) = Hallmark::Route.new(entry_point: entry_point, verb: "GET", path: "/")
 
   def team = role(:owner, tenant: :current) | role(:admin, tenant: :current)
 
@@ -114,6 +116,25 @@ class ExtractedInferenceTest < Minitest::Test
 
     assert_equal ["Admin::ReportsController#index"], inference.unchecked
     assert_equal ["LinksController#show"], inference.coverage.exempt
+  end
+
+  # Routes no test reached become exposures from the rules their code
+  # authorizes; what cannot be read is listed, never failed.
+  def test_routes_no_test_reached
+    names = %w[LinksController#edit LinksController#destroy LinksController#show Admin::ReportsController#index
+               LinksController#preview Devise::SessionsController#new LinksController#update]
+    stamps = [stamp(rule: "update?", entry_point: "LinksController#update", current_roles: ["admin"],
+                    record_roles: ["admin"])]
+    inference = analysis(stamps, controller: :current_seller, routes: names.map { |name| route(name) }).inference
+    exposures = inference.exposures.to_h { |exposure| [exposure.action, exposure] }
+
+    assert_equal %w[LinksController#destroy LinksController#edit LinksController#update], exposures.keys.sort
+    assert_match(/\Ano test reached this route, read from code: extracted from LinkPolicy#edit\?/,
+                 exposures.fetch("LinksController#edit").basis)
+    assert_equal in_current_tenant, exposures.fetch("LinksController#destroy").guard.operands[0]
+    assert_equal ["Admin::ReportsController#index"], inference.coverage.routes_unchecked
+    assert_equal ["LinksController#preview"], inference.coverage.routes_unresolved
+    assert_equal ["Devise::SessionsController#new"], inference.coverage.routes_unread
   end
 
   def test_extraction_can_be_turned_off

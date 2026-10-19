@@ -1,6 +1,8 @@
 # typed: strict
 # frozen_string_literal: true
 
+require_relative "collectors/routes"
+
 module Hallmark
   # Loads `config/hallmark.rb` (the mapping, `Hallmark.configure { |c| c.map
   # { ... } }`) and installs the collectors in the test environment, writing
@@ -13,7 +15,8 @@ module Hallmark
   # loads only when the collectors are on, so development and console boots
   # never load it; `c.mode = "test"` inside it therefore cannot turn them on
   # (use HALLMARK_MODE or set the mode before boot), but `c.mode = "off"` can
-  # still turn them off.
+  # still turn them off. When the test process exits, the app's routes are
+  # recorded beside the stamps (`Collectors::Routes`).
   class Railtie < ::Rails::Railtie
     config.after_initialize do |app|
       configuration = Hallmark.configuration
@@ -27,6 +30,7 @@ module Hallmark
       configuration.stamps = app.root.join(configuration.stamps).to_s
       configuration.root = app.root.to_s
       Collectors.install!
+      at_exit { Collectors::Routes.record(app) }
     end
   end
 end

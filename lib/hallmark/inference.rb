@@ -20,11 +20,7 @@ module Hallmark
   # not tie a rule to an entry point.
   #
   # An entry point that finished without an authorization call (threat 10)
-  # fails the report, unless the mapping allows it (`allow_unchecked`) or the
-  # request was a GET or HEAD the action answered with a redirect while some
-  # other request to the same entry point reached a rule: a branch such as
-  # `return redirect_to root_path unless feature_enabled?` before
-  # `authorize`. Those are listed under coverage instead.
+  # fails the report unless `UncheckedRequests` excuses it.
   #
   # Stamps the extracted guard contradicts are drift (`Drift`), which also
   # fails the report.
@@ -39,55 +35,23 @@ module Hallmark
       def entry_points = stamps.select(&:enforced).filter_map(&:entry_point).uniq
     end
 
-    # A redirect the browser follows with a GET: the response served no data.
-    REDIRECTS = [301, 302, 303, 307, 308].freeze
-    SAFE_VERBS = %w[GET HEAD].freeze
-
     attr_reader :units, :exposures, :coverage, :unchecked, :drift
 
     def initialize(mapping, stamp_set, extractor: nil)
       @mapping = mapping
       @stamps = stamp_set.stamps
+      @routes = stamp_set.routes
+      @reached = (@stamps.filter_map(&:entry_point) + stamp_set.unchecked.map(&:entry_point)).uniq
       @extractor = extractor
       @coverage = Coverage.new(mapping, @stamps)
       stamped = build_units
       @units = (stamped + code_units(stamped.map(&:key))).sort_by { |unit| [unit.policy, unit.rule, unit.resource] }
       @exposures = build_exposures
       @drift = Drift.find(mapping, @units)
-      @unchecked = classify_unchecked(stamp_set.unchecked)
+      @unchecked = UncheckedRequests.new(mapping, @stamps, extractor, @coverage).failing(stamp_set.unchecked)
     end
 
     private
-
-    # The unchecked entry points that fail the report, sorted; excused
-    # redirects go to `coverage.redirected`. An entry point fails when any
-    # of its unchecked requests is not excused.
-    def classify_unchecked(events)
-      events = events.reject { |event| @mapping.unchecked_allowed.include?(event.entry_point) }
-      exempt, events = events.partition { |event| verify_skipped?(event.entry_point) }
-      @coverage.exempt.concat(exempt.map(&:entry_point).uniq.sort)
-      excused, failing = events.partition { |event| redirect_before_check?(event) }
-      failed = failing.map(&:entry_point).uniq.sort
-      @coverage.redirected.concat((excused.map(&:entry_point).uniq - failed).sort)
-      failed
-    end
-
-    # A GET or HEAD answered with a redirect, at an entry point some other
-    # request took to a rule (any stamp, allowed or denied). Writes that
-    # redirect, 304s and empty 2xx still fail, and so does an entry point
-    # that never reached a rule (a signed-URL redirect may be an IDOR).
-    # The controller exempts the action from `verify_authorized` in code
-    # (`after_action :verify_authorized, except: PUBLIC_ACTIONS`): an
-    # unchecked request there is intended, as with `allow_unchecked`.
-    def verify_skipped?(entry_point)
-      read = @extractor&.controllers&.fetch(entry_point)
-      read ? read.verify == :skipped : false
-    end
-
-    def redirect_before_check?(event)
-      SAFE_VERBS.include?(event.verb) && REDIRECTS.include?(event.status) &&
-        @stamps.any? { |stamp| stamp.entry_point == event.entry_point }
-    end
 
     def build_units
       record_level = @stamps.reject(&:class_level)
@@ -205,7 +169,64 @@ module Hallmark
           @coverage.unreached << unit.key
         end
       end
-      links.keys.sort.flat_map { |entry_point| exposures_of(entry_point, links.fetch(entry_point)) }
+      exposures = links.keys.sort.flat_map { |entry_point| exposures_of(entry_point, links.fetch(entry_point)) }
+      exposures + route_exposures
+    end
+
+    # Routes no test reached (no stamp, no unchecked request), read from
+    # their controller: an exposure for each rule it authorizes that the
+    # extractor read, with the rule's code guard alone. What cannot be read
+    # is listed under coverage, never failed: the code may authorize in ways
+    # Hallmark does not read.
+    def route_exposures
+      controllers = @extractor&.controllers
+      return [] unless controllers
+
+      (@routes.map(&:entry_point).uniq - @reached).sort.flat_map do |entry_point|
+        read = controllers.fetch(entry_point)
+        next route_exposures_of(entry_point, read) if read
+
+        @coverage.routes_unread << entry_point
+        []
+      end
+    end
+
+    def route_exposures_of(entry_point, read)
+      return [] if read.verify == :skipped
+
+      unless read.checked
+        @coverage.routes_unchecked << entry_point
+        return []
+      end
+
+      units = read.authorizations.filter_map { |authorization| route_unit(authorization) }
+      @coverage.routes_unresolved << entry_point if units.size < read.authorizations.size
+      units.each { |unit| @coverage.code_only.delete(unit.key) }
+      exposures_of(entry_point, units).each do |exposure|
+        exposure.basis = "no test reached this route, read from code: #{exposure.basis}"
+      end
+    end
+
+    # The unit for an authorize call's rule, reusing the one for its stamps
+    # or code when there is one.
+    def route_unit(authorization)
+      policy = authorization.policy
+      return nil unless policy
+
+      key = "#{policy}##{authorization.rule}"
+      @units.find do |unit|
+        unit.key == key && unit.extracted
+      end || code_unit(@extractor&.fetch(policy, authorization.rule))
+    end
+
+    def code_unit(extracted)
+      resource = extracted&.resource
+      return nil unless extracted && resource && (op = @mapping.op_for(extracted.policy, extracted.rule))
+
+      unit = Unit.new(policy: extracted.policy, rule: extracted.rule, resource: resource, op: op, stamps: [],
+                      extracted: extracted)
+      assign_guard(unit)
+      unit
     end
 
     def exposures_of(entry_point, units)
