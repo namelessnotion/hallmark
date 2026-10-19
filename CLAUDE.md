@@ -18,14 +18,15 @@ Jackson's SPACE (ICSE 2016).
 Phase 0 (spike) is done. Phase 1's deliverables are built: step 1
 (tenant-aware catalog and DSL), step 2 (collectors, stamp store, Railtie),
 step 3 (solver sidecar) and step 4 (RSpec matchers). Its exit gate, Hallmark
-on three real apps, is still open and is the next work. See "Next work"
-below. The first real-app run (original Gumroad on Pundit, Oct 16, 2026, not
+on three real apps, passed on Oct 19, 2026, so phase 1 is done; phase 2 (the
+extractor, `docs/PLAN.md` "Roadmap") is next. The gate's record is in
+"Phase 1 (core gem): the gate" below. The first real-app run (original Gumroad on Pundit, Oct 16, 2026, not
 a gate app) is in "First run on original Gumroad" below. Gate runs so far:
 GitLab (DeclarativePolicy, Oct 17, 2026) and Forem (Pundit, Oct 18, 2026),
 both meeting the gate's criteria, in "GitLab slice" and "Forem slice" below;
-Action Policy (the Gumroad port, Oct 19, 2026) meets every criterion but the
-confirmed real bug, which waits on an open question, in "Gumroad Action
-Policy port" below. That run found the controller hook running after
+and Action Policy (the Gumroad port, Oct 19, 2026), whose real bug is F6, a
+flaw with no security impact found, which Anthony counted for the gate (Oct
+19, 2026), in "Gumroad Action Policy port" below. That run found the controller hook running after
 controllers' own `before_action`s (fixed Oct 19, 2026); GitLab and Forem,
 rerun with the fix the same day, gave identical results and still meet the
 gate.
@@ -320,7 +321,7 @@ the quantified variables named `p`, `r` and `cur`.
 - `.gitlab-ci.yml` (ruby:3.4-bookworm plus openjdk-17) has not run yet; check
   the first pipeline.
 
-## Next work: phase 1 (core gem)
+## Phase 1 (core gem): the gate
 
 Exit gate: Hallmark runs on three apps, one per authorization library
 (Pundit, Action Policy, DeclarativePolicy), with each check under 10 seconds.
@@ -467,8 +468,10 @@ setup only: no Stripe test credentials, no Vite build). On the slice the
 two adapters wrote byte-identical stamps, and `hallmark check` gave
 identical reports on both backends: 14 checks, no counterexample, no
 unknown, about 2 s per run. With the first run's probe spec, both report F6
-and F7. The slice's only real bug is F6 (no security impact found), so the
-gate waits on the open question below.
+and F7. The slice's only real bug is F6 (no security impact found); Anthony
+decided on Oct 19, 2026 that it counts as the gate's confirmed real bug, so
+Action Policy meets the gate and phase 1's gate is passed. Reporting it is
+an open question below.
 
 To rerun: run both checkouts' specs one after the other, never at once
 (they share the `gumroad_test` database and Elasticsearch's `-test`
@@ -643,8 +646,8 @@ Railtie lands.
 - First-class adapter: Action Policy, Pundit or DeclarativePolicy.
 - Reserving the `hallmark` name on RubyGems.
 - Whether any target app needs JRuby, and whether any uses schema-per-tenant.
-- Whether a confirmed authorization flaw with no security impact counts as
-  a gate app's "confirmed real bug" (the first Gumroad run found one, F6;
-  see the private findings log). The Action Policy gate waits on it.
+- Whether and when to report Gumroad's F6 through its `SECURITY.md` (a
+  live flaw with no security impact found; it counts as the Action Policy
+  gate bug, decided Oct 19, 2026).
 - Whether and when to report Forem's live finding through dev.to/security
   (it counts as Forem's gate bug, decided Oct 18, 2026).

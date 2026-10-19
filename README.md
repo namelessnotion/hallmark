@@ -36,8 +36,9 @@ guards inferred from what the app's test suite did:
   `have_no_counterexample(:update?)` check a policy's rules one at a time,
   on the sidecar by default
 
-The phase 1 deliverables are built; its gate (Hallmark run on one real app
-per authorization library, each with a confirmed real bug) is still open.
+Phase 1 is done: its deliverables are built, and its gate (Hallmark run on
+one real app per authorization library, each with a confirmed real bug)
+passed on Oct 19, 2026.
 
 Not built yet: extracting guards from Pundit, Action Policy and DeclarativePolicy code,
 field-level mapping, and the graphql-ruby schema walk (phase 2); shadow and
