@@ -170,6 +170,15 @@ module Hallmark
       end
       def authorized_in?(controller, method, context, depth, found); end
 
+      sig { params(statements: T::Array[Prism::Node], locals: Locals).returns(T::Array[Prism::Node]) }
+      def taken(statements, locals); end
+
+      sig { params(method: SourceIndex::Method).returns(Locals) }
+      def defaults(method); end
+
+      sig { params(statement: Prism::Node, locals: Locals).returns(T.nilable(T::Array[Prism::Node])) }
+      def always_taken(statement, locals); end
+
       sig { params(statement: Prism::Node, locals: Locals).void }
       def remember(statement, locals); end
 

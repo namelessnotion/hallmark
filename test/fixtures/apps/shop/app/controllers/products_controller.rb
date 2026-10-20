@@ -60,7 +60,21 @@ class ProductsController < ApplicationController
     authorize Link.find(params[:id]), :show?
   end
 
+  # The callback's check sits in a branch on a parameter defaulting to true.
+  before_action :fetch_link, only: :resend
+
+  def resend
+    authorize @link, :show?
+  end
+
   private
+
+  def fetch_link(owned = true)
+    @link = Link.find(params[:id])
+    if owned
+      e404 if @link.user != current_seller
+    end
+  end
 
   def require_staff
     head :forbidden unless current_user&.staff?

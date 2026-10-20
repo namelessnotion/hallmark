@@ -109,6 +109,12 @@ class ControllersExtractorTest < Minitest::Test
     assert_equal [["(in_current_tenant | permitted)", "#{PRODUCTS}:32"]], checks("ProductsController#archive")
   end
 
+  # Gumroad's `fetch_post(viewed_by_seller = true)`: run as a callback with
+  # no arguments, the branch on the default always runs.
+  def test_reads_a_check_in_a_branch_on_a_true_default
+    assert_equal [["in_current_tenant", "#{PRODUCTS}:75"]], checks("ProductsController#resend")
+  end
+
   # `return head(...) if link.user != current_seller` in the action, on a
   # local record.
   def test_reads_a_check_in_the_action
@@ -126,7 +132,7 @@ class ControllersExtractorTest < Minitest::Test
   # leaf; one on the user alone counts when it is read exactly.
   def test_reads_unreadable_checks_on_the_record_and_exact_ones_on_the_user
     assert_equal [["opaque(`record.previewable?`)", "#{PRODUCTS}:39"]], checks("ProductsController#preview")
-    assert_equal [["role(:staff)", "#{PRODUCTS}:66"]], checks("ProductsController#feature")
+    assert_equal [["role(:staff)", "#{PRODUCTS}:80"]], checks("ProductsController#feature")
   end
 
   # `return unless request.xhr?` names neither; the way out inside a branch

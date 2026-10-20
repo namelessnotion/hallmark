@@ -205,9 +205,12 @@ module Hallmark
 
       # Adds the ways out in `method` that run before an authorize call to
       # `found`, statement by statement; whether `method` authorizes.
+      # Callbacks and helpers here are called with no arguments, so their
+      # optional parameters hold their defaults, and a branch on one that is
+      # `true` always runs (Gumroad's `fetch_post(viewed_by_seller = true)`).
       def authorized_in?(controller, method, context, depth, found)
-        locals = {}
-        body_statements(method.node.body).any? do |statement|
+        locals = defaults(method)
+        taken(body_statements(method.node.body), locals).any? do |statement|
           helper = depth < DEPTH && statement.is_a?(Prism::CallNode) && helper_call(controller, statement)
           next authorized_in?(controller, helper, context == :action ? :helper : context, depth + 1, found) if helper
           next true if authorizes?(controller, statement, 0)
@@ -217,6 +220,30 @@ module Hallmark
           remember(statement, locals)
           false
         end
+      end
+
+      def defaults(method)
+        optionals = method.node.parameters&.optionals || []
+        optionals.to_h { |param| [param.name.to_s, [param.value, {}]] }
+      end
+
+      # The statements in order, with each branch that always runs read in
+      # place of its `if`.
+      def taken(statements, locals)
+        statements.flat_map do |statement|
+          inner = always_taken(statement, locals)
+          inner ? taken(inner, locals) : [statement]
+        end
+      end
+
+      # The statements of an `if` with no else whose condition is `true`, or
+      # a local holding `true`.
+      def always_taken(statement, locals)
+        return nil unless statement.is_a?(Prism::IfNode) && statement.subsequent.nil?
+
+        predicate = statement.predicate
+        value = predicate.is_a?(Prism::LocalVariableReadNode) ? locals[predicate.name.to_s]&.first : predicate
+        value.is_a?(Prism::TrueNode) ? body_statements(statement.statements) : nil
       end
 
       def remember(statement, locals)
