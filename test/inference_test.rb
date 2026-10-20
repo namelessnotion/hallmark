@@ -282,4 +282,18 @@ class InferenceTest < Minitest::Test
     assert_equal ["~logged_in"], coverage.not_observed(stamps.first(2), mapping.fetch("Post"))
     assert_equal ["logged_in & ~owner"], coverage.not_observed(stamps.values_at(0, 2, 3), mapping.fetch("Post"))
   end
+
+  # A stamp recorded before its resource was mapped with an owner has no
+  # owner fact; read as is, its allow would drop ownership from the guard.
+  def test_stamps_recorded_before_the_owner_was_mapped_are_not_read
+    inference = Hallmark::Analysis.build("Stale") do
+      map { resource "Post", owner: :user }
+      stamps Hallmark::StampSet.new([Hallmark::Stamp.new(entry_point: "PostsController#update", policy: "PostPolicy",
+                                                         rule: "update?", resource: "Post", class_level: false,
+                                                         enforced: true, decision: "allow", logged_in: true)])
+    end.inference
+
+    assert_empty inference.exposures
+    assert_equal ["PostPolicy#update?"], inference.coverage.stale
+  end
 end

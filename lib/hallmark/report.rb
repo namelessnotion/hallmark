@@ -189,6 +189,8 @@ module Hallmark
           coverage.redirected,
         "Entry points that served a request without an authorization call, exempt from verify_authorized " \
         "in the controller" => coverage.exempt,
+        "Rules with allow-stamps recorded before their resource's facts were mapped, not read into the guard " \
+        "(run the suite again)" => coverage.stale.uniq,
         "Entry points not checked: their controller's own check depends on calls Hallmark could not read" =>
           coverage.checks_unread
       }

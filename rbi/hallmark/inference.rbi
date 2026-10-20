@@ -118,6 +118,9 @@ module Hallmark
     sig { params(unit: Unit).returns(T.nilable([Guard, String])) }
     def inferred_part(unit); end
 
+    sig { params(stamp: Stamp, resource: Mapping::Resource).returns(T::Boolean) }
+    def readable?(stamp, resource); end
+
     sig { params(allows: T::Array[Stamp], resource: Mapping::Resource).returns(Guard) }
     def inferred_guard(allows, resource); end
 

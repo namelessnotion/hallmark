@@ -97,6 +97,10 @@ module Hallmark
     # Routes no test reached: in controllers outside app/controllers, with no
     # authorization call in their code, and with an authorize call Hallmark
     # could not resolve to a rule
+    # Rules with allow-stamps recorded before their resource's facts were mapped
+    sig { returns(T::Array[String]) }
+    attr_reader :stale
+
     sig { returns(T::Array[String]) }
     attr_reader :routes_unread
 
@@ -132,6 +136,7 @@ module Hallmark
       @unmapped = T.let(T.unsafe(nil), T::Array[String])
       @redirected = T.let(T.unsafe(nil), T::Array[String])
       @exempt = T.let(T.unsafe(nil), T::Array[String])
+      @stale = T.let(T.unsafe(nil), T::Array[String])
       @routes_unread = T.let(T.unsafe(nil), T::Array[String])
       @routes_unchecked = T.let(T.unsafe(nil), T::Array[String])
       @routes_unresolved = T.let(T.unsafe(nil), T::Array[String])

@@ -140,11 +140,24 @@ module Hallmark
     end
 
     def inferred_part(unit)
-      allows = unit.allows
+      resource = @mapping.fetch(unit.resource)
+      allows = unit.allows.select { |stamp| readable?(stamp, resource) }
+      @coverage.stale << unit.key if allows.size < unit.allows.size
       return nil if allows.empty?
 
-      [inferred_guard(allows, @mapping.fetch(unit.resource)),
+      [inferred_guard(allows, resource),
        "inferred from #{allows.size} allow-stamp#{"s" unless allows.size == 1} of #{unit.key}"]
+    end
+
+    # A stamp recorded before its resource's facts were mapped (no owner
+    # fact for a resource now mapped with an owner, no publicity fact for
+    # one now public sometimes) says nothing about those facts, so it is
+    # not read into a guard: read as is, its allow would drop ownership.
+    def readable?(stamp, resource)
+      return true if stamp.class_level
+      return false if resource.owned? && stamp.owner.nil?
+
+      !(resource.public? && !resource.always_public? && stamp.public_record.nil?)
     end
 
     # Printed as the literals every allow-stamp shares, AND the OR of the

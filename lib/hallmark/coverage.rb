@@ -54,7 +54,7 @@ module Hallmark
     ANONYMOUS_LACKS = %i[owner permitted record_roles current_roles roles].freeze
 
     attr_reader :gaps, :never_allowed, :unreached, :class_level, :without_op, :unmapped, :redirected, :opaque,
-                :code_only, :exempt, :routes_unread, :routes_unchecked, :routes_unresolved, :checks_unread
+                :code_only, :exempt, :routes_unread, :routes_unchecked, :routes_unresolved, :checks_unread, :stale
 
     def initialize(mapping, stamps)
       @mapping = mapping
@@ -69,6 +69,7 @@ module Hallmark
       @unmapped = []
       @redirected = []
       @exempt = []
+      @stale = []
       @routes_unread = []
       @routes_unchecked = []
       @routes_unresolved = []
@@ -95,7 +96,8 @@ module Hallmark
 
     def empty?
       [@gaps, @never_allowed, @unreached, @class_level, @without_op, @unmapped, @redirected, @opaque,
-       @code_only, @exempt, @routes_unread, @routes_unchecked, @routes_unresolved, @checks_unread].all?(&:empty?)
+       @code_only, @exempt, @stale, @routes_unread, @routes_unchecked, @routes_unresolved,
+       @checks_unread].all?(&:empty?)
     end
 
     # Fact combinations, as conjunctions, that none of `stamps` covers.
