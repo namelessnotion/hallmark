@@ -98,17 +98,36 @@ module Hallmark
       end
 
       # `delegate { @subject.project }` delegates to ProjectPolicy on the
-      # subject's `project`.
+      # subject's `project`; so does a helper returning it (GitLab's
+      # `subject_container`: `@subject.project || @subject.try(:namespace)`).
       def delegate_target(delegate)
         body = delegate.body
         last = body.is_a?(Prism::StatementsNode) ? body.body.last : body
-        return [nil, nil] unless last.is_a?(Prism::CallNode) && subject?(last.receiver) && last.arguments.nil?
+        name = subject_reader(last) || helper_reader(last, delegate.owner)
+        return [nil, nil] unless name
 
-        name = last.name.to_s
         policy = "#{name.split("_").map(&:capitalize).join}Policy"
         owner = @index.scopes[delegate.owner]
         found = owner ? @index.resolve_constant(policy, owner.namespace) : nil
         [found, name]
+      end
+
+      # `x` for `@subject.x`, or the left of `@subject.x || ...`.
+      def subject_reader(node)
+        node = node.left if node.is_a?(Prism::OrNode)
+        return nil unless node.is_a?(Prism::CallNode) && subject?(node.receiver) && node.arguments.nil?
+
+        node.name.to_s
+      end
+
+      # The same, through a receiverless helper of the class.
+      def helper_reader(node, klass)
+        return nil unless node.is_a?(Prism::CallNode) && node.receiver.nil? && node.arguments.nil?
+
+        method = @index.find_method(klass, node.name.to_s)
+        body = method&.node&.body
+        last = body.is_a?(Prism::StatementsNode) ? body.body.last : body
+        subject_reader(last)
       end
 
       def subject?(node)
@@ -196,14 +215,22 @@ module Hallmark
         @index.ancestors(klass).each do |name|
           scope = @index.scopes.fetch(name)
           scope.aliases.each { |reader, target| aliases[reader] ||= subject if target == "subject" }
-          scope.defs.each_value { |method| aliases[method.name] ||= subject if reads_subject?(method.node.body) }
+          scope.defs.each_value do |method|
+            aliases[method.name] ||= subject_alias(method.node.body, subject)
+          end
         end
         aliases
       end
 
-      def reads_subject?(body)
+      # What a reader method stands for: the subject itself (`@subject`), or
+      # one of its readers (`@subject.project || ...` is the subject's project).
+      def subject_alias(body, subject)
         node = body.is_a?(Prism::StatementsNode) && body.body.size == 1 ? body.body.first : body
-        !node.nil? && subject?(node)
+        return nil if node.nil?
+        return subject if subject?(node)
+
+        reader = subject_reader(node)
+        reader ? "#{subject}.#{reader}" : nil
       end
 
       # D3: `scope: :user` caches one answer per user, so a body that reads

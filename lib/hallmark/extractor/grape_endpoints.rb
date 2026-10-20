@@ -9,7 +9,9 @@ module Hallmark
     # verb, then the `resource`, `namespace`, `group`, `segment` and
     # `route_param` paths around it and its own), and the abilities it
     # checks with `authorize!(:ability, subject)` or `can?(user, :ability,
-    # subject)`, in its block or in the helpers it calls (`helpers do`
+    # subject)`, in its block or in the helpers it calls, with or without
+    # arguments (GitLab's `user_project` calls `find_project!(id)`, which
+    # checks `read_project`) (`helpers do`
     # blocks of its class, and modules named `*Helpers` under the API
     # directories).
     #
@@ -136,7 +138,7 @@ module Hallmark
         return [] if node.nil? || depth > DEPTH
 
         calls(node).flat_map do |call|
-          check = check_of(call)
+          check = check_of(call, helpers)
           check ? [check] : helper_checks(call, helpers, depth, seen)
         end
       end
@@ -144,20 +146,31 @@ module Hallmark
       def helper_checks(call, helpers, depth, seen)
         name = call.name.to_s
         helper = helpers[name] || @global[name]
-        return [] unless helper && call.arguments.nil? && !seen.include?(name)
+        return [] unless helper && !seen.include?(name)
 
         checks(helper.body, helpers, depth + 1, seen + [name])
       end
 
-      def check_of(call)
+      def check_of(call, helpers)
         args = call.arguments&.arguments || []
         ability, subject = case call.name
                            when :authorize! then [args[0], args[1]]
                            when :can? then [args[1], args[2]]
                            end
-        return nil unless ability.is_a?(Prism::SymbolNode)
+        name = ability_name(ability, helpers)
+        name ? [name, reader_of(subject), call.location.start_line] : nil
+      end
 
-        [ability.unescaped, reader_of(subject), call.location.start_line]
+      # A Symbol, or a helper that returns one (GitLab's
+      # `read_project_ability`).
+      def ability_name(node, helpers)
+        return node.unescaped if node.is_a?(Prism::SymbolNode)
+        return nil unless node.is_a?(Prism::CallNode) && node.receiver.nil? && node.arguments.nil?
+
+        helper = helpers[node.name.to_s] || @global[node.name.to_s]
+        body = helper&.body
+        last = body.is_a?(Prism::StatementsNode) ? body.body.last : body
+        last.is_a?(Prism::SymbolNode) ? last.unescaped : nil
       end
 
       # The name of a receiverless reader (`user_project`) or a local

@@ -86,8 +86,11 @@ module Hallmark
       end
       def helper_checks(call, helpers, depth, seen); end
 
-      sig { params(call: Prism::CallNode).returns(T.nilable(Check)) }
-      def check_of(call); end
+      sig { params(call: Prism::CallNode, helpers: T::Hash[String, Prism::DefNode]).returns(T.nilable(Check)) }
+      def check_of(call, helpers); end
+
+      sig { params(node: T.nilable(Prism::Node), helpers: T::Hash[String, Prism::DefNode]).returns(T.nilable(String)) }
+      def ability_name(node, helpers); end
 
       sig { params(node: T.nilable(Prism::Node)).returns(T.nilable(String)) }
       def reader_of(node); end

@@ -67,6 +67,12 @@ module Hallmark
       sig { params(delegate: SourceIndex::Delegate).returns([T.nilable(String), T.nilable(String)]) }
       def delegate_target(delegate); end
 
+      sig { params(node: T.nilable(Prism::Node)).returns(T.nilable(String)) }
+      def subject_reader(node); end
+
+      sig { params(node: T.nilable(Prism::Node), klass: String).returns(T.nilable(String)) }
+      def helper_reader(node, klass); end
+
       sig { params(node: T.nilable(Prism::Node)).returns(T::Boolean) }
       def subject?(node); end
 
@@ -96,8 +102,8 @@ module Hallmark
       sig { params(klass: String, subject: String).returns(T::Hash[String, String]) }
       def subject_aliases(klass, subject); end
 
-      sig { params(body: T.nilable(Prism::Node)).returns(T::Boolean) }
-      def reads_subject?(body); end
+      sig { params(body: T.nilable(Prism::Node), subject: String).returns(T.nilable(String)) }
+      def subject_alias(body, subject); end
 
       sig { params(found: SourceIndex::Condition, aliases: T::Hash[String, String]).void }
       def check_scope(found, aliases); end

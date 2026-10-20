@@ -135,16 +135,20 @@ class DeclarativeExtractorTest < Minitest::Test
   end
 
   # Grape endpoints, named as the Grape collector names them, with the
-  # abilities they check in their block and in helpers.
+  # abilities they check in their block and in helpers, with or without
+  # arguments (`project` calls `find_project!(id)`, whose ability comes from
+  # `read_project_ability`).
   def test_reads_grape_endpoints
     endpoints = Hallmark::Extractor::GrapeEndpoints.new(mapping, BUGGY).endpoints
     checks = endpoints.to_h do |endpoint|
       [endpoint.name, endpoint.authorizations.map { |found| [found.policy, found.rule] }]
     end
 
-    assert_equal({ "GET /projects/:id/schedules" => [%w[ProjectPolicy read_schedule]],
-                   "GET /projects/:id/schedules/:schedule_id" => [%w[SchedulePolicy read_schedule]],
-                   "POST /projects/:id/schedules" => [%w[ProjectPolicy create_schedule]],
+    read_project = %w[ProjectPolicy read_project]
+
+    assert_equal({ "GET /projects/:id/schedules" => [%w[ProjectPolicy read_schedule], read_project],
+                   "GET /projects/:id/schedules/:schedule_id" => [read_project, %w[SchedulePolicy read_schedule]],
+                   "POST /projects/:id/schedules" => [%w[ProjectPolicy create_schedule], read_project],
                    "GET /projects/:id/status" => [] }, checks)
   end
 

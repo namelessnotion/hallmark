@@ -4,7 +4,19 @@
 module API
   module ProjectHelpers
     def project
-      @project ||= Project.find(params[:id])
+      @project ||= find_project!(params[:id])
+    end
+
+    # Called with an argument, and naming its ability through a helper, as
+    # GitLab's `find_project!` and `read_project_ability` do.
+    def find_project!(id)
+      project = Project.find(id)
+      not_found! unless can?(current_user, read_project_ability, project)
+      project
+    end
+
+    def read_project_ability
+      :read_project
     end
   end
 end
