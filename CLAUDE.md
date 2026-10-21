@@ -22,7 +22,8 @@ on three real apps, passed on Oct 19, 2026, so phase 1 is done. Phase 2 (the
 extractor) started Oct 19, 2026, and its step 1 (Pundit and Action Policy
 rules read from code), step 2 (drift) and step 3 (controllers and routes) were done the same day, steps 4
 (DeclarativePolicy, Grape) and 5 (SARIF) too, and its gate (step 6) ran Oct 19
-to 21, 2026 on five apps, with the decision open; the plan is "Phase 2
+to 21, 2026 on five apps and passed (decided Oct 21, 2026), so phase 2 is
+done and phase 3 (runtime modes and GraphQL) is next; the plan is "Phase 2
 (extractor)" below and `docs/PLAN.md` ("Roadmap", "Phase 2 plan"). The gate's
 two false-positive sources (op errors, two catalog gaps) were fixed Oct 21,
 2026 (Phase 2 step 7 below). The phase 1 gate's record is in
@@ -464,7 +465,7 @@ phase 3. Steps, in order:
    every phase 1 bug from code, compared with SPACE. Run Oct 19 to 21,
    2026: criteria met, 4 confirmed real bugs over 5 apps (one new, live,
    on Gumroad), every check under 2 s with no unknown (`docs/PLAN.md`,
-   "Phase 2 gate run"). Whether the gate passes is Anthony's call. Private
+   "Phase 2 gate run"). Passed, decided by Anthony Oct 21, 2026. Private
    summary `~/Repos/hallmark-findings/phase2-gate.md`; per-app logs beside
    it (`mastodon.md` and `hcb.md` new); mappings in each app's `gate2/`
    folder. HCB and Mastodon are blobless clones at `~/Repos/hcb` and
