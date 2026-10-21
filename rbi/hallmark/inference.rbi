@@ -78,6 +78,9 @@ module Hallmark
     sig { returns(T::Array[Drift]) }
     attr_reader :drift
 
+    sig { returns(Ops) }
+    attr_reader :ops
+
     sig { params(mapping: Mapping, stamp_set: StampSet, extractor: T.nilable(Extractor)).void }
     def initialize(mapping, stamp_set, extractor: nil)
       @mapping = T.let(T.unsafe(nil), Mapping)
@@ -85,6 +88,7 @@ module Hallmark
       @routes = T.let(T.unsafe(nil), T::Array[Route])
       @reached = T.let(T.unsafe(nil), T::Array[String])
       @extractor = T.let(T.unsafe(nil), T.nilable(Extractor))
+      @ops = T.let(T.unsafe(nil), Ops)
       @coverage = T.let(T.unsafe(nil), Coverage)
       @units = T.let(T.unsafe(nil), T::Array[Unit])
       @exposures = T.let(T.unsafe(nil), T::Array[Exposure])

@@ -22,11 +22,15 @@ module Hallmark
     sig { returns(T.nilable(T::Array[String])) }
     def locations; end
 
+    # The rules whose guards it combines ("LinkPolicy#update?"); nil when declared by hand
+    sig { returns(T.nilable(T::Array[String])) }
+    def rules; end
+
     sig do
       params(action: String, op: Symbol, resource: String, guard: Guard, basis: T.nilable(String),
-             locations: T.nilable(T::Array[String])).void
+             locations: T.nilable(T::Array[String]), rules: T.nilable(T::Array[String])).void
     end
-    def initialize(action:, op:, resource:, guard:, basis: nil, locations: nil); end
+    def initialize(action:, op:, resource:, guard:, basis: nil, locations: nil, rules: nil); end
 
     sig { returns(String) }
     def check_name; end

@@ -54,6 +54,7 @@ end
 
 require_relative "hallmark/naming"
 require_relative "hallmark/guard"
+require_relative "hallmark/ops"
 require_relative "hallmark/mapping"
 require_relative "hallmark/exposure"
 require_relative "hallmark/stamp"

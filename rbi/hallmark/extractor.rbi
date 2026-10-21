@@ -61,7 +61,11 @@ module Hallmark
       @controllers = T.let(T.unsafe(nil), T.nilable(Controllers))
       @grape = T.let(T.unsafe(nil), T.nilable(GrapeEndpoints))
       @grape_read = T.let(T.unsafe(nil), T::Boolean)
+      @routes = T.let(T.unsafe(nil), T.nilable(T::Array[Route]))
     end
+
+    sig { returns(T::Array[Route]) }
+    def routes; end
 
     sig { returns(T.nilable(GrapeEndpoints)) }
     def grape; end

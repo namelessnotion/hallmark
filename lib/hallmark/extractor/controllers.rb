@@ -67,8 +67,11 @@ module Hallmark
       Check = Struct.new(:guard, :location, keyword_init: true)
 
       # One authorize call: the policy (nil when the record's class is not
-      # known) and the rule it checks.
-      Authorization = Struct.new(:policy, :rule, :location, keyword_init: true)
+      # known) and the rule it checks. When the class is not known,
+      # `named_policy` is the policy the record's variable names by Pundit's
+      # convention (`authorize @event` names EventPolicy), a guess only
+      # `Ops` reads.
+      Authorization = Struct.new(:policy, :rule, :location, :named_policy, keyword_init: true)
 
       # How a value was loaded, and its model class when known.
       Load = Struct.new(:kind, :model, keyword_init: true)
@@ -362,7 +365,18 @@ module Hallmark
         args = call.arguments&.arguments || []
         positional = args.grep_v(Prism::KeywordHashNode)
         rule = symbol(positional[1]) || symbol(keyword(args, :to)) || "#{action}?"
-        Authorization.new(policy: policy(args, positional[0], load), rule: rule, location: location(method, call))
+        policy = policy(args, positional[0], load)
+        Authorization.new(policy: policy, rule: rule, location: location(method, call),
+                          named_policy: (named_policy(positional[0]) unless policy))
+      end
+
+      # `@event` or `event`, alone or last in `[:admin, @event]`, names
+      # EventPolicy (Admin::EventPolicy).
+      def named_policy(target)
+        record = target.is_a?(Prism::ArrayNode) ? target.elements.last : target
+        return nil unless record.is_a?(Prism::InstanceVariableReadNode) || record.is_a?(Prism::LocalVariableReadNode)
+
+        [*namespace(target), "#{camelize(record.name.to_s.delete_prefix("@"))}Policy"].join("::")
       end
 
       def policy(args, target, load)

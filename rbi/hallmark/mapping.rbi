@@ -4,8 +4,6 @@ module Hallmark
   class Mapping
     include Guard::DSL
 
-    READ_RULES = T.let(T.unsafe(nil), T::Array[String])
-
     class Resource
       sig { returns(String) }
       def name; end
@@ -41,6 +39,10 @@ module Hallmark
       sig { returns(T.nilable(Guard)) }
       def public_when; end
 
+      # The ops the owner may perform outside the record's tenant; nil for none
+      sig { returns(T.nilable(T::Array[Symbol])) }
+      def owner_outside; end
+
       sig do
         params(
           name: String,
@@ -51,14 +53,18 @@ module Hallmark
           tenant_optional: T.nilable(T::Boolean),
           permits: Collectors::Source,
           flags: T::Array[String],
-          public_when: T.nilable(Guard)
+          public_when: T.nilable(Guard),
+          owner_outside: T.nilable(T::Array[Symbol])
         ).void
       end
       def initialize(name:, owner:, kind:, public_if:, tenant:, tenant_optional: nil, permits: nil, flags: [],
-                     public_when: nil); end
+                     public_when: nil, owner_outside: nil); end
 
       sig { returns(String) }
       def alloy_sig; end
+
+      sig { returns(T::Array[Symbol]) }
+      def owner_outside_ops; end
 
       sig { returns(T::Boolean) }
       def owned?; end
@@ -99,6 +105,34 @@ module Hallmark
       sig { returns(String) }
       def alloy_sig; end
     end
+
+    class PublicAction
+      # The policy, or the policies (space-separated) when combined for an entry point
+      sig { returns(String) }
+      def policy; end
+
+      sig { returns(String) }
+      def rule; end
+
+      # :anyone or :signed_in
+      sig { returns(Symbol) }
+      def audience; end
+
+      # A guard over the resource's flags limiting the records it covers
+      sig { returns(T.nilable(Guard)) }
+      def condition; end
+
+      sig { params(policy: String, rule: String, audience: Symbol, condition: T.nilable(Guard)).void }
+      def initialize(policy:, rule:, audience:, condition: nil); end
+
+      sig { returns(String) }
+      def key; end
+
+      sig { params(actions: T::Array[PublicAction]).returns(PublicAction) }
+      def self.combine(actions); end
+    end
+
+    AUDIENCES = T.let(T.unsafe(nil), T::Array[Symbol])
 
     class Tenancy
       sig { returns(String) }
@@ -192,6 +226,10 @@ module Hallmark
     sig { returns(T::Hash[String, Guard]) }
     attr_reader :terms
 
+    # Rule key ("Policy#rule") => its public action
+    sig { returns(T::Hash[String, PublicAction]) }
+    attr_reader :public_actions
+
     sig { returns(T::Hash[String, Resource]) }
     attr_reader :resources
 
@@ -227,6 +265,7 @@ module Hallmark
       @rules = T.let(T.unsafe(nil), T::Hash[String, Rule])
       @unchecked_allowed = T.let(T.unsafe(nil), T::Array[String])
       @terms = T.let(T.unsafe(nil), T::Hash[String, Guard])
+      @public_actions = T.let(T.unsafe(nil), T::Hash[String, PublicAction])
     end
 
     sig do
@@ -234,6 +273,15 @@ module Hallmark
              when: T.nilable(Guard)).void
     end
     def grant(role, op, resource, when: nil); end
+
+    sig do
+      params(policy: T.any(String, Symbol, T::Module[T.anything]), rules: T.any(String, Symbol), audience: Symbol,
+             when: T.nilable(Guard)).returns(T::Array[PublicAction])
+    end
+    def public_action(policy, *rules, audience: :anyone, when: nil); end
+
+    sig { params(rules: T::Array[String]).returns(T.nilable(PublicAction)) }
+    def public_action_for(rules); end
 
     sig do
       params(name: T.any(String, Symbol, T::Module[T.anything]), from: Collectors::Source, roles: Collectors::Source,
@@ -275,11 +323,12 @@ module Hallmark
         tenant_optional: T::Boolean,
         permits: Collectors::Source,
         flags: T::Array[T.any(String, Symbol)],
-        public_when: T.nilable(Guard)
+        public_when: T.nilable(Guard),
+        owner_outside_tenant: T.nilable(T.any(T::Boolean, Symbol, T::Array[Symbol]))
       ).returns(Resource)
     end
     def resource(name, owner: nil, kind: :object, public_if: nil, tenant: nil, tenant_optional: false, permits: nil,
-                 flags: [], public_when: nil); end
+                 flags: [], public_when: nil, owner_outside_tenant: nil); end
 
     sig do
       params(
@@ -321,6 +370,15 @@ module Hallmark
 
     sig { params(key: String, guard: T.nilable(Object), flags: T::Array[String]).void }
     def validate_public_when!(key, guard, flags); end
+
+    sig { params(condition: T.nilable(Object), what: String).returns(T.nilable(Guard)) }
+    def flag_condition(condition, what); end
+
+    sig do
+      params(key: String, value: T.nilable(T.any(T::Boolean, Symbol, T::Array[Symbol])), owned: T::Boolean,
+             tenanted: T::Boolean).returns(T.nilable(T::Array[Symbol]))
+    end
+    def owner_outside(key, value, owned:, tenanted:); end
 
     sig { params(rule: Rule).void }
     def validate_rule!(rule); end

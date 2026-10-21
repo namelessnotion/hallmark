@@ -18,8 +18,11 @@ module Hallmark
     KINDS = %i[object profile].freeze
 
     Resource = Struct.new(:name, :owner, :kind, :public_if, :tenant, :tenant_optional, :permits, :flags,
-                          :public_when, keyword_init: true) do
+                          :public_when, :owner_outside, keyword_init: true) do
       def alloy_sig = Naming.resource_sig(name, kind)
+      # The ops the owner may perform without being a member of the record's
+      # tenant (`owner_outside_tenant:`).
+      def owner_outside_ops = owner_outside || []
       def owned? = kind == :profile || !owner.nil?
       def public? = (!public_if.nil? && public_if != false) || !public_when.nil?
       def always_public? = public_if == true
@@ -31,6 +34,24 @@ module Hallmark
     Grant = Struct.new(:role, :op, :resource, :condition, keyword_init: true) do
       def alloy_sig = "Grant_#{Naming.identifier(role)}_#{op}_#{Naming.identifier(resource)}"
     end
+
+    # A rule meant for everyone (`audience` :anyone) or for every signed-in
+    # user (:signed_in), on the records whose flags satisfy `condition`
+    # (every record when nil): the catalog's public actions pattern.
+    PublicAction = Struct.new(:policy, :rule, :audience, :condition, keyword_init: true) do
+      def key = "#{policy}##{rule}"
+
+      # Several rules' public actions as one, for an entry point enforcing
+      # them all: the narrowest audience and the AND of the conditions.
+      def self.combine(actions)
+        audience = actions.any? { |action| action.audience == :signed_in } ? :signed_in : :anyone
+        condition = actions.filter_map(&:condition).reduce { |left, right| Guard.conjoin(left, right) }
+        new(policy: actions.map(&:policy).uniq.join(" "), rule: actions.map(&:rule).join(" "), audience: audience,
+            condition: condition)
+      end
+    end
+
+    AUDIENCES = %i[anyone signed_in].freeze
 
     # The class whose records are tenants, and how memberships in it are
     # stored. `self_role` is set when the tenant class is the principal class
@@ -48,13 +69,9 @@ module Hallmark
 
     OPS = %i[read write].freeze
 
-    # Rules that only read, by the Pundit and Action Policy naming convention
-    # (`edit?` only renders a form); every other `?` rule writes.
-    READ_RULES = %w[index? show? edit?].freeze
-
     attr_reader :principal_name, :principal_source, :principal_roles, :resources, :grants, :tenancy,
                 :current_tenant_source, :current_tenant_controller, :principal_controller, :platform_roles, :rules,
-                :unchecked_allowed, :terms
+                :unchecked_allowed, :terms, :public_actions
 
     def initialize
       @principal_name = "User"
@@ -70,6 +87,7 @@ module Hallmark
       @rules = {}
       @unchecked_allowed = []
       @terms = {}
+      @public_actions = {}
     end
 
     # An intended permission: every holder of `role` may `op` every record of
@@ -85,12 +103,42 @@ module Hallmark
     def grant(role, op, resource, when: nil)
       raise ConfigurationError, "grant op must be :read or :write, not #{op.inspect}" unless OPS.include?(op)
 
-      condition = binding.local_variable_get(:when)
-      unless condition.nil? || (condition.is_a?(Guard) && condition.leaves.all? { |leaf| leaf.kind == :flag })
-        raise ConfigurationError, "a grant's `when:` must be a guard over flags, such as flag(:public_builds)"
-      end
-
+      condition = flag_condition(binding.local_variable_get(:when), "a grant's")
       @grants << Grant.new(role: role.to_s, op: op, resource: Naming.class_name(resource), condition: condition)
+    end
+
+    # Rules the app means for everyone, such as a public donation page, or
+    # with `audience: :signed_in` for every signed-in user (SPACE's
+    # authentication pattern): the catalog's public actions pattern. A
+    # check of one of these rules passes for the audience on any record
+    # (or the records whose flags satisfy `when:`) whatever else the guard
+    # allows; an entry point gets the pattern when every rule it enforces
+    # has it.
+    #
+    #   public_action "DonationPolicy", :start_donation?, :make_donation?
+    #   public_action "EventPolicy", :index?, audience: :signed_in
+    #   public_action "DonationPolicy", :make_donation?, when: flag(:donations_enabled)
+    def public_action(policy, *rules, audience: :anyone, when: nil)
+      unless AUDIENCES.include?(audience)
+        raise ConfigurationError, "public_action `audience:` must be :anyone or :signed_in, not #{audience.inspect}"
+      end
+      raise ConfigurationError, "public_action needs at least one rule for #{policy}" if rules.empty?
+
+      condition = flag_condition(binding.local_variable_get(:when), "a public action's")
+      rules.map do |rule|
+        action = PublicAction.new(policy: Naming.class_name(policy), rule: rule.to_s, audience: audience,
+                                  condition: condition)
+        raise ConfigurationError, "public action #{action.key} is mapped twice" if @public_actions.key?(action.key)
+
+        @public_actions[action.key] = action
+      end
+    end
+
+    # The public action an exposure enforcing `rules` ("Policy#rule") gets:
+    # nil unless every one is a public action (`PublicAction.combine`).
+    def public_action_for(rules)
+      actions = rules.filter_map { |key| @public_actions[key] }
+      PublicAction.combine(actions) unless actions.empty? || actions.size < rules.size
     end
 
     # The application class that represents signed-in users (default "User").
@@ -179,8 +227,14 @@ module Hallmark
     # public_when: a guard over the flags that says when a record is public
     #            (`flag(:project_public) & flag(:public_builds)`); `public_if:`
     #            still tells the collectors
+    # owner_outside_tenant: the ops the owner may perform on a record without
+    #            being a member of its tenant (true for both, or :read,
+    #            :write or a list), such as an HCB card grant held by
+    #            someone outside the organization: the catalog's ownership
+    #            without membership pattern. Without it the owner must be a
+    #            member.
     def resource(name, owner: nil, kind: :object, public_if: nil, tenant: nil, tenant_optional: false, permits: nil,
-                 flags: [], public_when: nil)
+                 flags: [], public_when: nil, owner_outside_tenant: nil)
       raise ConfigurationError, "unknown resource kind: #{kind}" unless KINDS.include?(kind)
 
       key = Naming.class_name(name)
@@ -189,9 +243,10 @@ module Hallmark
 
       names = Array(flags).map(&:to_s)
       validate_public_when!(key, public_when, names)
+      outside = owner_outside(key, owner_outside_tenant, owned: kind == :profile || !owner.nil?, tenanted: !tenant.nil?)
       @resources[key] = Resource.new(name: key, owner: owner, kind: kind, public_if: public_if, tenant: tenant,
                                      tenant_optional: tenant_optional ? true : false, permits: permits,
-                                     flags: names, public_when: public_when)
+                                     flags: names, public_when: public_when, owner_outside: outside)
     end
 
     # Overrides one rule of a policy: its op, when the naming convention gets
@@ -217,15 +272,11 @@ module Hallmark
       @rules[entry.key] = entry
     end
 
-    # The op a rule performs: the mapping's override, else the naming
-    # convention for `?` rules, else nil (the rule needs a `rule` declaration).
-    def op_for(policy, name)
-      declared = @rules["#{policy}##{name}"]&.op
-      return declared if declared
-      return nil unless name.end_with?("?")
-
-      READ_RULES.include?(name) ? :read : :write
-    end
+    # The op a rule performs by this mapping and the rule's name alone: the
+    # override, else the naming convention for `?` rules (`Ops.named`), else
+    # nil (the rule needs a `rule` declaration). An analysis also reads the
+    # app's routes (`Ops#fetch`).
+    def op_for(policy, name) = Ops.named(self, policy, name)
 
     # What a Ruby expression in policy code means, for the extractor
     # (`Hallmark::Extractor`), when the mapping's other declarations do not
@@ -297,6 +348,31 @@ module Hallmark
       @platform_roles = @platform_roles.dup
       @unchecked_allowed = @unchecked_allowed.dup
       @terms = @terms.dup
+      @public_actions = @public_actions.dup
+    end
+
+    # `when:` on a grant or public action: a guard over flags only.
+    def flag_condition(condition, what)
+      return nil if condition.nil?
+      return condition if condition.is_a?(Guard) && condition.leaves.all? { |leaf| leaf.kind == :flag }
+
+      raise ConfigurationError, "#{what} `when:` must be a guard over flags, such as flag(:public_builds)"
+    end
+
+    # `owner_outside_tenant:` as the ops it names; it needs an owner and a
+    # tenant to mean anything.
+    def owner_outside(key, value, owned:, tenanted:)
+      return nil if value.nil? || value == false
+
+      ops = value == true ? OPS : Array(value)
+      unless ops.all? { |op| OPS.include?(op) }
+        raise ConfigurationError, "owner_outside_tenant for #{key} must be true, :read, :write or a list of them"
+      end
+      unless owned && tenanted
+        raise ConfigurationError, "resource #{key} has `owner_outside_tenant:` but no `owner:` and `tenant:`"
+      end
+
+      OPS & ops
     end
 
     # `public_when:` may read only the resource's own flags.

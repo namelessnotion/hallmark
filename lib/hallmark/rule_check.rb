@@ -57,6 +57,7 @@ module Hallmark
       inference = Inference.new(mapping, stamps, extractor: extractor)
       @units = inference.units
       @drift = inference.drift
+      @ops = inference.ops
     end
 
     # The rules known for a policy, sorted: those stamped against a record of
@@ -87,7 +88,7 @@ module Hallmark
         next unless (exposure = result.exposure)
 
         result.exposure = analysis.add_exposure(action: exposure.action, op: exposure.op, resource: exposure.resource,
-                                                guard: exposure.guard, basis: exposure.basis)
+                                                guard: exposure.guard, basis: exposure.basis, rules: exposure.rules)
       end
       analysis.validate!
     end
@@ -119,13 +120,13 @@ module Hallmark
       # The check name carries the resource, so a rule stamped on two kinds of
       # record becomes two checks without renaming the rule.
       result.exposure = Exposure.new(action: unit.key, op: unit.op, resource: unit.resource, guard: guard,
-                                     basis: unit.basis)
+                                     basis: unit.basis, rules: [unit.key])
       result
     end
 
     def from_rule(rule, guard)
       resource = rule.resource || convention(rule)
-      op = @mapping.op_for(rule.policy, rule.name)
+      op = @ops.fetch(rule.policy, rule.name)
       unless op
         raise ConfigurationError, "rule #{rule.key} has no op; declare `rule \"#{rule.policy}\", " \
                                   ":#{rule.name}, op: :read` (or :write)"
@@ -133,7 +134,7 @@ module Hallmark
 
       Result.new(policy: rule.policy, rule: rule.name,
                  exposure: Exposure.new(action: rule.key, op: op, resource: resource, guard: guard,
-                                        basis: "hand-written for #{rule.key}"))
+                                        basis: "hand-written for #{rule.key}", rules: [rule.key]))
     end
 
     def unguarded(unit)

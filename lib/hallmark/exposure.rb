@@ -18,7 +18,11 @@ module Hallmark
   # ("app/controllers/links_controller.rb:42"): the entry point's authorize
   # call or Grape endpoint first, then the rules' code and the controller's
   # own checks. Empty for a hand-declared exposure. SARIF output uses them.
-  Exposure = Struct.new(:action, :op, :resource, :guard, :basis, :locations, keyword_init: true) do
+  #
+  # `rules` are the rules ("LinkPolicy#update?") whose guards the exposure's
+  # guard combines; nil for a hand-declared exposure. The model reads them
+  # for the public actions pattern (`Mapping#public_action_for`).
+  Exposure = Struct.new(:action, :op, :resource, :guard, :basis, :locations, :rules, keyword_init: true) do
     def check_name = "safe_#{name_suffix}"
     def predicate_name = "allows_#{name_suffix}"
     def name_suffix = "#{Naming.identifier(action)}_#{op}_#{Naming.identifier(resource)}"

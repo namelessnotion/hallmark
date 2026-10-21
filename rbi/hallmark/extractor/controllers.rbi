@@ -21,8 +21,14 @@ module Hallmark
         sig { returns(String) }
         def location; end
 
-        sig { params(policy: T.nilable(String), rule: String, location: String).void }
-        def initialize(policy:, rule:, location:); end
+        # The policy the record's variable names, when `policy` is nil
+        sig { returns(T.nilable(String)) }
+        def named_policy; end
+
+        sig do
+          params(policy: T.nilable(String), rule: String, location: String, named_policy: T.nilable(String)).void
+        end
+        def initialize(policy:, rule:, location:, named_policy: nil); end
       end
 
       class Load
@@ -241,6 +247,9 @@ module Hallmark
 
       sig { params(action: String, record: Record, load: Load).returns(Authorization) }
       def authorization(action, record, load); end
+
+      sig { params(target: T.nilable(Prism::Node)).returns(T.nilable(String)) }
+      def named_policy(target); end
 
       sig { params(args: T::Array[Prism::Node], target: T.nilable(Prism::Node), load: Load).returns(T.nilable(String)) }
       def policy(args, target, load); end

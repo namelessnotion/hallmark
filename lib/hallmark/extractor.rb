@@ -51,10 +51,15 @@ module Hallmark
       @controllers = nil
       @grape = nil
       @grape_read = false
+      @routes = nil
     end
 
     # The app's controllers, read on first use (`Controllers`).
     def controllers = @controllers ||= Controllers.new(@mapping, @root)
+
+    # The app's Rails routes as read from `config/routes.rb`, on first use
+    # (`RoutesFile`); empty when it has none.
+    def routes = @routes ||= RoutesFile.new(@root).routes
 
     # The app's Grape APIs, read on first use; nil when it has none.
     def grape
@@ -141,3 +146,4 @@ require_relative "extractor/method_translator"
 require_relative "extractor/declarative_translator"
 require_relative "extractor/controllers"
 require_relative "extractor/grape_endpoints"
+require_relative "extractor/routes_file"

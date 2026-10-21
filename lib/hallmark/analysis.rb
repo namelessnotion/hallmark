@@ -38,11 +38,11 @@ module Hallmark
       @inference = nil
     end
 
-    def add_exposure(action:, op:, resource:, guard:, basis: nil, locations: nil)
+    def add_exposure(action:, op:, resource:, guard:, basis: nil, locations: nil, rules: nil)
       raise ConfigurationError, "guard for #{action} must be a Hallmark::Guard" unless guard.is_a?(Guard)
 
       exposure = Exposure.new(action: action.to_s, op: op, resource: Naming.class_name(resource), guard: guard,
-                              basis: basis, locations: locations)
+                              basis: basis, locations: locations, rules: rules)
       if @exposures.any? { |existing| existing.check_name == exposure.check_name }
         raise ConfigurationError, "#{action} is declared twice for #{op} #{exposure.resource}"
       end
@@ -65,7 +65,7 @@ module Hallmark
       @inference = inference
       inference.exposures.each do |exposure|
         add_exposure(action: exposure.action, op: exposure.op, resource: exposure.resource, guard: exposure.guard,
-                     basis: exposure.basis, locations: exposure.locations)
+                     basis: exposure.basis, locations: exposure.locations, rules: exposure.rules)
       end
       inference
     end
@@ -81,6 +81,7 @@ module Hallmark
         end
         validate_outside_tenants!(exposure, resource)
         validate_flags!(exposure.guard, resource, "the guard for #{exposure.action}")
+        validate_public_action!(exposure, resource)
       end
       @mapping.grants.each do |grant|
         condition = grant.condition
@@ -128,6 +129,13 @@ module Hallmark
 
       raise ConfigurationError, "#{what} reads flags #{resource.name} does not declare: #{stray.join(", ")}; " \
                                 "add them to its `flags:`"
+    end
+
+    # A public action's `when:` may read only the flags of the records it
+    # is checked on.
+    def validate_public_action!(exposure, resource)
+      condition = @mapping.public_action_for(exposure.rules || [])&.condition
+      validate_flags!(condition, resource, "the public action #{exposure.action}") if condition
     end
 
     # Only a record whose tenant is optional can live outside tenants: for

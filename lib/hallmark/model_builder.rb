@@ -32,7 +32,8 @@ module Hallmark
     end
 
     def source
-      [header, tenancy, roles, resources, permits, grants, exposures].reject(&:empty?).join("\n\n") << "\n"
+      sections = [header, tenancy, roles, resources, permits, owner_outside, grants, exposures]
+      sections.reject(&:empty?).join("\n\n") << "\n"
     end
 
     # The bounds for every check. The tenant scope is the overall scope, which
@@ -213,6 +214,27 @@ module Hallmark
              .join("\n")
     end
 
+    # Ownership without membership (`owner_outside_tenant:`): the ops each
+    # resource's owner may perform outside its tenant, none unless mapped.
+    def owner_outside
+      resources = mapping.resources.values
+      return "fact owners_need_membership { no ownerOutside }" if resources.all? { |r| r.owner_outside_ops.empty? }
+
+      used = (@analysis.exposures.map(&:resource) + mapping.grants.map(&:resource)).uniq
+      resources.select { |resource| used.include?(resource.name) }.map { |resource| owner_outside_fact(resource) }
+               .join("\n")
+    end
+
+    def owner_outside_fact(resource)
+      sig = resource.alloy_sig
+      ops = resource.owner_outside_ops.map { |op| op_sig(op) }
+      return "fact #{sig}_owner_needs_membership { no #{sig} <: ownerOutside }" if ops.empty?
+
+      "fact #{sig}_owner_outside_tenant { all r: #{sig} | r.ownerOutside = #{ops.join(" + ")} }"
+    end
+
+    def op_sig(op) = op == :read ? "Read" : "Write"
+
     def exposures
       @analysis.exposures.map { |exposure| exposure_block(exposure) }.join("\n\n")
     end
@@ -228,14 +250,31 @@ module Hallmark
         else
           ["p: Principal, r: #{sig}", "p, r"]
         end
+      comment, intended = intended(exposure, op)
       <<~ALS.chomp
-        -- #{exposure.action}: #{exposure.op} #{exposure.resource}, guard: #{exposure.guard}
+        -- #{exposure.action}: #{exposure.op} #{exposure.resource}, guard: #{exposure.guard}#{comment}
         pred #{exposure.predicate_name}[#{params}] { #{exposure.guard.to_alloy(op)} }
         assert #{exposure.check_name} {
-          all #{params} | #{exposure.predicate_name}[#{args}] implies allowed[p, #{op}, r]
+          all #{params} | #{exposure.predicate_name}[#{args}] implies #{intended}
         }
         check #{exposure.check_name} #{scope_clause}
       ALS
+    end
+
+    # What the exposure may allow: the catalog's `allowed`, or for a public
+    # action (`public_action`) also its audience on the records it covers.
+    def intended(exposure, op)
+      allowed = "allowed[p, #{op}, r]"
+      action = mapping.public_action_for(exposure.rules || [])
+      return ["", allowed] unless action
+
+      audience = action.audience == :signed_in ? "User" : "Principal"
+      condition = action.condition
+      opening = "publicAction[p, #{audience}]"
+      opening = "(#{opening} and #{condition.to_alloy(op)})" if condition
+      covers = condition ? " where #{condition}" : ""
+      ["\n-- public action for #{action.audience == :signed_in ? "signed-in users" : "anyone"}#{covers}",
+       "(#{allowed} or #{opening})"]
     end
   end
 end

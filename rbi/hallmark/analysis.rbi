@@ -40,10 +40,11 @@ module Hallmark
         resource: T.any(String, Symbol, T::Module[T.anything]),
         guard: Object,
         basis: T.nilable(String),
-        locations: T.nilable(T::Array[String])
+        locations: T.nilable(T::Array[String]),
+        rules: T.nilable(T::Array[String])
       ).returns(Exposure)
     end
-    def add_exposure(action:, op:, resource:, guard:, basis: nil, locations: nil); end
+    def add_exposure(action:, op:, resource:, guard:, basis: nil, locations: nil, rules: nil); end
 
     sig { params(source: T.any(StampSet, String, Pathname)).returns(Inference) }
     def add_stamps(source); end
@@ -65,6 +66,9 @@ module Hallmark
 
     sig { params(exposure: Exposure, resource: Mapping::Resource).void }
     def validate_outside_tenants!(exposure, resource); end
+
+    sig { params(exposure: Exposure, resource: Mapping::Resource).void }
+    def validate_public_action!(exposure, resource); end
 
     public
 

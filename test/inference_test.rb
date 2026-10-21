@@ -88,8 +88,8 @@ class InferenceTest < Minitest::Test
     mapping.rule "LinkPolicy", :publish?, op: :read
     mapping.rule "ProjectPolicy", :read_project, op: :read
 
-    ops = %w[index? show? edit? update? destroy?].map { |rule| mapping.op_for("P", rule) }
-    assert_equal %i[read read read write write], ops
+    ops = %w[index? show? edit? new? update? destroy?].map { |rule| mapping.op_for("P", rule) }
+    assert_equal %i[read read read read write write], ops
     assert_equal :read, mapping.op_for("LinkPolicy", "publish?")
     assert_equal :read, mapping.op_for("ProjectPolicy", "read_project")
     assert_nil mapping.op_for("ProjectPolicy", "admin_project")

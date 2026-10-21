@@ -77,7 +77,7 @@ module Hallmark
 
     def code_unit(extracted)
       resource = extracted&.resource
-      return nil unless extracted && resource && (op = @mapping.op_for(extracted.policy, extracted.rule))
+      return nil unless extracted && resource && (op = @ops.fetch(extracted.policy, extracted.rule))
 
       unit = Unit.new(policy: extracted.policy, rule: extracted.rule, resource: resource, op: op, stamps: [],
                       extracted: extracted)

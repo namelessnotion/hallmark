@@ -57,8 +57,9 @@ class ReportTest < Minitest::Test
     receipt = Hallmark::Receipt.load(File.join(FIXTURES, "storefront"))
     instance = receipt["safe_LinksController_update_write_Link"].instance
 
-    assert_equal ["catalog/Membership$1", "catalog/Membership$2"], instance.sources("member", "catalog/User$1")
-    assert_equal ["catalog/Tenant$1"], instance.sources("user", "catalog/User$2")
+    assert_equal ["catalog/Membership$0"], instance.sources("member", "catalog/User$1")
+    assert_equal ["catalog/Tenant$1"], instance.sources("user", "catalog/User$1")
+    assert_empty instance.sources("member", "catalog/User$2")
     assert_empty instance.sources("member", "catalog/Anonymous$0")
   end
 
@@ -69,8 +70,8 @@ class ReportTest < Minitest::Test
     assert_predicate finding, :cross_tenant?
     assert_equal %w[admin marketing owner], finding.current_tenant.roles
     assert_empty finding.record_tenant.roles
-    assert_equal "a signed-in User (User$2) holding roles admin, marketing, owner in the current tenant User$2 " \
-                 "(their own) can update a Link (Link$0) in tenant User$1, where they hold no roles",
+    assert_equal "a signed-in User (User$1) holding roles admin, marketing, owner in the current tenant User$1 " \
+                 "(their own) can update a Link (Link$0) in tenant User$0, where they hold no roles",
                  finding.message
     assert_match(/check that it belongs to the tenant the request acts for/, finding.hint)
   end

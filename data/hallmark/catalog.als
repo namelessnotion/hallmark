@@ -31,7 +31,9 @@ fact OneMembershipPerUserAndTenant {
   all u: User, t: Tenant | lone m: Membership | m.member = u and m.within = t
 }
 
-abstract sig Resource { owner: lone User, tenant: lone Tenant }
+-- `ownerOutside` holds the ops its owner may perform without being a
+-- member of its tenant (the ownership without membership pattern).
+abstract sig Resource { owner: lone User, tenant: lone Tenant, ownerOutside: set Op }
 sig Public in Resource {}
 
 sig Grant { role: one Role, op: one Op, res: set Resource }
@@ -67,6 +69,14 @@ pred owns[p: Principal, r: Resource] {
   authenticated[p] and r.owner = p and (no r.tenant or memberOf[p, r.tenant])
 }
 
+-- Pattern: ownership without membership. For the ops a record's mapping
+-- names, its signed-in owner may act on it without being a member of its
+-- tenant, such as a card grant an organization gave someone outside its
+-- team.
+pred ownsOutsideTenant[p: Principal, o: Op, r: Resource] {
+  authenticated[p] and r.owner = p and o in r.ownerOutside
+}
+
 -- Pattern: public objects. Anyone may read a public record.
 pred publicRead[o: Op, r: Resource] { o = Read and r in Public }
 
@@ -95,9 +105,17 @@ pred permitted[p: Principal, o: Op, r: Resource] {
 -- so the ownership pattern covers "users may edit their own profile".
 
 pred allowed[p: Principal, o: Op, r: Resource] {
-  owns[p, r] or publicRead[o, r] or administers[p, r] or platformStaff[p] or granted[p, o, r]
-    or permitted[p, o, r]
+  owns[p, r] or ownsOutsideTenant[p, o, r] or publicRead[o, r] or administers[p, r] or platformStaff[p]
+    or granted[p, o, r] or permitted[p, o, r]
 }
+
+-- Pattern: public actions. An action the app means for everyone, such as
+-- a public donation page, or for every signed-in user (SPACE's
+-- authentication pattern). Unlike the patterns above it belongs to one
+-- action, not to a kind of record, so only that action's check reads it:
+-- the principal is in its audience (Principal for everyone, User for
+-- signed-in users), on the records the action covers.
+pred publicAction[p: Principal, audience: set Principal] { p in audience }
 
 -- Structural checks over the application's role configuration
 assert NoHierarchyCycles { no r: Role | r in r.^inherits }

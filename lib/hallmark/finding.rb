@@ -91,20 +91,56 @@ module Hallmark
     # A next step when the fix may be in the code's tenant check or in the
     # mapping rather than in the guard's roles.
     def hint
-      return nil if anonymous?
+      return public_hint if anonymous?
+      return owner_hint if owner_outside?
       if cross_tenant?
         return "the #{@resource.name} is not in the current tenant; check that it belongs to the tenant " \
                "the request acts for"
       end
 
       roles = exposure.guard.roles
-      return nil if roles.empty?
+      return public_hint if roles.empty?
 
       declarations = roles.map { |role| "grant :#{role}, :#{exposure.op}, \"#{exposure.resource}\"" }
       "if this is intended, declare it in the map block: #{declarations.join(" / ")}"
     end
 
     private
+
+    # The owner reaches their record in a tenant where they hold no role,
+    # through the guard's ownership check.
+    def owner_outside?
+      target = record_tenant
+      own_record? && !target.nil? && target.roles.empty? && @resource.owner_outside_ops.empty? &&
+        exposure.guard.leaves.any? { |leaf| leaf.kind == :owner }
+    end
+
+    def owner_hint
+      "if its owner may #{verb} it without being a member of its tenant, declare it in the map block: " \
+        "resource \"#{@resource.name}\", ..., owner_outside_tenant: :#{exposure.op}"
+    end
+
+    # For a guard that checks no role and no ownership, on rules the
+    # exposure names.
+    def public_hint
+      rules = exposure.rules || []
+      guard = exposure.guard
+      return nil if rules.empty? || guard.roles.any? || guard.leaves.any? { |leaf| leaf.kind == :owner }
+
+      signed_in = signed_in_only?
+      "if this is meant for #{signed_in ? "every signed-in user" : "everyone"}, declare it in the map block: " \
+        "#{public_declarations(rules, signed_in).join(" / ")}"
+    end
+
+    # The guard checks sign-in and the witness is signed in.
+    def signed_in_only? = !anonymous? && exposure.guard.leaves.any? { |leaf| leaf.kind == :logged_in }
+
+    def public_declarations(rules, signed_in)
+      rules.map do |key|
+        policy, rule = key.split("#", 2)
+        "public_action \"#{policy}\", :#{rule}#{", audience: :signed_in" if signed_in}"
+      end
+    end
 
     def who
       return "an anonymous visitor" if anonymous?

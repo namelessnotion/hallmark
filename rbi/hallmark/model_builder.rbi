@@ -83,9 +83,22 @@ module Hallmark
     def permits; end
 
     sig { returns(String) }
+    def owner_outside; end
+
+    sig { params(resource: Mapping::Resource).returns(String) }
+    def owner_outside_fact(resource); end
+
+    sig { params(op: Symbol).returns(String) }
+    def op_sig(op); end
+
+    sig { returns(String) }
     def exposures; end
 
     sig { params(exposure: Exposure).returns(String) }
     def exposure_block(exposure); end
+
+    # The model comment and the formula the exposure's guard must imply
+    sig { params(exposure: Exposure, op: String).returns([String, String]) }
+    def intended(exposure, op); end
   end
 end

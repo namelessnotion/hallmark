@@ -104,6 +104,21 @@ module Hallmark
 
     private
 
+    sig { returns(T::Boolean) }
+    def owner_outside?; end
+
+    sig { returns(String) }
+    def owner_hint; end
+
+    sig { returns(T.nilable(String)) }
+    def public_hint; end
+
+    sig { returns(T::Boolean) }
+    def signed_in_only?; end
+
+    sig { params(rules: T::Array[String], signed_in: T::Boolean).returns(T::Array[String]) }
+    def public_declarations(rules, signed_in); end
+
     sig { returns(String) }
     def who; end
 

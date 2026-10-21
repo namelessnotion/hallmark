@@ -81,6 +81,7 @@ module Hallmark
       @stamps = T.let(T.unsafe(nil), StampSet)
       @units = T.let(T.unsafe(nil), T::Array[Inference::Unit])
       @drift = T.let(T.unsafe(nil), T::Array[Drift])
+      @ops = T.let(T.unsafe(nil), Ops)
     end
 
     sig { params(policy: T.any(String, T::Module[T.anything])).returns(T::Array[String]) }

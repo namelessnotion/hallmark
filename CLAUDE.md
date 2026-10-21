@@ -23,7 +23,9 @@ extractor) started Oct 19, 2026, and its step 1 (Pundit and Action Policy
 rules read from code), step 2 (drift) and step 3 (controllers and routes) were done the same day, steps 4
 (DeclarativePolicy, Grape) and 5 (SARIF) too, and its gate (step 6) ran Oct 19
 to 21, 2026 on five apps, with the decision open; the plan is "Phase 2
-(extractor)" below and `docs/PLAN.md` ("Roadmap", "Phase 2 plan"). The gate's record is in
+(extractor)" below and `docs/PLAN.md` ("Roadmap", "Phase 2 plan"). The gate's
+two false-positive sources (op errors, two catalog gaps) were fixed Oct 21,
+2026 (Phase 2 step 7 below). The phase 1 gate's record is in
 "Phase 1 (core gem): the gate" below. The first real-app run (original Gumroad on Pundit, Oct 16, 2026, not
 a gate app) is in "First run on original Gumroad" below. Gate runs so far:
 GitLab (DeclarativePolicy, Oct 17, 2026) and Forem (Pundit, Oct 18, 2026),
@@ -42,7 +44,8 @@ Built:
 
 - `data/hallmark/catalog.als`: SPACE's patterns (ownership, public objects,
   authentication, explicit permission, user profiles, administrators),
-  platform staff, and structural role checks. Tenancy is a dimension of
+  platform staff, ownership without membership and public actions (Oct 21,
+  2026), and structural role checks. Tenancy is a dimension of
   every pattern: `Tenant`, `Membership`, a tenant on every record, roles
   counted in the record's tenant (`rolesFor`). The encoding is described in
   `docs/PLAN.md` ("The shipped encoding").
@@ -147,6 +150,25 @@ Built:
   `Extractor::GrapeEndpoints` reads `lib/api`. `hallmark rules` runs rule
   checks from the CLI. `docs/PLAN.md` ("The shipped DeclarativePolicy front
   end").
+- Op inference (after the phase 2 gate, Oct 21, 2026; `lib/hallmark/ops.rb`,
+  `extractor/routes_file.rb`): `Ops#fetch` is `rule ..., op:`, else a read
+  name (`Ops::READ_NAMES`, `READ_PREFIXES`, `READ_SUFFIXES`: `new?`,
+  `index_*?`, `*_stats?` and the like), else read when every route reaching
+  the rule is a GET or HEAD, else write. Verbs only ever make a rule read
+  (Mastodon's reblog POST checks `show?`). Routes are the recorded ones,
+  else `Extractor::RoutesFile` (Prism over `config/routes.rb`, acronyms from
+  the initializers); a route reaches a rule through stamps or the action's
+  authorize calls, with `Controllers::Authorization#named_policy` (`@event`
+  names EventPolicy) when the record's class is unknown. Collectors keep
+  `Ops.named` (`Mapping#op_for`), which knows no routes. `docs/PLAN.md`
+  ("The shipped op inference").
+- Ownership without membership and public actions (Oct 21, 2026):
+  `resource ..., owner_outside_tenant: true | :read | :write` (catalog
+  `ownsOutsideTenant`, field `Resource.ownerOutside`), and `public_action
+  POLICY, RULE..., audience: :anyone | :signed_in, when: <flag guard>`
+  (catalog `publicAction[p, audience]`, ORed into the check of an exposure
+  whose rules, `Exposure#rules`, all have one). Findings suggest either
+  declaration. `docs/PLAN.md` ("The shipped encoding").
 
 Not built yet, but designed and validated as hand-written models in
 `research/models` (see its README for each check's expected result):
@@ -164,7 +186,7 @@ explicit permission on one record, for Gumroad's collaborators).
 bundle install
 bin/hallmark install-alloy                 # Alloy 6.2.0 to ~/.cache/hallmark, SHA-256 verified; needs Java 17+
 bin/hallmark install-sidecar               # also builds the sidecar jar (javac + jar from a JDK 17+); no extra download
-bundle exec rake test                      # 306 tests; the 21 integration tests skip without the jar or sidecar
+bundle exec rake test                      # 330 tests; the 25 integration tests skip without the jar or sidecar
 bundle exec rubocop                        # lint
 bundle exec srb tc                         # type-check lib/ against rbi/; `rake` runs tests, rubocop, then this
 bin/hallmark check examples/medium_clone/hallmark.rb    # exits 1 (two counterexamples, expected)
@@ -214,6 +236,7 @@ Test suite, Railtie installs collectors              lib/hallmark/railtie.rb, co
 Hallmark.analyze block (`stamps` loads a StampSet: Inference builds the exposures and Coverage)
   + Extractor: app/policies parsed with Prism, rules as guards   extractor.rb, extractor/*
   -> StampFacts reads each stamp as guard leaves: Inference's literals, Drift's evaluation   stamp_facts.rb, drift.rb
+  + Ops: each rule's op from the mapping, its name, the routes' verbs   ops.rb, extractor/routes_file.rb
   -> Analysis (Mapping + Exposures, each with a Guard)       lib/hallmark/analysis.rb, mapping.rb, guard.rb
   -> ModelBuilder: Alloy source, one assert + check per exposure   model_builder.rb
   -> Hallmark.solver (c.solver)                                    solver.rb
@@ -448,6 +471,14 @@ phase 3. Steps, in order:
    `~/Repos/mastodon`, not forked; run `bin/hallmark rules` from this
    checkout with `HALLMARK_ROOT` set to the clone and `HALLMARK_STAMPS` at an
    empty directory.
+
+7. After the gate (Oct 21, 2026): the two largest false-positive sources it
+   found, op inference (`Ops`, `Extractor::RoutesFile`) and the ownership
+   without membership and public actions patterns. `hallmark rules` reruns
+   on the gate mappings and on copies with the new declarations
+   (`~/Repos/hallmark-findings/{hcb,mastodon}/fixes/`) are in the private
+   logs `hcb.md` and `mastodon.md` ("Fixes run"), counts included; keep the
+   counts out of this repository.
 
 The extractor reads source and never boots the app, so it runs on the
 host's Ruby. Opaque leaves (calls it cannot translate) never reach Alloy:

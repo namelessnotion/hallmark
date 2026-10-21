@@ -98,95 +98,84 @@
    <types> <type ID="21"/> <type ID="14"/> </types>
 </field>
 
-<sig label="catalog/Grant" ID="25" parentID="2">
+<field label="ownerOutside" ID="25" parentID="21">
+   <types> <type ID="21"/> <type ID="5"/> </types>
+</field>
+
+<sig label="catalog/Grant" ID="26" parentID="2">
    <atom label="catalog/Grant$0"/>
    <atom label="catalog/Grant$1"/>
-   <atom label="catalog/Grant$2"/>
-   <atom label="catalog/Grant$3"/>
-   <atom label="catalog/Grant$4"/>
 </sig>
 
-<field label="role" ID="26" parentID="25">
+<field label="role" ID="27" parentID="26">
    <tuple> <atom label="catalog/Grant$0"/> <atom label="catalog/Admin$0"/> </tuple>
    <tuple> <atom label="catalog/Grant$1"/> <atom label="catalog/Admin$0"/> </tuple>
-   <tuple> <atom label="catalog/Grant$2"/> <atom label="catalog/Admin$0"/> </tuple>
-   <tuple> <atom label="catalog/Grant$3"/> <atom label="catalog/Admin$0"/> </tuple>
-   <tuple> <atom label="catalog/Grant$4"/> <atom label="catalog/Admin$0"/> </tuple>
-   <types> <type ID="25"/> <type ID="11"/> </types>
+   <types> <type ID="26"/> <type ID="11"/> </types>
 </field>
 
-<field label="op" ID="27" parentID="25">
+<field label="op" ID="28" parentID="26">
    <tuple> <atom label="catalog/Grant$0"/> <atom label="catalog/Write$0"/> </tuple>
    <tuple> <atom label="catalog/Grant$1"/> <atom label="catalog/Read$0"/> </tuple>
-   <tuple> <atom label="catalog/Grant$2"/> <atom label="catalog/Read$0"/> </tuple>
-   <tuple> <atom label="catalog/Grant$3"/> <atom label="catalog/Read$0"/> </tuple>
-   <tuple> <atom label="catalog/Grant$4"/> <atom label="catalog/Read$0"/> </tuple>
-   <types> <type ID="25"/> <type ID="5"/> </types>
+   <types> <type ID="26"/> <type ID="5"/> </types>
 </field>
 
-<field label="res" ID="28" parentID="25">
+<field label="res" ID="29" parentID="26">
+   <tuple> <atom label="catalog/Grant$0"/> <atom label="Post$1"/> </tuple>
+   <tuple> <atom label="catalog/Grant$0"/> <atom label="Post$2"/> </tuple>
    <tuple> <atom label="catalog/Grant$0"/> <atom label="Post$3"/> </tuple>
-   <tuple> <atom label="catalog/Grant$0"/> <atom label="UserProfile$0"/> </tuple>
-   <tuple> <atom label="catalog/Grant$2"/> <atom label="Post$1"/> </tuple>
-   <tuple> <atom label="catalog/Grant$2"/> <atom label="Post$2"/> </tuple>
-   <tuple> <atom label="catalog/Grant$2"/> <atom label="UserProfile$0"/> </tuple>
-   <tuple> <atom label="catalog/Grant$3"/> <atom label="Post$0"/> </tuple>
-   <tuple> <atom label="catalog/Grant$3"/> <atom label="Post$2"/> </tuple>
-   <tuple> <atom label="catalog/Grant$3"/> <atom label="UserProfile$0"/> </tuple>
-   <tuple> <atom label="catalog/Grant$4"/> <atom label="Post$0"/> </tuple>
-   <tuple> <atom label="catalog/Grant$4"/> <atom label="Post$2"/> </tuple>
-   <tuple> <atom label="catalog/Grant$4"/> <atom label="Post$3"/> </tuple>
-   <types> <type ID="25"/> <type ID="21"/> </types>
+   <tuple> <atom label="catalog/Grant$1"/> <atom label="Post$0"/> </tuple>
+   <tuple> <atom label="catalog/Grant$1"/> <atom label="Post$3"/> </tuple>
+   <types> <type ID="26"/> <type ID="21"/> </types>
 </field>
 
-<sig label="catalog/Permit" ID="29" parentID="2">
+<sig label="catalog/Permit" ID="30" parentID="2">
 </sig>
 
-<field label="holder" ID="30" parentID="29">
-   <types> <type ID="29"/> <type ID="9"/> </types>
+<field label="holder" ID="31" parentID="30">
+   <types> <type ID="30"/> <type ID="9"/> </types>
 </field>
 
-<field label="ops" ID="31" parentID="29">
-   <types> <type ID="29"/> <type ID="5"/> </types>
+<field label="ops" ID="32" parentID="30">
+   <types> <type ID="30"/> <type ID="5"/> </types>
 </field>
 
-<field label="target" ID="32" parentID="29">
-   <types> <type ID="29"/> <type ID="21"/> </types>
+<field label="target" ID="33" parentID="30">
+   <types> <type ID="30"/> <type ID="21"/> </types>
 </field>
 
-<sig label="catalog/Conflict" ID="33" parentID="2">
+<sig label="catalog/Conflict" ID="34" parentID="2">
    <atom label="catalog/Conflict$0"/>
 </sig>
 
-<field label="a" ID="34" parentID="33">
+<field label="a" ID="35" parentID="34">
    <tuple> <atom label="catalog/Conflict$0"/> <atom label="catalog/Admin$0"/> </tuple>
-   <types> <type ID="33"/> <type ID="11"/> </types>
+   <types> <type ID="34"/> <type ID="11"/> </types>
 </field>
 
-<field label="b" ID="35" parentID="33">
+<field label="b" ID="36" parentID="34">
    <tuple> <atom label="catalog/Conflict$0"/> <atom label="catalog/Admin$0"/> </tuple>
-   <types> <type ID="33"/> <type ID="11"/> </types>
+   <types> <type ID="34"/> <type ID="11"/> </types>
 </field>
 
-<sig label="catalog/CanAssign" ID="36" parentID="2">
+<sig label="catalog/CanAssign" ID="37" parentID="2">
 </sig>
 
-<field label="by" ID="37" parentID="36">
-   <types> <type ID="36"/> <type ID="11"/> </types>
+<field label="by" ID="38" parentID="37">
+   <types> <type ID="37"/> <type ID="11"/> </types>
 </field>
 
-<field label="gives" ID="38" parentID="36">
-   <types> <type ID="36"/> <type ID="11"/> </types>
+<field label="gives" ID="39" parentID="37">
+   <types> <type ID="37"/> <type ID="11"/> </types>
 </field>
 
 <sig label="univ" ID="2" builtin="yes">
 </sig>
 
-<sig label="catalog/PlatformRole" ID="39">
+<sig label="catalog/PlatformRole" ID="40">
    <type ID="11"/>
 </sig>
 
-<sig label="catalog/Public" ID="40">
+<sig label="catalog/Public" ID="41">
    <atom label="Post$0"/>
    <atom label="Post$1"/>
    <atom label="Post$2"/>
@@ -194,12 +183,12 @@
    <type ID="21"/>
 </sig>
 
-<skolem label="$safe_UsersController_update_write_User_p" ID="41">
+<skolem label="$safe_UsersController_update_write_User_p" ID="42">
    <tuple> <atom label="catalog/User$1"/> </tuple>
    <types> <type ID="8"/> </types>
 </skolem>
 
-<skolem label="$safe_UsersController_update_write_User_r" ID="42">
+<skolem label="$safe_UsersController_update_write_User_r" ID="43">
    <tuple> <atom label="UserProfile$0"/> </tuple>
    <types> <type ID="20"/> </types>
 </skolem>

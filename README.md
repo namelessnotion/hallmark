@@ -19,7 +19,8 @@ Pundit, Action Policy and DeclarativePolicy code:
 
 - the pattern catalog (`data/hallmark/catalog.als`), after Near and Jackson's
   SPACE (ICSE 2016): ownership, public objects, authentication, explicit
-  permission, user profiles, administrators, plus platform staff; tenancy
+  permission, user profiles, administrators, plus platform staff, ownership
+  without membership and public actions; tenancy
   (memberships per tenant, a tenant on every record, the current tenant) is
   a dimension of every pattern
 - a mapping and guard DSL, a model generator, two solver backends (the
@@ -41,7 +42,9 @@ Pundit, Action Policy and DeclarativePolicy code:
   and entry points no test reached are checked too (`hallmark extract`
   prints what it read, `hallmark rules` checks each rule), and drift: a
   stamped decision the rule's code contradicts fails the check and the
-  matchers
+  matchers; a rule's op (read or write) comes from its name and from the
+  verbs of the routes that reach it, read from `config/routes.rb` when the
+  run recorded none
 
 Phase 1 is done: its deliverables are built, and its gate (Hallmark run on
 one real app per authorization library, each with a confirmed real bug)
@@ -130,11 +133,21 @@ Mapping options for `resource`:
 | `tenant:` | association naming the record's tenant | none: the record lives outside tenants |
 | `tenant_optional: true` | some records have no tenant (an article posted by its author alone); roles held outside tenants count for those | every record of a resource with `tenant:` has one |
 | `permits:` | for the collectors, a user's explicit permission on one record (a collaborator, a share): a lambda `(user, record)` or a method on the user, returning `true` for every op, or `:read`, `:write` or a list | nobody holds one |
+| `owner_outside_tenant:` | the owner may act on the record without being a member of its tenant (a card grant given to someone outside the organization's team): `true` for every op, or `:read`, `:write` or a list; needs `owner:` and `tenant:` | the owner must be a member |
 
 `grant :role, :read_or_write, "Resource"` declares an intended permission:
 every holder of the role may read or write every record of that resource.
 Without a matching grant, an action guarded only by `role(:name)` is
 reported, and the report suggests the `grant` line if the access is intended.
+
+`public_action "DonationPolicy", :start_donation?, :make_donation?` declares
+rules meant for everyone, such as a public donation page;
+`audience: :signed_in` means every signed-in user instead, and
+`when: flag(:donations_enabled)` limits it to the records whose flags say so.
+A check of such a rule passes for that audience whatever else its guard
+allows, and an entry point gets it when every rule it enforces has one. The
+report suggests the line when a guard that checks no role and no ownership
+lets someone through.
 
 Guards: `none`, `logged_in`, `owner`, `admin`, `role(:name)`,
 `public_record`, and `permitted` (the user holds an explicit permission on
@@ -230,9 +243,17 @@ From the stamps, each rule's guard is the OR of the fact combinations it
 allowed, and each entry point's guard is the AND of the rules it enforced
 (`authorize`, `authorize!`; queries such as `allowed_to?` count toward the
 rule but do not tie it to an entry point). A `rule ..., guard:` line in the
-map block replaces an inferred guard. Rules named `index?`, `show?` or
-`edit?` read; other `?` rules write; DeclarativePolicy abilities need a
-`rule ..., op:` line.
+map block replaces an inferred guard.
+
+A rule's op comes from, in order: a `rule ..., op:` line; its name, when it
+names a page that only shows something (`index?`, `show?`, the forms `new?`
+and `edit?`, `preview?`, `stats?`, `export?` and a few more, names starting
+`index_`, `show_`, `new_` or `edit_`, and names ending `_count`, `_stats`,
+`_overview` or `_chart`); the routes that reach it, when every one is a GET
+(the routes the test run recorded, else those read from `config/routes.rb`);
+otherwise a `?` rule writes. A verb never makes a rule write: an action may
+check a read rule on one record and then write another. DeclarativePolicy
+abilities need a `rule ..., op:` line.
 
 The report then adds:
 
@@ -525,7 +546,7 @@ data/hallmark/catalog.als   the pattern catalog shipped with the gem
 lib/hallmark/               mapping, guards, model builder, solver clients, decoder
 solver/src/                 the solver sidecar (Java, built by `hallmark install-sidecar`)
 lib/hallmark/collectors/    runtime hooks for each authorization library and controllers
-lib/hallmark/extractor/     reads guards from policy code with Prism
+lib/hallmark/extractor/     reads policies, controllers and config/routes.rb with Prism
 lib/hallmark/rspec.rb       the RSpec matchers (`require "hallmark/rspec"`)
 rbi/                        Sorbet signatures for lib/ (no sorbet-runtime needed)
 sorbet/rbi/                 Tapioca-generated RBIs for the gems lib/ hooks into

@@ -28,6 +28,10 @@ module Hallmark
   # An exposure also carries what its controller requires: the current
   # tenant when the record is loaded through it, and the lower bound of the
   # checks the controller makes in its own code (`Extractor::Controllers`).
+  #
+  # A rule's op comes from `Ops`: the mapping, the rule's name, then the
+  # routes that reach it (those recorded, else those read from
+  # `config/routes.rb`).
   class Inference
     include Guard::DSL
 
@@ -39,7 +43,7 @@ module Hallmark
       def entry_points = stamps.select(&:enforced).filter_map(&:entry_point).uniq
     end
 
-    attr_reader :units, :exposures, :coverage, :unchecked, :drift, :extractor
+    attr_reader :units, :exposures, :coverage, :unchecked, :drift, :extractor, :ops
 
     def initialize(mapping, stamp_set, extractor: nil)
       @mapping = mapping
@@ -47,6 +51,8 @@ module Hallmark
       @routes = stamp_set.routes
       @reached = (@stamps.filter_map(&:entry_point) + stamp_set.unchecked.map(&:entry_point)).uniq
       @extractor = extractor
+      @ops = Ops.new(mapping, stamps: @stamps, routes: @routes.empty? ? extractor&.routes || [] : @routes,
+                              controllers: extractor&.controllers)
       @coverage = Coverage.new(mapping, @stamps)
       stamped = build_units
       @units = (stamped + code_units(stamped.map(&:key))).sort_by { |unit| [unit.policy, unit.rule, unit.resource] }
@@ -80,7 +86,7 @@ module Hallmark
     end
 
     def unit_for(policy, rule, resource, stamps)
-      op = @mapping.op_for(policy, rule)
+      op = @ops.fetch(policy, rule)
       unless op
         @coverage.without_op << "#{policy}##{rule}"
         return nil
@@ -103,7 +109,7 @@ module Hallmark
       extractor.rules.filter_map do |extracted|
         resource = extracted.resource
         next if resource.nil? || stamped.include?(extracted.key)
-        next unless (op = @mapping.op_for(extracted.policy, extracted.rule))
+        next unless (op = @ops.fetch(extracted.policy, extracted.rule))
 
         unit = Unit.new(policy: extracted.policy, rule: extracted.rule, resource: resource, op: op, stamps: [],
                         extracted: extracted)
@@ -124,7 +130,7 @@ module Hallmark
       return if parts.empty?
 
       unit.guard = parts.map(&:first).reduce { |left, right| Guard.disjoin(left, right) }
-      unit.basis = parts.map(&:last).join("; ")
+      unit.basis = [*parts.map(&:last), @ops.basis(unit.policy, unit.rule)].compact.join("; ")
     end
 
     # The extracted guard's lower bound, unless it allows nothing for sure.
@@ -213,7 +219,7 @@ module Hallmark
       return nil unless guard && basis
 
       Exposure.new(action: entry_point, op: op, resource: resource, guard: guard, basis: basis,
-                   locations: locations_for(entry_point, resource, units))
+                   locations: locations_for(entry_point, resource, units), rules: units.map(&:key))
     end
 
     # The checks the entry point's controller makes in its own code
