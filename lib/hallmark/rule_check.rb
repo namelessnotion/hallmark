@@ -88,7 +88,8 @@ module Hallmark
         next unless (exposure = result.exposure)
 
         result.exposure = analysis.add_exposure(action: exposure.action, op: exposure.op, resource: exposure.resource,
-                                                guard: exposure.guard, basis: exposure.basis, rules: exposure.rules)
+                                                guard: exposure.guard, basis: exposure.basis, rules: exposure.rules,
+                                                field: exposure.field)
       end
       analysis.validate!
     end

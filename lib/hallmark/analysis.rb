@@ -38,13 +38,19 @@ module Hallmark
       @inference = nil
     end
 
-    def add_exposure(action:, op:, resource:, guard:, basis: nil, locations: nil, rules: nil)
+    # `field:` makes a read of one field of the record (fields exist only on
+    # reads; a write of a field is mass assignment, threat 12, not built).
+    def add_exposure(action:, op:, resource:, guard:, basis: nil, locations: nil, rules: nil, field: nil)
       raise ConfigurationError, "guard for #{action} must be a Hallmark::Guard" unless guard.is_a?(Guard)
+      if field && op != :read
+        raise ConfigurationError,
+              "#{action} writes the field #{field}; fields exist only on reads (`reads ..., field:`)"
+      end
 
       exposure = Exposure.new(action: action.to_s, op: op, resource: Naming.class_name(resource), guard: guard,
-                              basis: basis, locations: locations, rules: rules)
+                              basis: basis, locations: locations, rules: rules, field: field&.to_s)
       if @exposures.any? { |existing| existing.check_name == exposure.check_name }
-        raise ConfigurationError, "#{action} is declared twice for #{op} #{exposure.resource}"
+        raise ConfigurationError, "#{action} is declared twice for #{op} #{exposure.target}"
       end
 
       @exposures << exposure
@@ -65,7 +71,8 @@ module Hallmark
       @inference = inference
       inference.exposures.each do |exposure|
         add_exposure(action: exposure.action, op: exposure.op, resource: exposure.resource, guard: exposure.guard,
-                     basis: exposure.basis, locations: exposure.locations, rules: exposure.rules)
+                     basis: exposure.basis, locations: exposure.locations, rules: exposure.rules,
+                     field: exposure.field)
       end
       inference
     end
@@ -88,7 +95,14 @@ module Hallmark
         resource = @mapping.fetch(grant.resource)
         validate_flags!(condition, resource, "a grant on #{resource.name}") if condition
       end
+      @mapping.field_policies.each_value { |policy| validate_field_policy!(policy) }
       self
+    end
+
+    # The field exposures with no field policy: each is checked as readable
+    # as its record, which the report lists under coverage.
+    def fields_without_policy
+      @exposures.select { |exposure| exposure.field && !@mapping.field_policy_for(exposure.resource, exposure.field) }
     end
 
     # With no exposures (every observed rule only denied, say) there is
@@ -106,20 +120,45 @@ module Hallmark
     # only platform roles outside tenants, so any other role checked there
     # could never be held and the check would pass for no reason.
     def validate_tenants!(exposure)
-      guard = exposure.guard
+      validate_guard_tenants!(exposure.guard, "the guard for #{exposure.action}")
+    end
+
+    def validate_guard_tenants!(guard, what)
       unless @mapping.tenancy
         return if guard.tenants.empty?
 
-        raise ConfigurationError,
-              "the guard for #{exposure.action} reads tenants, but the map block declares no `tenant`"
+        raise ConfigurationError, "#{what} reads tenants, but the map block declares no `tenant`"
       end
 
       stray = guard.roles_outside_tenants - @mapping.platform_roles
       return if stray.empty?
 
-      raise ConfigurationError, "the guard for #{exposure.action} checks #{stray.join(", ")} outside any tenant, " \
+      raise ConfigurationError, "#{what} checks #{stray.join(", ")} outside any tenant, " \
                                 "where users hold only platform roles; pass `tenant:` to the role check " \
                                 "or declare `platform_role`"
+    end
+
+    # A field policy is checked like an exposure's guard: on a mapped
+    # resource, with no call Hallmark cannot model, over that resource's
+    # flags and permits, and tenant terms only with a `tenant`.
+    def validate_field_policy!(policy)
+      what = "the field policy for #{policy.key}"
+      guard = policy.guard
+      resource = @mapping.fetch(policy.resource)
+      if guard.opaque?
+        raise ConfigurationError, "#{what} holds calls Hallmark cannot model: " \
+                                  "#{guard.opaque_leaves.join(", ")}"
+      end
+      if guard.permits? && !resource.permits?
+        raise ConfigurationError,
+              "#{what} reads explicit permissions, but #{resource.name} is mapped without `permits:`"
+      end
+      if guard.outside_tenants? && !resource.tenant_optional?
+        raise ConfigurationError, "#{what} asks whether the record lives outside tenants, " \
+                                  "but #{resource.name} is mapped without `tenant_optional:`"
+      end
+      validate_guard_tenants!(guard, what)
+      validate_flags!(guard, resource, what)
     end
 
     # A guard may read only the flags its resource declares.
@@ -160,12 +199,15 @@ module Hallmark
         @analysis.mapping.instance_eval(&)
       end
 
-      def reads(action, resource, guard:)
-        @analysis.add_exposure(action: action, op: :read, resource: resource, guard: guard)
+      # `field:` reads one field of the record, checked against the
+      # record's read and the field's policy (`field_policy`).
+      def reads(action, resource, guard:, field: nil)
+        @analysis.add_exposure(action: action, op: :read, resource: resource, guard: guard, field: field)
       end
 
-      def writes(action, resource, guard:)
-        @analysis.add_exposure(action: action, op: :write, resource: resource, guard: guard)
+      # Fields exist only on reads, so `field:` here raises.
+      def writes(action, resource, guard:, field: nil)
+        @analysis.add_exposure(action: action, op: :write, resource: resource, guard: guard, field: field)
       end
 
       # Infers exposures from the stamps a test run recorded; declare it

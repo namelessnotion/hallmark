@@ -79,7 +79,9 @@ module Hallmark
     def upper; end
 
     # nil is unknown
-    sig { params(facts: T.any(StampFacts, T::Hash[Guard, T::Boolean])).returns(T.nilable(T::Boolean)) }
+    sig do
+      params(facts: T.any(StampFacts, WitnessFacts, T::Hash[Guard, T::Boolean])).returns(T.nilable(T::Boolean))
+    end
     def evaluate(facts); end
 
     sig { params(left: Guard, right: Guard).returns(Guard) }

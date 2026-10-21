@@ -134,6 +134,24 @@ module Hallmark
 
     AUDIENCES = T.let(T.unsafe(nil), T::Array[Symbol])
 
+    class FieldPolicy
+      sig { returns(String) }
+      def resource; end
+
+      sig { returns(String) }
+      def field; end
+
+      sig { returns(Guard) }
+      def guard; end
+
+      sig { params(resource: String, field: String, guard: Guard).void }
+      def initialize(resource:, field:, guard:); end
+
+      # "User.email"
+      sig { returns(String) }
+      def key; end
+    end
+
     class Tenancy
       sig { returns(String) }
       def name; end
@@ -233,6 +251,14 @@ module Hallmark
     sig { returns(T::Hash[String, Resource]) }
     attr_reader :resources
 
+    # "Resource.field" => its policy
+    sig { returns(T::Hash[String, FieldPolicy]) }
+    attr_reader :field_policies
+
+    # Name => restriction, in declaration order
+    sig { returns(T::Hash[String, Restriction]) }
+    attr_reader :restrictions
+
     sig { returns(T::Array[Grant]) }
     attr_reader :grants
 
@@ -266,6 +292,8 @@ module Hallmark
       @unchecked_allowed = T.let(T.unsafe(nil), T::Array[String])
       @terms = T.let(T.unsafe(nil), T::Hash[String, Guard])
       @public_actions = T.let(T.unsafe(nil), T::Hash[String, PublicAction])
+      @field_policies = T.let(T.unsafe(nil), T::Hash[String, FieldPolicy])
+      @restrictions = T.let(T.unsafe(nil), T::Hash[String, Restriction])
     end
 
     sig do
@@ -282,6 +310,35 @@ module Hallmark
 
     sig { params(rules: T::Array[String]).returns(T.nilable(PublicAction)) }
     def public_action_for(rules); end
+
+    # Checked at run time, since callers without Sorbet can pass anything
+    sig { params(condition: T.nilable(Object), what: String).returns(T.nilable(Guard)) }
+    def self.flag_condition(condition, what); end
+
+    # `guard` is checked at run time
+    sig do
+      params(resource: T.any(String, Symbol, T::Module[T.anything]), field: T.any(String, Symbol), guard: Object)
+        .returns(FieldPolicy)
+    end
+    def field_policy(resource, field, guard); end
+
+    sig do
+      params(resource: T.any(String, Symbol, T::Module[T.anything]), field: T.nilable(T.any(String, Symbol)))
+        .returns(T.nilable(FieldPolicy))
+    end
+    def field_policy_for(resource, field); end
+
+    sig do
+      params(name: T.any(String, Symbol), block: T.nilable(T.proc.bind(Restriction::Builder).void)).returns(Restriction)
+    end
+    def restrict(name, &block); end
+
+    sig { params(exposure: Exposure).returns(T::Array[Restriction]) }
+    def restrictions_for(exposure); end
+
+    # Grants, platform roles, the `self:` role and the roles field policies check
+    sig { returns(T::Array[String]) }
+    def declared_roles; end
 
     sig do
       params(name: T.any(String, Symbol, T::Module[T.anything]), from: Collectors::Source, roles: Collectors::Source,
@@ -371,8 +428,6 @@ module Hallmark
     sig { params(key: String, guard: T.nilable(Object), flags: T::Array[String]).void }
     def validate_public_when!(key, guard, flags); end
 
-    sig { params(condition: T.nilable(Object), what: String).returns(T.nilable(Guard)) }
-    def flag_condition(condition, what); end
 
     sig do
       params(key: String, value: T.nilable(T.any(T::Boolean, Symbol, T::Array[Symbol])), owned: T::Boolean,
@@ -382,5 +437,8 @@ module Hallmark
 
     sig { params(rule: Rule).void }
     def validate_rule!(rule); end
+
+    sig { void }
+    def validate_narrowing!; end
   end
 end

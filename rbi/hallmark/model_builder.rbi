@@ -100,5 +100,9 @@ module Hallmark
     # The model comment and the formula the exposure's guard must imply
     sig { params(exposure: Exposure, op: String).returns([String, String]) }
     def intended(exposure, op); end
+
+    # The catalog's `allowed`, or that OR the public action, with its comment
+    sig { params(exposure: Exposure, op: String).returns([String, String]) }
+    def record_intended(exposure, op); end
   end
 end

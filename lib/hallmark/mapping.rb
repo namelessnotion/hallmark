@@ -53,6 +53,13 @@ module Hallmark
 
     AUDIENCES = %i[anyone signed_in].freeze
 
+    # Who may read one field of a record (threats 4 and 14 G1), as a guard
+    # over the same terms as an exposure's. A read of the field is checked
+    # against the record's read AND this guard; fields exist only on reads.
+    FieldPolicy = Struct.new(:resource, :field, :guard, keyword_init: true) do
+      def key = "#{resource}.#{field}"
+    end
+
     # The class whose records are tenants, and how memberships in it are
     # stored. `self_role` is set when the tenant class is the principal class
     # (a Gumroad seller is a User): each tenant then holds that role in itself.
@@ -71,7 +78,7 @@ module Hallmark
 
     attr_reader :principal_name, :principal_source, :principal_roles, :resources, :grants, :tenancy,
                 :current_tenant_source, :current_tenant_controller, :principal_controller, :platform_roles, :rules,
-                :unchecked_allowed, :terms, :public_actions
+                :unchecked_allowed, :terms, :public_actions, :field_policies, :restrictions
 
     def initialize
       @principal_name = "User"
@@ -88,6 +95,8 @@ module Hallmark
       @unchecked_allowed = []
       @terms = {}
       @public_actions = {}
+      @field_policies = {}
+      @restrictions = {}
     end
 
     # An intended permission: every holder of `role` may `op` every record of
@@ -103,7 +112,7 @@ module Hallmark
     def grant(role, op, resource, when: nil)
       raise ConfigurationError, "grant op must be :read or :write, not #{op.inspect}" unless OPS.include?(op)
 
-      condition = flag_condition(binding.local_variable_get(:when), "a grant's")
+      condition = Mapping.flag_condition(binding.local_variable_get(:when), "a grant's")
       @grants << Grant.new(role: role.to_s, op: op, resource: Naming.class_name(resource), condition: condition)
     end
 
@@ -124,7 +133,7 @@ module Hallmark
       end
       raise ConfigurationError, "public_action needs at least one rule for #{policy}" if rules.empty?
 
-      condition = flag_condition(binding.local_variable_get(:when), "a public action's")
+      condition = Mapping.flag_condition(binding.local_variable_get(:when), "a public action's")
       rules.map do |rule|
         action = PublicAction.new(policy: Naming.class_name(policy), rule: rule.to_s, audience: audience,
                                   condition: condition)
@@ -134,11 +143,74 @@ module Hallmark
       end
     end
 
+    # `when:` on a grant, public action or restriction: a guard over flags only.
+    def self.flag_condition(condition, what)
+      return nil if condition.nil?
+      return condition if condition.is_a?(Guard) && condition.leaves.all? { |leaf| leaf.kind == :flag }
+
+      raise ConfigurationError, "#{what} `when:` must be a guard over flags, such as flag(:public_builds)"
+    end
+
     # The public action an exposure enforcing `rules` ("Policy#rule") gets:
     # nil unless every one is a public action (`PublicAction.combine`).
     def public_action_for(rules)
       actions = rules.filter_map { |key| @public_actions[key] }
       PublicAction.combine(actions) unless actions.empty? || actions.size < rules.size
+    end
+
+    # Who may read one field of a record: a guard over the same terms as an
+    # exposure's (`owner`, `role(..., tenant: :record)`, flags). A read of
+    # the field (`reads ..., field: :email`) must be allowed both by the
+    # catalog for the record and by this guard.
+    #
+    #   field_policy "User", :email, owner | role(:admin, tenant: :record)
+    def field_policy(resource, field, guard)
+      key = Naming.class_name(resource)
+      unless guard.is_a?(Guard)
+        raise ConfigurationError,
+              "the field policy for #{key}.#{field} must be a Hallmark::Guard"
+      end
+
+      policy = FieldPolicy.new(resource: key, field: field.to_s, guard: guard)
+      raise ConfigurationError, "field policy #{policy.key} is mapped twice" if @field_policies.key?(policy.key)
+
+      @field_policies[policy.key] = policy
+    end
+
+    def field_policy_for(resource, field)
+      return nil if field.nil?
+
+      @field_policies["#{Naming.class_name(resource)}.#{field}"]
+    end
+
+    # What must never happen even when a catalog pattern allows it (threat
+    # 11). Each `deny` names a role (counted in the record's tenant, or
+    # anywhere for a platform role), the ops (:read, :write or both), the
+    # resource, optionally the fields it protects (reads of those fields
+    # only) and a flag guard limiting the records.
+    #
+    #   restrict "admins never read card numbers" do
+    #     deny role: :admin, op: :read, resource: "PaymentMethod", fields: %i[number cvc]
+    #   end
+    def restrict(name, &block)
+      key = name.to_s
+      raise ConfigurationError, "restriction #{key.inspect} is declared twice" if @restrictions.key?(key)
+      raise ConfigurationError, "restriction #{key.inspect} needs a block of `deny`s" unless block
+
+      @restrictions[key] = Restriction.build(key, &block)
+    end
+
+    # The restrictions with a denial covering `exposure`, in declaration order.
+    def restrictions_for(exposure) = @restrictions.values.select { |restriction| restriction.covers?(exposure) }
+
+    # Every role the map block names: grants, platform roles, the `self:`
+    # role and the roles field policies check. A restriction may deny only
+    # these, so a misspelt role is an error rather than a check that never
+    # fires.
+    def declared_roles
+      names = @grants.map(&:role) + @platform_roles + [@tenancy&.self_role].compact
+      names += @field_policies.values.flat_map { |policy| policy.guard.roles }
+      names.uniq
     end
 
     # The application class that represents signed-in users (default "User").
@@ -321,6 +393,7 @@ module Hallmark
         raise ConfigurationError, "resource #{resource.name} has a tenant, but the map block declares no `tenant`"
       end
       @rules.each_value { |rule| validate_rule!(rule) }
+      validate_narrowing!
       self
     end
 
@@ -349,14 +422,8 @@ module Hallmark
       @unchecked_allowed = @unchecked_allowed.dup
       @terms = @terms.dup
       @public_actions = @public_actions.dup
-    end
-
-    # `when:` on a grant or public action: a guard over flags only.
-    def flag_condition(condition, what)
-      return nil if condition.nil?
-      return condition if condition.is_a?(Guard) && condition.leaves.all? { |leaf| leaf.kind == :flag }
-
-      raise ConfigurationError, "#{what} `when:` must be a guard over flags, such as flag(:public_builds)"
+      @field_policies = @field_policies.dup
+      @restrictions = @restrictions.dup
     end
 
     # `owner_outside_tenant:` as the ops it names; it needs an owner and a
@@ -385,6 +452,13 @@ module Hallmark
 
       unknown = guard.flags - flags
       raise ConfigurationError, "public_when for #{key} reads undeclared flags: #{unknown.join(", ")}" if unknown.any?
+    end
+
+    # Field policies and restrictions name mapped resources; a restriction's
+    # roles must be declared (`Restriction#validate!`).
+    def validate_narrowing!
+      @field_policies.each_value { |policy| fetch(policy.resource) }
+      @restrictions.each_value { |restriction| restriction.validate!(self) }
     end
 
     # A rule's declared resource must be mapped.

@@ -71,6 +71,7 @@ module Hallmark
       lines << ""
       lines << summary
       lines.concat(coverage_lines)
+      lines.concat(field_lines)
       lines.join("\n")
     end
 
@@ -78,19 +79,21 @@ module Hallmark
     # same lines.
     def self.finding_lines(finding)
       exposure = finding.exposure
-      lines = ["FAIL  #{exposure.action} (#{exposure.op} #{exposure.resource})", "      guard: #{exposure.guard}"]
+      lines = ["FAIL  #{exposure.action} (#{exposure.op} #{exposure.target})", "      guard: #{exposure.guard}"]
       lines << "      #{exposure.basis}" if exposure.basis
       lines << "      #{finding.message}"
       lines << "      intended pattern: #{finding.pattern}"
+      intended = finding.intended
+      lines << "      intended: #{intended}" if intended
       lines << "      #{finding.hint}" if finding.hint
       lines
     end
 
     def self.unknown_line(exposure, reason)
-      "??    #{exposure.action} (#{exposure.op} #{exposure.resource}): unknown, #{reason}"
+      "??    #{exposure.action} (#{exposure.op} #{exposure.target}): unknown, #{reason}"
     end
 
-    def self.ok_line(exposure) = "ok    #{exposure.action} (#{exposure.op} #{exposure.resource})"
+    def self.ok_line(exposure) = "ok    #{exposure.action} (#{exposure.op} #{exposure.target})"
 
     def finding_lines(finding) = Report.finding_lines(finding)
 
@@ -210,6 +213,16 @@ module Hallmark
           coverage.routes_unchecked,
         "Routes no test reached in controllers outside app/controllers" => coverage.routes_unread
       }
+    end
+
+    # Field reads with no field policy: checked as readable as their record.
+    # A warning, not a finding.
+    def field_lines
+      open = analysis.fields_without_policy
+      return [] if open.empty?
+
+      ["", "Fields with no field policy (checked as readable as their record; declare `field_policy` to narrow):",
+       *open.map { |exposure| "  #{exposure.action} (#{exposure.op} #{exposure.target})" }]
     end
 
     private

@@ -83,7 +83,29 @@ class ReportTest < Minitest::Test
     assert_equal 1, report.exit_code
     assert_includes text, "FAIL  LinksController#update (write Link)"
     assert_includes text, "ok    Admin::LinksController#update (write Link)"
-    assert_includes text, "1 counterexample in 3 checks."
+    assert_includes text, "FAIL  LinksController#edit (read Link.revenue)"
+    assert_includes text, "3 counterexamples in 5 checks."
+    assert text.end_with?("Fields with no field policy (checked as readable as their record; declare " \
+                          "`field_policy` to narrow):\n  Admin::LinksController#show (read Link.buyer_emails)")
+  end
+
+  def test_a_field_policy_finding_names_the_field_and_who_may_read_it
+    finding = storefront_report.findings.find { |f| f.exposure.field == "revenue" }
+
+    assert_equal "a signed-in User (User$1) holding roles marketing in the current tenant User$0 can read the " \
+                 "revenue of a Link (Link$3) in the current tenant, which its field policy allows only where " \
+                 "(role(:owner, tenant: :record) | role(:admin, tenant: :record))", finding.message
+    assert_equal "check the code that decides whether Link.revenue is shown, or widen its field policy in the " \
+                 "map block if this is intended", finding.hint
+  end
+
+  def test_a_restriction_finding_names_the_restriction
+    finding = storefront_report.findings.find { |f| f.exposure.field == "buyer_emails" }
+
+    assert_match(/and roles staff outside any tenant can read the buyer_emails of a Link \(Link\$\d\)/, finding.message)
+    assert finding.message.end_with?(", which the restriction \"staff never see buyers\" forbids")
+    assert_nil finding.intended
+    assert_match(/exclude holders of :staff in the code/, finding.hint)
   end
 
   def test_untenanted_findings_have_no_tenants

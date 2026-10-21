@@ -117,6 +117,16 @@ pred allowed[p: Principal, o: Op, r: Resource] {
 -- signed-in users), on the records the action covers.
 pred publicAction[p: Principal, audience: set Principal] { p in audience }
 
+-- Field policies and restrictions are not patterns: they narrow what the
+-- patterns above allow, and like public actions they belong to the checks
+-- they cover. A read of one field asserts the catalog's `allowed` for the
+-- record AND the field's policy, a guard over the same terms rendered
+-- inline (no signature stands for a field). A restriction (threat 11:
+-- "admins never read card numbers") ANDs its negation into every check it
+-- covers, over the role it denies in the record's tenant (`rolesFor`), or
+-- anywhere for a platform role:
+--   allows implies ((allowed or publicAction) and fieldPolicy and not r1 and not r2)
+
 -- Structural checks over the application's role configuration
 assert NoHierarchyCycles { no r: Role | r in r.^inherits }
 

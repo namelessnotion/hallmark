@@ -85,6 +85,7 @@ module Hallmark
       @current_tenant = T.let(T.unsafe(nil), T.nilable(TenantRoles))
       @record_tenant = T.let(T.unsafe(nil), T.nilable(TenantRoles))
       @flags = T.let(T.unsafe(nil), T::Hash[String, T::Boolean])
+      @witness = T.let(T.unsafe(nil), T.nilable(WitnessFacts))
     end
 
     sig { returns(T::Boolean) }
@@ -105,7 +106,30 @@ module Hallmark
     sig { returns(T.nilable(String)) }
     def hint; end
 
+    # The covering restriction the witness breaks, read from the witness
+    sig { returns(T.nilable(Restriction)) }
+    def restriction; end
+
+    sig { returns(T.nilable(Mapping::FieldPolicy)) }
+    def field_policy; end
+
+    sig { returns(T::Boolean) }
+    def field_policy_broken?; end
+
+    # The field policy and covering restrictions, when the witness plainly breaks neither
+    sig { returns(T.nilable(String)) }
+    def intended; end
+
     private
+
+    sig { returns(WitnessFacts) }
+    def witness; end
+
+    sig { returns(T.nilable(String)) }
+    def narrowing_hint; end
+
+    sig { returns(String) }
+    def reason; end
 
     sig { returns(T.nilable(String)) }
     def way_in; end

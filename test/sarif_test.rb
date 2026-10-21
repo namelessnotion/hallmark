@@ -48,6 +48,23 @@ class SarifTest < Minitest::Test
     assert_equal [["app/policies/link_policy.rb", 9]], place(result, "relatedLocations")
   end
 
+  def test_a_field_counterexample_names_the_field_and_what_was_intended
+    analysis = Hallmark::Analysis.build("Storefront") do
+      map do
+        tenant "User", membership: "TeamMembership", self: :owner
+        current_tenant :seller
+        resource "Link", tenant: :user, public_if: :published?
+        field_policy "Link", :price, public_record
+      end
+      reads "LinksController#show", "Link", field: :price, guard: role(:admin, tenant: :current)
+    end
+    report = analysis.run(solver: FixtureSolver.new("safe_LinksController_show_read_Link_price" => :counterexample))
+    text = results(sarif([report])).fetch(0).dig("message", "text")
+
+    assert_match(/\ALinksController#show \(read Link.price\): .* can read the price of a Link/, text)
+    assert_includes text, "Intended: field policy for Link.price: public_record."
+  end
+
   def test_a_result_with_no_source_line_points_at_the_mapping_file
     report = storefront([]).run(solver: FixtureSolver.new(UPDATE => :counterexample))
 

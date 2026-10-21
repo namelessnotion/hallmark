@@ -80,8 +80,10 @@ module Hallmark
     def finding_result(finding)
       exposure = finding.exposure
       hint = finding.hint
-      text = "#{exposure.action} (#{exposure.op} #{exposure.resource}): #{finding.message}. " \
-             "Intended pattern: #{finding.pattern}.#{" #{hint[0].to_s.upcase}#{hint[1..]}." if hint}"
+      intended = finding.intended
+      text = "#{exposure.action} (#{exposure.op} #{exposure.target}): #{finding.message}. " \
+             "Intended pattern: #{finding.pattern}.#{" Intended: #{intended}." if intended}" \
+             "#{" #{hint[0].to_s.upcase}#{hint[1..]}." if hint}"
       result("hallmark/counterexample", text, exposure.locations || [], exposure.check_name)
     end
 

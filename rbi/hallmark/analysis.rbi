@@ -41,16 +41,21 @@ module Hallmark
         guard: Object,
         basis: T.nilable(String),
         locations: T.nilable(T::Array[String]),
-        rules: T.nilable(T::Array[String])
+        rules: T.nilable(T::Array[String]),
+        field: T.nilable(T.any(String, Symbol))
       ).returns(Exposure)
     end
-    def add_exposure(action:, op:, resource:, guard:, basis: nil, locations: nil, rules: nil); end
+    def add_exposure(action:, op:, resource:, guard:, basis: nil, locations: nil, rules: nil, field: nil); end
 
     sig { params(source: T.any(StampSet, String, Pathname)).returns(Inference) }
     def add_stamps(source); end
 
     sig { returns(T.self_type) }
     def validate!; end
+
+    # Field reads with no field policy, checked as readable as their record
+    sig { returns(T::Array[Exposure]) }
+    def fields_without_policy; end
 
     # The solver is not started when there is nothing to check.
     sig { params(solver: T.nilable(Solver::Backend)).returns(Report) }
@@ -60,6 +65,12 @@ module Hallmark
 
     sig { params(exposure: Exposure).void }
     def validate_tenants!(exposure); end
+
+    sig { params(guard: Guard, what: String).void }
+    def validate_guard_tenants!(guard, what); end
+
+    sig { params(policy: Mapping::FieldPolicy).void }
+    def validate_field_policy!(policy); end
 
     sig { params(guard: Guard, resource: Mapping::Resource, what: String).void }
     def validate_flags!(guard, resource, what); end
@@ -84,14 +95,17 @@ module Hallmark
       def map(&blk); end
 
       sig do
-        params(action: T.any(String, Symbol), resource: T.any(String, Symbol, T::Module[T.anything]), guard: Guard).returns(Exposure)
+        params(action: T.any(String, Symbol), resource: T.any(String, Symbol, T::Module[T.anything]), guard: Guard,
+               field: T.nilable(T.any(String, Symbol))).returns(Exposure)
       end
-      def reads(action, resource, guard:); end
+      def reads(action, resource, guard:, field: nil); end
 
+      # Raises when `field:` is given: fields exist only on reads
       sig do
-        params(action: T.any(String, Symbol), resource: T.any(String, Symbol, T::Module[T.anything]), guard: Guard).returns(Exposure)
+        params(action: T.any(String, Symbol), resource: T.any(String, Symbol, T::Module[T.anything]), guard: Guard,
+               field: T.nilable(T.any(String, Symbol))).returns(Exposure)
       end
-      def writes(action, resource, guard:); end
+      def writes(action, resource, guard:, field: nil); end
 
       sig { params(source: T.any(StampSet, String, Pathname)).returns(Inference) }
       def stamps(source = Hallmark.configuration.stamps); end

@@ -28,8 +28,8 @@ done and phase 3 (runtime modes and GraphQL) is next, planned Oct 21, 2026
 2's plan is "Phase 2 (extractor)" below and `docs/PLAN.md` ("Roadmap", "Phase 2 plan"). The gate's
 two false-positive sources (op errors, two catalog gaps) were fixed Oct 21,
 2026 (Phase 2 step 7 below). Phase 3 steps 1 (hot path and benchmark),
-2 (live modes, sinks, hashed ids) and 3 (baseline and `hallmark watch`)
-were done Oct 21, 2026. The phase 1 gate's record is in
+2 (live modes, sinks, hashed ids), 3 (baseline and `hallmark watch`) and
+4 (field policies and restrictions) were done Oct 21, 2026. The phase 1 gate's record is in
 "Phase 1 (core gem): the gate" below. The first real-app run (original Gumroad on Pundit, Oct 16, 2026, not
 a gate app) is in "First run on original Gumroad" below. Gate runs so far:
 GitLab (DeclarativePolicy, Oct 17, 2026) and Forem (Pundit, Oct 18, 2026),
@@ -211,6 +211,22 @@ Built:
   (catalog `publicAction[p, audience]`, ORed into the check of an exposure
   whose rules, `Exposure#rules`, all have one). Findings suggest either
   declaration. `docs/PLAN.md` ("The shipped encoding").
+- Field policies and restrictions (phase 3 step 4, Oct 21, 2026;
+  `mapping.rb`, `restriction.rb`, `witness_facts.rb`): `field_policy
+  RESOURCE, :field, <guard>` (`Mapping::FieldPolicy`) and `reads ...,
+  field:` (`Exposure#field`, check `safe_<Action>_read_<Resource>_<field>`,
+  `Exposure#target` "User.email"; fields only on reads), and `restrict NAME
+  do deny role:, op:, resource:, fields:, when: end` in the map block or
+  `c.restrict` (threat 11; a denied role must be declared, and counts in
+  the record's tenant, or anywhere for a platform role). No new
+  signatures: `ModelBuilder#intended` renders `((allowed or publicAction)
+  and fieldPolicy and (not (r1)) ...)`. `Finding` names the restriction or
+  field policy the witness broke from `WitnessFacts` (the witness as guard
+  leaves, three-valued), else prints `intended:`; a field read with no
+  policy is listed at the end of the report. `Exposure#digest` adds the
+  field, its policy and covering restrictions only when present, so older
+  baselines match. Storefront has `Link.revenue` and "staff never see
+  buyers". `docs/PLAN.md` ("The shipped field policies and restrictions").
 
 Not built yet, but designed and validated as hand-written models in
 `research/models` (see its README for each check's expected result):
@@ -218,9 +234,10 @@ tenancy flaws M4 to M6 (invitations, list scopes, Rolify grants), graphql-ruby,
 DeclarativePolicy, stale access after revocation, role-configuration checks.
 
 Parts of the `docs/PLAN.md` "Ruby API sketch" are still design only:
-`role_hierarchy`, `conflicts` and `c.restrict` (`c.solver` is built, with
-`:cli` and `:sidecar`; `permits:` is built as `resource ..., permits:`, the
-explicit permission on one record, for Gumroad's collaborators).
+`role_hierarchy` and `conflicts` (`c.solver` is built, with `:cli` and
+`:sidecar`; `permits:` is built as `resource ..., permits:`, the explicit
+permission on one record, for Gumroad's collaborators; `c.restrict` is
+built, Oct 21, 2026).
 
 ## Commands
 
@@ -228,7 +245,7 @@ explicit permission on one record, for Gumroad's collaborators).
 bundle install
 bin/hallmark install-alloy                 # Alloy 6.2.0 to ~/.cache/hallmark, SHA-256 verified; needs Java 17+
 bin/hallmark install-sidecar               # also builds the sidecar jar (javac + jar from a JDK 17+); no extra download
-bundle exec rake test                      # 397 tests; the 27 integration tests skip without the jar or sidecar
+bundle exec rake test                      # 426 tests; the 31 integration tests skip without the jar or sidecar
 bundle exec rake bench                     # what the collectors add per decision (p50, p99, objects); about 2 min
 bundle exec rubocop                        # lint
 bundle exec srb tc                         # type-check lib/ against rbi/; `rake` runs tests, rubocop, then this
@@ -284,13 +301,14 @@ Hallmark.analyze block (`stamps` loads a StampSet: Inference builds the exposure
   -> StampFacts reads each stamp as guard leaves: Inference's literals, Drift's evaluation   stamp_facts.rb, drift.rb
   + Ops: each rule's op from the mapping, its name, the routes' verbs   ops.rb, extractor/routes_file.rb
   -> Analysis (Mapping + Exposures, each with a Guard)       lib/hallmark/analysis.rb, mapping.rb, guard.rb
+     (field policies and restrictions in the mapping)          restriction.rb
   -> ModelBuilder: Alloy source, one assert + check per exposure   model_builder.rb
   -> Hallmark.solver (c.solver)                                    solver.rb
      Solver::CLI#check: `java -jar alloy.jar exec --type xml`      solver/cli.rb
      Solver::Sidecar#check: JSON-RPC to a long-lived JVM           solver/sidecar.rb, child_process.rb, solver/src/
   -> Receipt: verdict per check (counterexample, none, unknown);  receipt.rb
      CLI witnesses from XML, sidecar witnesses as JSON tuples
-  -> Report and Finding: witness explained in app terms, plus drift  report.rb, finding.rb
+  -> Report and Finding: witness explained in app terms, plus drift  report.rb, finding.rb, witness_facts.rb
 
 hallmark watch: Baseline (check --baseline) seeds Watch::Stamps    baseline.rb, watch.rb, watch/*
   -> FileTail or RedisTail lines -> Inference over all stamps -> exposures whose digest changed
@@ -567,6 +585,10 @@ phase, which stretches it to about 7 weeks. Steps, in order:
    that seed the watch. Tested on the shop app end to end (test mode for
    the baseline, shadow mode with hashed ids for the cross-seller update).
 4. Field-level mapping (`field_policy`) and `c.restrict` (threat 11).
+   Done Oct 21, 2026, as planned; restrictions can also be declared in the
+   map block (`restrict`), which `c.restrict` calls. Storefront's buggy
+   version gains a field policy and a restriction finding (3
+   counterexamples in 5 checks), its fixed version none, on both backends.
 5. GraphQL static: `Extractor::GraphqlSchema` (Prism over `app/graphql`),
    the reachability model from `research/models/graphql.als`, lints G4 and
    G5, `examples/graphql_shop`.

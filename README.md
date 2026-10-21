@@ -29,7 +29,12 @@ Pundit, Action Policy and DeclarativePolicy code:
   back into app terms
 - the MediumClone example, reproducing both bugs the SPACE paper walks through
 - the Storefront example, a Gumroad-shaped store reproducing current-tenant
-  confusion (an admin of one seller updates another seller's product)
+  confusion (an admin of one seller updates another seller's product), a
+  field shown to more of the team than its field policy allows, and a
+  restriction the vendor's staff page breaks
+- field policies (who may read one field of a record) and restrictions
+  (what must never happen even when a pattern allows it), both ANDed into
+  the checks they cover
 - collectors for Action Policy, Pundit and DeclarativePolicy, installed by a
   Railtie in the test environment, which record each authorization decision
   as a stamp; guards inferred from the stamps; a report of entry points that
@@ -55,9 +60,9 @@ one real app per authorization library, each with a confirmed real bug)
 passed on Oct 19, 2026. Phase 2 (the extractor) passed its gate on five
 apps on Oct 21, 2026.
 
-Not built yet (phase 3): the graphql-ruby schema walk and tracing;
-field-level mapping and declared restrictions; list scopes; and stale
-access after revocation.
+Not built yet (phase 3): the graphql-ruby schema walk and tracing; field
+reads read from GraphQL types and serializers (field exposures are declared
+by hand for now); list scopes; and stale access after revocation.
 The models for those live in `research/models`.
 
 ## Requirements
@@ -192,6 +197,48 @@ and `outside_tenants` that it belongs to none (only for a resource mapped
 with `tenant_optional: true`). Inference adds `outside_tenants` to an
 allow-stamp on a record with no tenant, so an owner's allow on a personal
 article does not stand for articles in an organization.
+
+### Field policies and restrictions
+
+The catalog's patterns are about whole records. Two declarations say access
+is narrower than that, and every check they cover asserts them too:
+
+```ruby
+Hallmark.analyze "Storefront" do
+  map do
+    # ... tenant, resource "Link", grants as above
+    field_policy "Link", :revenue, role(:owner, tenant: :record) | role(:admin, tenant: :record)
+    restrict "staff never see buyers" do
+      deny role: :staff, op: :read, resource: "Link", fields: %i[buyer_emails]
+    end
+  end
+
+  reads "LinksController#edit", "Link", field: :revenue, guard: role(:marketing, tenant: :current) & in_current_tenant
+  reads "Admin::LinksController#show", "Link", field: :buyer_emails, guard: role(:staff)
+end
+```
+
+`field_policy RESOURCE, :field, GUARD` says who may read one field, with the
+same guard terms as an exposure. `reads ..., field:` is a read of that field:
+its check (`safe_LinksController_edit_read_Link_revenue`) passes only where
+the catalog allows reading the record and the field's policy holds. A field
+read with no policy is checked as readable as its record and listed at the
+end of the report. Fields exist only on reads; `writes ..., field:` raises.
+
+`restrict NAME do deny ... end` (or `c.restrict` in `Hallmark.configure`)
+declares what must never happen even when a pattern allows it (threat 11).
+`deny` takes the `role:` (held in the record's tenant, or anywhere for a
+platform role; it must be declared in the map block), `op:` (`:read`,
+`:write` or both), `resource:`, optionally `fields:` (reads of those fields
+only; without it every exposure of the resource and op is covered) and
+`when:` (a guard over the resource's flags). The report names what the
+witness broke:
+
+```text
+FAIL  Admin::LinksController#show (read Link.buyer_emails)
+      guard: role(:staff)
+      a signed-in User (User$0) ... and roles staff outside any tenant can read the buyer_emails of a Link (Link$4) in the current tenant, which the restriction "staff never see buyers" forbids
+```
 
 `bin/hallmark model FILE` prints the generated Alloy model, which is the
 best way to see exactly what is being checked.
@@ -627,7 +674,7 @@ The same settings are available in Ruby through `Hallmark.configure`.
 
 ```text
 data/hallmark/catalog.als   the pattern catalog shipped with the gem
-lib/hallmark/               mapping, guards, model builder, solver clients, decoder
+lib/hallmark/               mapping, guards, restrictions, model builder, solver clients, decoder
 solver/src/                 the solver sidecar (Java, built by `hallmark install-sidecar`)
 lib/hallmark/collectors/    runtime hooks for each authorization library and controllers
 lib/hallmark/sinks.rb       where stamps go: files, a Redis stream, a callable

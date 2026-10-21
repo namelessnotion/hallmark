@@ -99,6 +99,9 @@ module Hallmark
     sig { returns(T::Array[String]) }
     def drift_lines; end
 
+    sig { returns(T::Array[String]) }
+    def field_lines; end
+
     sig { params(item: Drift).returns(T::Array[String]) }
     def self.drift_lines(item); end
 

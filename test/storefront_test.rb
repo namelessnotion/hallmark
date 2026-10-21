@@ -10,7 +10,8 @@ class StorefrontTest < Minitest::Test
     solver = require_solver!
     report = load_example("storefront/hallmark.rb").run(solver: solver)
 
-    assert_equal(["LinksController#update"], report.findings.map { |finding| finding.exposure.action })
+    assert_equal(%w[LinksController#update LinksController#edit Admin::LinksController#show],
+                 report.findings.map { |finding| finding.exposure.action })
     assert_equal ["LinksController#edit", "Admin::LinksController#update"], report.verified.map(&:action)
 
     finding = report.findings.fetch(0)
@@ -24,7 +25,25 @@ class StorefrontTest < Minitest::Test
     report = load_example("storefront/hallmark_fixed.rb").run(solver: solver)
 
     assert_predicate report, :clean?
-    assert_equal 3, report.verified.size
+    assert_equal 5, report.verified.size
+    refute_includes report.to_s, "Fields with no field policy"
+  end
+
+  # The edit page shows revenue to marketing, which the field policy does
+  # not allow; the staff page shows buyers' emails, which a restriction
+  # forbids even though the catalog lets staff read any product.
+  def test_field_policy_and_restriction_findings
+    solver = require_solver!
+    report = load_example("storefront/hallmark.rb").run(solver: solver)
+    findings = report.findings.to_h { |finding| [finding.exposure.target, finding] }
+
+    revenue = findings.fetch("Link.revenue")
+    assert_predicate revenue, :field_policy_broken?
+    assert_nil revenue.restriction
+    assert_includes revenue.current_tenant.roles, "marketing"
+    buyers = findings.fetch("Link.buyer_emails")
+    assert_equal "staff never see buyers", buyers.restriction&.name
+    assert_includes buyers.roles, "staff"
   end
 
   # Scope 2 still finds M2: the builder raises Principal to 3 so that two

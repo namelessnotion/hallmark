@@ -84,6 +84,17 @@ module Hallmark
       mapping
     end
 
+    # A restriction (threat 11) on the app's mapping, the same as `restrict`
+    # inside `map`:
+    #
+    #   c.restrict "admins never read card numbers" do
+    #     deny role: :admin, op: :read, resource: "PaymentMethod", fields: %i[number cvc]
+    #   end
+    def restrict(name, &)
+      mapping = @mapping ||= Mapping.new
+      mapping.restrict(name, &)
+    end
+
     # nil lets the Railtie decide: collectors on in the Rails test environment.
     def mode=(value)
       value = value&.to_s

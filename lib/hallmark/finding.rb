@@ -39,10 +39,12 @@ module Hallmark
     end
 
     # A tenant-aware witness always has a current tenant, but it means
-    # something only when the map block declares one or the guard reads it.
+    # something only when the map block declares one or the guard (or the
+    # field's policy) reads it.
     def self.current_tenant?(exposure, mapping)
+      policy = mapping.field_policy_for(exposure.resource, exposure.field)
       !(mapping.current_tenant_source || mapping.current_tenant_controller).nil? ||
-        exposure.guard.tenants.include?(:current)
+        exposure.guard.tenants.include?(:current) || (!policy.nil? && policy.guard.tenants.include?(:current))
     end
 
     def self.tenant_roles(instance, principal, tenant)
@@ -96,12 +98,50 @@ module Hallmark
     end
 
     def message
-      "#{who} can #{verb} #{what}"
+      "#{who} can #{verb} #{what}#{reason}"
+    end
+
+    # The covering restriction the witness breaks: it holds a denied role
+    # where the role counts, on a record the denial's condition does not
+    # rule out. Read from the witness, not the solver.
+    def restriction
+      @mapping.restrictions_for(exposure).find do |restriction|
+        restriction.covering(exposure).any? { |denial| witness.denied?(denial) }
+      end
+    end
+
+    # The field's policy, when the exposure reads a field that has one.
+    def field_policy = @mapping.field_policy_for(exposure.resource, exposure.field)
+
+    # Whether the witness falls outside the field's policy, as far as the
+    # witness says (an unknown term never counts).
+    def field_policy_broken?
+      policy = field_policy
+      !policy.nil? && witness.evaluate(policy.guard) == false
+    end
+
+    # When neither a restriction nor the field's policy is plainly what the
+    # witness breaks, what else the check asked for besides the catalog:
+    # the field's policy and every covering restriction.
+    def intended
+      return nil if restriction || field_policy_broken?
+
+      parts = []
+      if (policy = field_policy)
+        parts << "field policy for #{policy.key}: #{policy.guard}"
+      end
+      @mapping.restrictions_for(exposure).each do |restriction|
+        parts << "restriction #{restriction.name.inspect} (#{restriction.covering(exposure).join("; ")})"
+      end
+      parts.empty? ? nil : parts.join("; ")
     end
 
     # A next step when the fix may be in the code's tenant check or in the
     # mapping rather than in the guard's roles.
     def hint
+      if (narrowed = narrowing_hint)
+        return narrowed
+      end
       return public_hint if anonymous?
       return owner_hint if owner_outside?
       if cross_tenant?
@@ -117,6 +157,32 @@ module Hallmark
     end
 
     private
+
+    def witness = @witness ||= WitnessFacts.new(self, @mapping.platform_roles)
+
+    # The next step when a restriction or the field's policy is what the
+    # witness breaks.
+    def narrowing_hint
+      if (broken = restriction)
+        roles = broken.covering(exposure).select { |denial| witness.denied?(denial) }.map { |denial| ":#{denial.role}" }
+        "exclude holders of #{roles.uniq.join(", ")} in the code, or narrow the restriction " \
+          "#{broken.name.inspect} if this is intended"
+      elsif field_policy_broken?
+        "check the code that decides whether #{exposure.target} is shown, or widen its field policy " \
+          "in the map block if this is intended"
+      end
+    end
+
+    # Why the check fails beyond the catalog, for the message.
+    def reason
+      if (broken = restriction)
+        ", which the restriction #{broken.name.inspect} forbids"
+      elsif field_policy_broken? && (policy = field_policy)
+        ", which its field policy allows only where #{policy.guard}"
+      else
+        ""
+      end
+    end
 
     # The guard's way in that the witness took: as the owner, or through a
     # role it holds.
@@ -192,7 +258,8 @@ module Hallmark
     def verb = exposure.op == :read ? "read" : "update"
 
     def what
-      "#{record_label}#{where}#{flag_list}"
+      field = exposure.field
+      "#{"the #{field} of " if field}#{record_label}#{where}#{flag_list}"
     end
 
     # ", with project_public and without public_builds"

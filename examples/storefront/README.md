@@ -35,24 +35,47 @@ end
 product belongs to that seller. An admin of one seller can update another
 seller's product by id: current-tenant confusion, M2 in `docs/PLAN.md`.
 
+Two more declarations narrow what the catalog allows. A product's revenue is
+for its seller's owner and admins (`field_policy "Link", :revenue, ...`), but
+the edit page shows it to everyone the page lets in, marketing included. And
+the vendor's staff may change any product but must never see who bought it
+(`restrict "staff never see buyers"`), which the staff page breaks by
+showing buyers' emails (`Link.buyer_emails`, a field with no field policy of
+its own, so the report lists it).
+
 ```console
 $ bin/hallmark check examples/storefront/hallmark.rb
 Hallmark 0.0.1, Storefront, Alloy 6.2.0, scope 5
 
 FAIL  LinksController#update (write Link)
       guard: (role(:owner, tenant: :current) | role(:admin, tenant: :current))
-      a signed-in User (User$2) holding roles marketing, owner in the current tenant User$2 (their own) can update a Link (Link$0) in tenant User$1, where they hold no roles
-      intended pattern: Explicit permission
+      a signed-in User (User$1) holding roles admin, marketing, owner in the current tenant User$1 (their own) can update a Link (Link$0) in tenant User$0, where they hold no roles
+      intended pattern: Explicit permission (a grant to a role)
       the Link is not in the current tenant; check that it belongs to the tenant the request acts for
+FAIL  LinksController#edit (read Link.revenue)
+      guard: (((role(:owner, tenant: :current) | role(:admin, tenant: :current)) | role(:marketing, tenant: :current)) & in_current_tenant)
+      a signed-in User (User$1) holding roles marketing in the current tenant User$0 can read the revenue of a Link (Link$3) in the current tenant, which its field policy allows only where (role(:owner, tenant: :record) | role(:admin, tenant: :record))
+      intended pattern: Explicit permission (a grant to a role)
+      check the code that decides whether Link.revenue is shown, or widen its field policy in the map block if this is intended
+FAIL  Admin::LinksController#show (read Link.buyer_emails)
+      guard: role(:staff)
+      a signed-in User (User$0) holding roles admin, marketing, owner in the current tenant User$0 (their own) and roles staff outside any tenant can read the buyer_emails of a Link (Link$4) in the current tenant, which the restriction "staff never see buyers" forbids
+      intended pattern: Explicit permission (a grant to a role)
+      exclude holders of :staff in the code, or narrow the restriction "staff never see buyers" if this is intended
 ok    LinksController#edit (read Link)
 ok    Admin::LinksController#update (write Link)
 
-1 counterexample in 3 checks.
+3 counterexamples in 5 checks.
+
+Fields with no field policy (checked as readable as their record; declare `field_policy` to narrow):
+  Admin::LinksController#show (read Link.buyer_emails)
 ```
 
 `hallmark_fixed.rb` adds `& in_current_tenant` to the update guard (the
-policy checks `record.user == seller`), and every check then finds no
-counterexample within scope 5.
+policy checks `record.user == seller`), shows revenue to the owner and
+admins only, and has the staff page read the product without its buyers,
+which the field-scoped restriction does not cover; every check then finds
+no counterexample within scope 5.
 
 The bug needs two tenants to show up. Hallmark never checks fewer: the scope
 is at least 2, and when tenants are users it raises the principal bound so

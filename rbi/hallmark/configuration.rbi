@@ -144,6 +144,9 @@ module Hallmark
     sig { params(blk: T.proc.bind(Mapping).void).returns(Mapping) }
     def map(&blk); end
 
+    sig { params(name: T.any(String, Symbol), blk: T.proc.bind(Restriction::Builder).void).returns(Restriction) }
+    def restrict(name, &blk); end
+
     sig { params(value: T.nilable(T.any(String, Symbol))).void }
     def mode=(value); end
 

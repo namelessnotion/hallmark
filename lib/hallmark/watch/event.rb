@@ -29,7 +29,7 @@ module Hallmark
 
       def self.resolved(exposure)
         new(type: :resolved, data: exposure_data(exposure),
-            lines: ["ok    #{exposure.action} (#{exposure.op} #{exposure.resource}): no longer fails, " \
+            lines: ["ok    #{exposure.action} (#{exposure.op} #{exposure.target}): no longer fails, " \
                     "no counterexample within scope #{Hallmark.configuration.scope}"])
       end
 
@@ -51,8 +51,9 @@ module Hallmark
       end
 
       def self.exposure_data(exposure)
-        { "check" => exposure.check_name, "action" => exposure.action, "op" => exposure.op.to_s,
-          "resource" => exposure.resource }
+        data = { "check" => exposure.check_name, "action" => exposure.action, "op" => exposure.op.to_s,
+                 "resource" => exposure.resource }
+        (field = exposure.field) ? data.merge("field" => field) : data
       end
 
       # "first seen as user h:<first 12 hex>, record h:..., tenant h:..."
