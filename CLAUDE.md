@@ -23,8 +23,9 @@ extractor) started Oct 19, 2026, and its step 1 (Pundit and Action Policy
 rules read from code), step 2 (drift) and step 3 (controllers and routes) were done the same day, steps 4
 (DeclarativePolicy, Grape) and 5 (SARIF) too, and its gate (step 6) ran Oct 19
 to 21, 2026 on five apps and passed (decided Oct 21, 2026), so phase 2 is
-done and phase 3 (runtime modes and GraphQL) is next; the plan is "Phase 2
-(extractor)" below and `docs/PLAN.md` ("Roadmap", "Phase 2 plan"). The gate's
+done and phase 3 (runtime modes and GraphQL) is next, planned Oct 21, 2026
+("Phase 3 (runtime and GraphQL)" below, `docs/PLAN.md` "Phase 3 plan"); phase
+2's plan is "Phase 2 (extractor)" below and `docs/PLAN.md` ("Roadmap", "Phase 2 plan"). The gate's
 two false-positive sources (op errors, two catalog gaps) were fixed Oct 21,
 2026 (Phase 2 step 7 below). The phase 1 gate's record is in
 "Phase 1 (core gem): the gate" below. The first real-app run (original Gumroad on Pundit, Oct 16, 2026, not
@@ -486,6 +487,40 @@ phase 3. Steps, in order:
 The extractor reads source and never boots the app, so it runs on the
 host's Ruby. Opaque leaves (calls it cannot translate) never reach Alloy:
 findings come from the lower bound, the rest is coverage.
+
+## Phase 3 (runtime and GraphQL)
+
+Planned Oct 21, 2026 (`docs/PLAN.md`, "Phase 3 plan"; ids in
+`docs/adr/0004`). Decided by Anthony the same day: GitLab proves GraphQL
+with a historical fix (graphql-ruby 1.13 at `7ce3a7d`, so the tracer handles
+1.x and 2.x); revocation is narrow (lint plus test-mode collector); shadow
+mode checks in a `hallmark watch` process, never in app workers; and
+`c.restrict`, list scopes, REST serializer fields and HMAC ids join the
+phase, which stretches it to about 7 weeks. Steps, in order:
+
+0. Plan into the docs (done Oct 21, 2026).
+1. Hot path and benchmark (`bench/hot_path.rb`, `rake bench`): baseline
+   first, then sampling before any fact is read, a request-local memo of
+   role reads, a bounded event buffer. Budget: Hallmark's own work under
+   20 µs p99 per sampled decision; mapping readers reported apart.
+2. Runtime modes `shadow` and `sampled`, sinks (file, Redis stream over the
+   app's client, a callable), run named by deploy revision, opt-in HMAC ids
+   as a first-seen example outside the stamp's key.
+3. `hallmark check --baseline` and `hallmark watch` (re-checks only
+   exposures a new stamp changes, on a warm sidecar).
+4. Field-level mapping (`field_policy`) and `c.restrict` (threat 11).
+5. GraphQL static: `Extractor::GraphqlSchema` (Prism over `app/graphql`),
+   the reachability model from `research/models/graphql.als`, lints G4 and
+   G5, `examples/graphql_shop`.
+6. GraphQL runtime: tracer naming field-path entry points; G6.
+7. List scopes (M5, G5): scope calls stamped, `Scope#resolve` read.
+8. REST serializer fields (Grape::Entity, ActiveModel::Serializer).
+9. Revocation, narrow: cached role reads lint; `after_revocation` stamps.
+10. Gate (proposed, Anthony decides): budget met on the shop and Gumroad;
+    F9 from live traffic in shadow mode at upstream `f3ef06a69`, gone on
+    the fix branch; a GitLab historical GraphQL fix found and cleared; one
+    field-level or list-scope finding triaged; every check under 10 s with
+    no unknown.
 
 ## Phase 1 (core gem): the gate
 
