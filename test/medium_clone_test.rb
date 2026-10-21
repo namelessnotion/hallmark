@@ -60,7 +60,7 @@ class MediumCloneTest < Minitest::Test
 
     finding = report.findings.fetch(0)
     assert_equal "ModerationController#hide", finding.exposure.action
-    assert_equal "Explicit permission", finding.pattern
+    assert_equal "Explicit permission (a grant to a role)", finding.pattern
     assert_equal ["moderator"], finding.roles
     assert_includes finding.hint, 'grant :moderator, :write, "Post"'
   end

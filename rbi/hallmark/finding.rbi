@@ -49,6 +49,9 @@ module Hallmark
     sig { params(exposure: Exposure, instance: Receipt::Instance, mapping: Mapping).returns(Finding) }
     def self.from(exposure, instance, mapping); end
 
+    sig { params(exposure: Exposure, mapping: Mapping).returns(T::Boolean) }
+    def self.current_tenant?(exposure, mapping); end
+
     sig do
       params(instance: Receipt::Instance, principal: String, tenant: T.nilable(String)).returns(T.nilable(TenantRoles))
     end
@@ -104,6 +107,12 @@ module Hallmark
 
     private
 
+    sig { returns(T.nilable(String)) }
+    def way_in; end
+
+    sig { returns(String) }
+    def declared_pattern; end
+
     sig { returns(T::Boolean) }
     def owner_outside?; end
 
@@ -121,6 +130,9 @@ module Hallmark
 
     sig { returns(String) }
     def who; end
+
+    sig { returns(T::Array[String]) }
+    def held_anywhere; end
 
     sig { params(names: T::Array[String]).returns(String) }
     def held(names); end

@@ -292,7 +292,7 @@ FAIL  LinkPolicy#update? (write Link)
       guard: (role(:owner, tenant: :current) | role(:admin, tenant: :current))
       hand-written for LinkPolicy#update?
       a signed-in User (User$2) holding roles marketing, owner in the current tenant User$2 (their own) can update a Link (Link$0) in tenant User$1, where they hold no roles
-      intended pattern: Explicit permission
+      intended pattern: Explicit permission (a grant to a role)
       the Link is not in the current tenant; check that it belongs to the tenant the request acts for
 ```
 

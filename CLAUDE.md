@@ -187,7 +187,7 @@ explicit permission on one record, for Gumroad's collaborators).
 bundle install
 bin/hallmark install-alloy                 # Alloy 6.2.0 to ~/.cache/hallmark, SHA-256 verified; needs Java 17+
 bin/hallmark install-sidecar               # also builds the sidecar jar (javac + jar from a JDK 17+); no extra download
-bundle exec rake test                      # 330 tests; the 25 integration tests skip without the jar or sidecar
+bundle exec rake test                      # 335 tests; the 25 integration tests skip without the jar or sidecar
 bundle exec rubocop                        # lint
 bundle exec srb tc                         # type-check lib/ against rbi/; `rake` runs tests, rubocop, then this
 bin/hallmark check examples/medium_clone/hallmark.rb    # exits 1 (two counterexamples, expected)
@@ -431,7 +431,9 @@ Planned Oct 19, 2026 (`docs/PLAN.md`, "Phase 2 plan"; bounds in
 phase 3. Steps, in order:
 
 0. Phase 1 loose ends: the CI `lint` job (fixed Oct 19, 2026; see
-   Conventions); the Forem run's report wording.
+   Conventions); the Forem run's report wording (fixed Oct 21, 2026:
+   `Finding` drops a current tenant the mapping never declared and the
+   guard never reads, and picks the pattern from the witness's way in).
 1. Extractor core and the Pundit and Action Policy front end
    (`lib/hallmark/extractor/`, `term` in the map block, `hallmark extract`),
    on Gumroad: F6 from its own specs with no probe spec, on both checkouts,

@@ -6,6 +6,10 @@ module Hallmark
   # to which record, and which catalog pattern the developer most likely
   # meant to implement.
   class Finding
+    # The catalog's explicit permission through a role (`grant`), as opposed
+    # to a permit on one record (`permits:`).
+    ROLE_GRANT = "Explicit permission (a grant to a role)"
+
     # A tenant in the witness, the user it is when tenants are users, and the
     # roles the principal holds in it.
     TenantRoles = Struct.new(:tenant, :user, :roles, keyword_init: true)
@@ -25,12 +29,20 @@ module Hallmark
         record: record,
         owner: instance.field(record, "owner").first,
         roles: instance.field(principal, "assigned"),
-        current_tenant: tenant_roles(instance, principal, instance.skolem("$#{check}_cur")),
+        current_tenant: (tenant_roles(instance, principal, instance.skolem("$#{check}_cur")) if
+          current_tenant?(exposure, mapping)),
         record_tenant: tenant_roles(instance, principal, instance.field(record, "tenant").first),
         flags: mapping.fetch(exposure.resource).flags.to_h do |name|
           [name, instance.sources(Naming.flag_field(name), record).any?]
         end
       )
+    end
+
+    # A tenant-aware witness always has a current tenant, but it means
+    # something only when the map block declares one or the guard reads it.
+    def self.current_tenant?(exposure, mapping)
+      !(mapping.current_tenant_source || mapping.current_tenant_controller).nil? ||
+        exposure.guard.tenants.include?(:current)
     end
 
     def self.tenant_roles(instance, principal, tenant)
@@ -74,14 +86,13 @@ module Hallmark
     end
 
     # The pattern the guard was most likely meant to implement, following the
-    # SPACE classification of bugs by violated pattern.
+    # SPACE classification of bugs by violated pattern: first the way the
+    # witness got in, then what the guard and the mapping offer.
     def pattern
       return "Authentication" if anonymous?
-      return "Explicit permission" if exposure.guard.roles.any?
       return "User profiles" if @resource.kind == :profile
-      return "Ownership" if @resource.owned?
 
-      "Explicit permission"
+      way_in || declared_pattern
     end
 
     def message
@@ -106,6 +117,24 @@ module Hallmark
     end
 
     private
+
+    # The guard's way in that the witness took: as the owner, or through a
+    # role it holds.
+    def way_in
+      guard = exposure.guard
+      return "Ownership" if own_record? && guard.leaves.any? { |leaf| leaf.kind == :owner }
+
+      ROLE_GRANT if guard.roles.intersect?(held_anywhere)
+    end
+
+    def declared_pattern
+      guard = exposure.guard
+      return "Explicit permission on a record" if guard.permits?
+      return "Ownership" if @resource.owned?
+      return ROLE_GRANT if guard.roles.any?
+
+      "Public actions"
+    end
 
     # The owner reaches their record in a tenant where they hold no role,
     # through the guard's ownership check.
@@ -153,6 +182,10 @@ module Hallmark
       outside = " and #{held(roles)} outside any tenant" if roles.any?
       "#{base} holding #{held(current.roles)} in the current tenant #{tenant_label(current)}#{own}#{outside}"
     end
+
+    # Every role the witness holds: outside tenants, in the current tenant
+    # and in the record's.
+    def held_anywhere = roles + [current_tenant, record_tenant].compact.flat_map(&:roles)
 
     def held(names) = names.empty? ? "no roles" : "roles #{names.join(", ")}"
 
