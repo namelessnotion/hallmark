@@ -120,6 +120,9 @@ module Hallmark
     def record_label; end
 
     sig { returns(String) }
+    def a_resource; end
+
+    sig { returns(String) }
     def where; end
 
     sig { returns(String) }

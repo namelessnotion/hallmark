@@ -141,10 +141,16 @@ module Hallmark
       if @resource.kind == :profile
         own_record? ? "their own profile" : "the #{@resource.name} profile of #{user_label(owner)}"
       elsif @resource.owned?
-        own_record? ? "a #{@resource.name} they own" : "a #{@resource.name} owned by #{user_label(owner)}"
+        own_record? ? "#{a_resource} they own" : "#{a_resource} owned by #{user_label(owner)}"
       else
-        "a #{@resource.name} (#{Naming.atom(record)})"
+        "#{a_resource} (#{Naming.atom(record)})"
       end
+    end
+
+    # "a Link", "an OfferCode" (by spelling: a leading U reads as "you").
+    def a_resource
+      name = @resource.name
+      "#{name.match?(/\A[AEIO]/i) ? "an" : "a"} #{name}"
     end
 
     def where

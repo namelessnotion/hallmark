@@ -42,7 +42,7 @@ class OptionalTenantTest < Minitest::Test
                                     principal: "catalog/User$0", record: "Article$0", owner: "catalog/User$1",
                                     roles: [])
 
-    assert_equal "a signed-in User (User$0) holding no roles can update a Article owned by User$1 outside any tenant",
+    assert_equal "a signed-in User (User$0) holding no roles can update an Article owned by User$1 outside any tenant",
                  finding.message
   end
 end

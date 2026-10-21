@@ -20,7 +20,9 @@ Phase 0 (spike) is done. Phase 1's deliverables are built: step 1
 step 3 (solver sidecar) and step 4 (RSpec matchers). Its exit gate, Hallmark
 on three real apps, passed on Oct 19, 2026, so phase 1 is done. Phase 2 (the
 extractor) started Oct 19, 2026, and its step 1 (Pundit and Action Policy
-rules read from code), step 2 (drift) and step 3 (controllers and routes) were done the same day; the plan is "Phase 2
+rules read from code), step 2 (drift) and step 3 (controllers and routes) were done the same day, steps 4
+(DeclarativePolicy, Grape) and 5 (SARIF) too, and its gate (step 6) ran Oct 19
+to 21, 2026 on five apps, with the decision open; the plan is "Phase 2
 (extractor)" below and `docs/PLAN.md` ("Roadmap", "Phase 2 plan"). The gate's record is in
 "Phase 1 (core gem): the gate" below. The first real-app run (original Gumroad on Pundit, Oct 16, 2026, not
 a gate app) is in "First run on original Gumroad" below. Gate runs so far:
@@ -162,7 +164,7 @@ explicit permission on one record, for Gumroad's collaborators).
 bundle install
 bin/hallmark install-alloy                 # Alloy 6.2.0 to ~/.cache/hallmark, SHA-256 verified; needs Java 17+
 bin/hallmark install-sidecar               # also builds the sidecar jar (javac + jar from a JDK 17+); no extra download
-bundle exec rake test                      # 304 tests; the 21 integration tests skip without the jar or sidecar
+bundle exec rake test                      # 306 tests; the 21 integration tests skip without the jar or sidecar
 bundle exec rubocop                        # lint
 bundle exec srb tc                         # type-check lib/ against rbi/; `rake` runs tests, rubocop, then this
 bin/hallmark check examples/medium_clone/hallmark.rb    # exits 1 (two counterexamples, expected)
@@ -434,8 +436,18 @@ phase 3. Steps, in order:
    `~/Repos/hallmark-findings/gitlab-7ce3a7d/step4/`.
 5. SARIF (`hallmark check --sarif FILE`). Done Oct 19, 2026 (`Sarif`,
    `Exposure#locations`); the logs validate against the OASIS schema.
-6. Gate: the three phase 1 apps on wider slices plus two of Mastodon, HCB
-   and rubygems.org; every phase 1 bug from code, compared with SPACE.
+6. Gate: the three phase 1 apps on bounded, tenancy-heavy slices plus HCB
+   (`a8c6c05`) and Mastodon (`5204e8a`), code only (decided Oct 19, 2026);
+   every phase 1 bug from code, compared with SPACE. Run Oct 19 to 21,
+   2026: criteria met, 4 confirmed real bugs over 5 apps (one new, live,
+   on Gumroad), every check under 2 s with no unknown (`docs/PLAN.md`,
+   "Phase 2 gate run"). Whether the gate passes is Anthony's call. Private
+   summary `~/Repos/hallmark-findings/phase2-gate.md`; per-app logs beside
+   it (`mastodon.md` and `hcb.md` new); mappings in each app's `gate2/`
+   folder. HCB and Mastodon are blobless clones at `~/Repos/hcb` and
+   `~/Repos/mastodon`, not forked; run `bin/hallmark rules` from this
+   checkout with `HALLMARK_ROOT` set to the clone and `HALLMARK_STAMPS` at an
+   empty directory.
 
 The extractor reads source and never boots the app, so it runs on the
 host's Ruby. Opaque leaves (calls it cannot translate) never reach Alloy:

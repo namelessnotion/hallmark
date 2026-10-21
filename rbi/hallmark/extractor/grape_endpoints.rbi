@@ -92,6 +92,9 @@ module Hallmark
       sig { params(node: T.nilable(Prism::Node), helpers: T::Hash[String, Prism::DefNode]).returns(T.nilable(String)) }
       def ability_name(node, helpers); end
 
+      sig { params(helper: T.nilable(Prism::DefNode)).returns(T.nilable(Prism::Node)) }
+      def last_expression(helper); end
+
       sig { params(node: T.nilable(Prism::Node)).returns(T.nilable(String)) }
       def reader_of(node); end
 

@@ -167,10 +167,14 @@ module Hallmark
         return node.unescaped if node.is_a?(Prism::SymbolNode)
         return nil unless node.is_a?(Prism::CallNode) && node.receiver.nil? && node.arguments.nil?
 
-        helper = helpers[node.name.to_s] || @global[node.name.to_s]
-        body = helper&.body
-        last = body.is_a?(Prism::StatementsNode) ? body.body.last : body
+        last = last_expression(helpers[node.name.to_s] || @global[node.name.to_s])
         last.is_a?(Prism::SymbolNode) ? last.unescaped : nil
+      end
+
+      # A helper's value: the last expression of its body, or nil.
+      def last_expression(helper)
+        body = helper&.body
+        body.is_a?(Prism::StatementsNode) ? body.body.last : body
       end
 
       # The name of a receiverless reader (`user_project`) or a local
