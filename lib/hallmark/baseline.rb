@@ -88,7 +88,7 @@ module Hallmark
     def self.lines_of(set)
       return [] unless set
 
-      set.stamps.map(&:to_json_line) + set.unchecked.map(&:to_json_line) + set.routes.map(&:to_json_line)
+      [set.stamps, set.unchecked, set.routes, set.mismatches].flat_map { |events| events.map(&:to_json_line) }
     end
 
     def initialize(hallmark:, alloy:, scope:, mapping_digest:, run:, lines:, checks:, unchecked:, drift:)

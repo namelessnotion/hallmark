@@ -118,6 +118,34 @@ module Hallmark
     def to_json_line; end
   end
 
+  class ContextMismatch
+    sig { returns(String) }
+    def entry_point; end
+
+    # The operation's root type, such as "Query"
+    sig { returns(String) }
+    def operation; end
+
+    # Class names, nil for no current tenant
+    sig { returns(T.nilable(String)) }
+    def controller_tenant; end
+
+    sig { returns(T.nilable(String)) }
+    def graphql_tenant; end
+
+    sig do
+      params(entry_point: String, operation: String, controller_tenant: T.nilable(String),
+             graphql_tenant: T.nilable(String)).void
+    end
+    def initialize(entry_point:, operation:, controller_tenant: nil, graphql_tenant: nil); end
+
+    sig { returns(String) }
+    def to_s; end
+
+    sig { returns(String) }
+    def to_json_line; end
+  end
+
   class Route
     sig { returns(String) }
     def entry_point; end
@@ -151,6 +179,10 @@ module Hallmark
     sig { returns(T::Hash[Stamp, Example]) }
     attr_reader :examples
 
+    # GraphQL requests whose context's current tenant differed from the controller's (G6)
+    sig { returns(T::Array[ContextMismatch]) }
+    attr_reader :mismatches
+
     sig { params(path: String, run: T.nilable(String)).returns(StampSet) }
     def self.load(path, run: nil); end
 
@@ -175,6 +207,9 @@ module Hallmark
     sig { params(lines: T::Array[String]).returns(StampSet) }
     def self.parse(lines); end
 
+    sig { params(data: T.untyped).returns(T.nilable(T.any(Stamp, Unchecked, Route, ContextMismatch))) }
+    def self.event(data); end
+
     # A parsed JSON line
     sig { params(data: T.untyped).returns(Stamp) }
     def self.stamp(data); end
@@ -184,13 +219,14 @@ module Hallmark
 
     sig do
       params(stamps: T::Array[Stamp], unchecked: T::Array[Unchecked], routes: T::Array[Route],
-             examples: T::Hash[Stamp, Example]).void
+             examples: T::Hash[Stamp, Example], mismatches: T::Array[ContextMismatch]).void
     end
-    def initialize(stamps = [], unchecked = [], routes = [], examples: {})
+    def initialize(stamps = [], unchecked = [], routes = [], examples: {}, mismatches: [])
       @stamps = T.let(T.unsafe(nil), T::Array[Stamp])
       @unchecked = T.let(T.unsafe(nil), T::Array[Unchecked])
       @routes = T.let(T.unsafe(nil), T::Array[Route])
       @examples = T.let(T.unsafe(nil), T::Hash[Stamp, Example])
+      @mismatches = T.let(T.unsafe(nil), T::Array[ContextMismatch])
     end
   end
 end

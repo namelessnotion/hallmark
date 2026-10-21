@@ -35,9 +35,10 @@ Metrics/AbcSize:
 # Mapping (one method per declaration) and ModelBuilder passed 180 with the
 # ownership without membership and public actions patterns (Oct 21, 2026),
 # and Mapping passed 210 with field policies and restrictions the same day
-# (their structs and builder already live in restriction.rb).
+# (their structs and builder already live in restriction.rb), and 240 with
+# the GraphQL context's readers (phase 3 step 6, also Oct 21, 2026).
 Metrics/ClassLength:
-  Max: 240
+  Max: 245
   Exclude: ["test/**/*", "lib/hallmark/extractor/source_index.rb", "lib/hallmark/extractor/method_translator.rb",
             "lib/hallmark/extractor/controllers.rb", "lib/hallmark/extractor/declarative_translator.rb",
             "lib/hallmark/extractor/routes_file.rb"]
@@ -52,11 +53,12 @@ Metrics/CyclomaticComplexity:
 
 # Collectors' module methods are what every hook shares (install, sampling,
 # observe, decision, the request in progress); they passed 100 lines with
-# sampling (phase 3 step 1, Oct 21, 2026). bench/ is one script that sets
-# up scenarios and prints a table; it is left out of the size limits like the
-# tests.
+# sampling (phase 3 step 1, Oct 21, 2026) and 120 with entry points named on
+# demand, the request's host and a second library group, for GraphQL (phase
+# 3 step 6, the same day). bench/ is one script that sets up scenarios and
+# prints a table; it is left out of the size limits like the tests.
 Metrics/ModuleLength:
-  Max: 120
+  Max: 145
   Exclude: ["bench/**/*"]
 
 Metrics/MethodLength:

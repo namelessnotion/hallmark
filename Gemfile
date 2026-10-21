@@ -27,6 +27,7 @@ group :test do
   gem "action_policy", "~> 0.7"
   gem "declarative_policy", "~> 2.0"
   gem "grape", "~> 2.0"
+  gem "graphql", "~> 2.4"
   gem "pundit", "~> 2.4"
   gem "railties", "~> 8.0"
 end

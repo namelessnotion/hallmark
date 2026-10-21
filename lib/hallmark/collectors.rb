@@ -18,6 +18,9 @@ module Hallmark
   #   DeclarativePolicy  prepends `allowed?` on DeclarativePolicy::Base
   #   Grape              prepends `run` on Grape::Endpoint to name the entry
   #                      point (GitLab's REST API)
+  #   graphql-ruby       a `trace_with` module (2.x) or a `tracer` (1.x) on
+  #                      each schema, naming field paths as entry points and
+  #                      stamping types' `authorized?`
   #   Action Controller  an `around_action` that flags entry points finishing
   #                      without an authorization call (threat 10)
   #
@@ -31,9 +34,26 @@ module Hallmark
   # in each tenant once.
   module Collectors
     # The entry point a request is running, whether it called any rule,
-    # whether its decisions are stamped, and the roles read so far in it
-    # (`Facts#roles_in`), by user and then tenant, compared by identity.
-    Request = Struct.new(:entry_point, :checked, :halted, :sampled, :roles, keyword_init: true)
+    # whether its decisions are stamped, the roles read so far in it
+    # (`Facts#roles_in`), by user and then tenant, compared by identity, and
+    # the object serving it (a controller), which inner entry points share.
+    # The entry point is a String, or a callable that names it when a
+    # decision is stamped (a GraphQL query's field paths).
+    Request = Struct.new(:entry_point, :checked, :halted, :sampled, :roles, :host, keyword_init: true) do
+      def entry_point_name
+        name = entry_point
+        name.is_a?(String) ? name : name.call
+      end
+    end
+
+    # A policy-like stand-in for a check that has no policy object, such as
+    # a GraphQL type's `authorized?`: the name the stamp gives the policy,
+    # and the user and current tenant read elsewhere (the query's context).
+    ContextPolicy = Struct.new(:name, :user, :current_tenant)
+
+    # The fiber-local a decision sets, so a hook can tell whether a policy
+    # library decided while a block ran (`GraphqlHook.authorized`).
+    DECIDED = :hallmark_decided
 
     class << self
       attr_reader :store, :facts
@@ -73,17 +93,22 @@ module Hallmark
 
       def flush = @store&.flush
 
-      # Runs a block as one entry point, such as "LinksController#update".
-      # An entry point inside another takes the outer one's sampling and
-      # role reads.
-      def within_entry_point(name)
+      # Runs a block as one entry point, such as "LinksController#update",
+      # served by `host` (the controller). An entry point inside another
+      # takes the outer one's sampling, role reads and host, and a check
+      # made in it counts as the outer one's too.
+      def within_entry_point(name, host: nil)
         previous = Thread.current[:hallmark_request]
         request = Request.new(entry_point: name, checked: false, halted: false,
-                              sampled: previous ? previous.sampled : sample?, roles: previous&.roles)
+                              sampled: previous ? previous.sampled : sample?, roles: previous&.roles,
+                              host: host || previous&.host)
         Thread.current[:hallmark_request] = request
-        yield request
-      ensure
-        Thread.current[:hallmark_request] = previous
+        begin
+          yield request
+        ensure
+          previous.checked = true if previous && request.checked
+          Thread.current[:hallmark_request] = previous
+        end
       end
 
       def current_request = Thread.current[:hallmark_request]
@@ -102,6 +127,7 @@ module Hallmark
       # Marks the current request as authorized without a decision to stamp:
       # a list scope, or an explicit skip such as Pundit's `skip_authorization`.
       def checked!
+        Thread.current[DECIDED] = true
         request = current_request
         request.checked = true if request
       end
@@ -112,6 +138,14 @@ module Hallmark
         return unless active?
 
         @store&.record(Unchecked.new(entry_point: entry_point, status: status, verb: verb))
+      end
+
+      # Records a GraphQL request whose context's current tenant is not the
+      # controller's (G6).
+      def context_mismatch!(mismatch)
+        return unless active?
+
+        @store&.record(mismatch)
       end
 
       # Runs one rule and stamps its decision; returns what the block
@@ -148,7 +182,7 @@ module Hallmark
 
         stamp = facts.stamp(policy: policy, rule: rule_name(rule), record: record, allowed: allowed ? true : false,
                             raised: raised, enforced: enforced,
-                            entry_point: entry_point || current_request&.entry_point)
+                            entry_point: entry_point || current_request&.entry_point_name)
         record(store, stamp, facts, policy, record)
       rescue StandardError => e
         warn_once(e)
@@ -184,6 +218,22 @@ module Hallmark
       end
 
       def install_libraries
+        install_policy_libraries
+        if defined?(::Grape::Endpoint)
+          require_relative "collectors/grape"
+          GrapeHook.install
+        end
+        if defined?(::GraphQL::Schema)
+          require_relative "collectors/graphql"
+          GraphqlHook.install
+        end
+        return unless defined?(::ActiveSupport.on_load)
+
+        require_relative "collectors/controller"
+        ::ActiveSupport.on_load(:action_controller) { ControllerHook.attach(self) }
+      end
+
+      def install_policy_libraries
         if defined?(::ActionPolicy::Policy::Core)
           require_relative "collectors/action_policy"
           ActionPolicyHook.install
@@ -192,18 +242,10 @@ module Hallmark
           require_relative "collectors/pundit"
           PunditHook.install
         end
-        if defined?(::DeclarativePolicy::Base)
-          require_relative "collectors/declarative_policy"
-          DeclarativePolicyHook.install
-        end
-        if defined?(::Grape::Endpoint)
-          require_relative "collectors/grape"
-          GrapeHook.install
-        end
-        return unless defined?(::ActiveSupport.on_load)
+        return unless defined?(::DeclarativePolicy::Base)
 
-        require_relative "collectors/controller"
-        ::ActiveSupport.on_load(:action_controller) { ControllerHook.attach(self) }
+        require_relative "collectors/declarative_policy"
+        DeclarativePolicyHook.install
       end
     end
 
@@ -229,7 +271,7 @@ module Hallmark
         current = current_tenant(policy)
         request = Collectors.current_request
         roles = request && (request.roles ||= {}.compare_by_identity)
-        name = policy.class.name.to_s
+        name = policy.is_a?(ContextPolicy) ? policy.name : policy.class.name.to_s
         outside = outside_roles(user, roles)
         stamp = new_stamp(entry_point: entry_point, policy: name, rule: rule, enforced: enforced, allowed: allowed,
                           raised: raised, logged_in: !user.nil?, roles: outside)
@@ -279,7 +321,7 @@ module Hallmark
       def recordless?(record) = record.nil? || record.is_a?(Module) || record.is_a?(Symbol)
 
       def principal(policy)
-        user = read(@mapping.principal_source, policy)
+        user = policy.is_a?(ContextPolicy) ? policy.user : read(@mapping.principal_source, policy)
         return nil if user.nil?
 
         klass = user.class
@@ -289,6 +331,10 @@ module Hallmark
           @principal_classes[klass] = known
         end
         return user if known
+        if policy.is_a?(ContextPolicy)
+          raise ConfigurationError, "the GraphQL context gave a #{user.class.name} as its user, not a " \
+                                    "#{@mapping.principal_name}; set `graphql current_user:`"
+        end
 
         raise ConfigurationError, "#{policy.class.name} gave a #{user.class.name} as its user, not a " \
                                   "#{@mapping.principal_name}; set `principal \"#{@mapping.principal_name}\", from:`"
@@ -296,7 +342,9 @@ module Hallmark
 
       def current_tenant(policy)
         source = @mapping.current_tenant_source
-        return nil unless source && @mapping.tenancy
+        return nil unless @mapping.tenancy
+        return policy.current_tenant if policy.is_a?(ContextPolicy)
+        return nil unless source
         return read(source, policy) unless source.is_a?(Symbol) && !policy.respond_to?(source)
         return policy.authorization_context[source] if policy.respond_to?(:authorization_context)
 

@@ -152,6 +152,18 @@ module Hallmark
       def key; end
     end
 
+    class GraphqlContext
+      # Lambdas taking the query's context
+      sig { returns(T.nilable(Proc)) }
+      def current_user; end
+
+      sig { returns(T.nilable(Proc)) }
+      def current_tenant; end
+
+      sig { params(current_user: T.nilable(Proc), current_tenant: T.nilable(Proc)).void }
+      def initialize(current_user: nil, current_tenant: nil); end
+    end
+
     class Tenancy
       sig { returns(String) }
       def name; end
@@ -259,6 +271,10 @@ module Hallmark
     sig { returns(T::Hash[String, Restriction]) }
     attr_reader :restrictions
 
+    # The GraphQL context's readers (`graphql`), nil when not declared
+    sig { returns(T.nilable(GraphqlContext)) }
+    attr_reader :graphql_context
+
     sig { returns(T::Array[Grant]) }
     attr_reader :grants
 
@@ -294,6 +310,7 @@ module Hallmark
       @public_actions = T.let(T.unsafe(nil), T::Hash[String, PublicAction])
       @field_policies = T.let(T.unsafe(nil), T::Hash[String, FieldPolicy])
       @restrictions = T.let(T.unsafe(nil), T::Hash[String, Restriction])
+      @graphql_context = T.let(T.unsafe(nil), T.nilable(GraphqlContext))
     end
 
     sig do
@@ -366,6 +383,9 @@ module Hallmark
       ).returns(T.nilable(String))
     end
     def current_tenant(source = nil, controller: nil, &block); end
+
+    sig { params(current_user: T.nilable(Proc), current_tenant: T.nilable(Proc)).returns(GraphqlContext) }
+    def graphql(current_user: nil, current_tenant: nil); end
 
     sig { params(names: T.any(String, Symbol)).returns(T::Array[String]) }
     def platform_role(*names); end

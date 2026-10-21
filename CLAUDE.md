@@ -28,8 +28,9 @@ done and phase 3 (runtime modes and GraphQL) is next, planned Oct 21, 2026
 2's plan is "Phase 2 (extractor)" below and `docs/PLAN.md` ("Roadmap", "Phase 2 plan"). The gate's
 two false-positive sources (op errors, two catalog gaps) were fixed Oct 21,
 2026 (Phase 2 step 7 below). Phase 3 steps 1 (hot path and benchmark),
-2 (live modes, sinks, hashed ids), 3 (baseline and `hallmark watch`) and
-4 (field policies and restrictions) were done Oct 21, 2026. The phase 1 gate's record is in
+2 (live modes, sinks, hashed ids), 3 (baseline and `hallmark watch`),
+4 (field policies and restrictions) and 6 (GraphQL runtime tracing, ahead
+of step 5) were done Oct 21, 2026. The phase 1 gate's record is in
 "Phase 1 (core gem): the gate" below. The first real-app run (original Gumroad on Pundit, Oct 16, 2026, not
 a gate app) is in "First run on original Gumroad" below. Gate runs so far:
 GitLab (DeclarativePolicy, Oct 17, 2026) and Forem (Pundit, Oct 18, 2026),
@@ -227,6 +228,21 @@ Built:
   field, its policy and covering restrictions only when present, so older
   baselines match. Storefront has `Link.revenue` and "staff never see
   buyers". `docs/PLAN.md` ("The shipped field policies and restrictions").
+- GraphQL runtime tracing (phase 3 step 6, Oct 21, 2026;
+  `collectors/graphql.rb`, `collectors/graphql_trace.rb`): `GraphqlHook`
+  gives every `GraphQL::Schema` subclass (at install, then a TracePoint)
+  `Trace` through `trace_with` (2.x) or `LegacyTracer` through `tracer`
+  (1.x). A multiplex runs inside the controller's entry point
+  (`Collectors.within_entry_point`, whose name may now be a callable,
+  `Request#entry_point_name`, and whose checks count for the outer one);
+  decisions take `Query.field.field` names (aliases resolved, indices and
+  `edges`/`nodes`/`node` below the root dropped), built from the response
+  path and the document only when stamped, or the operation (`Query`) in
+  lazy resolution. Types' own `authorized?` is stamped as
+  `Types::X#authorized?` (`ContextPolicy`, user and tenant from `graphql
+  current_user:, current_tenant:` in the map block) unless a library
+  decided inside it (`Collectors::DECIDED`). G6: `ContextMismatch` lines,
+  listed under coverage. `docs/PLAN.md` ("The shipped GraphQL tracer").
 
 Not built yet, but designed and validated as hand-written models in
 `research/models` (see its README for each check's expected result):
@@ -245,7 +261,7 @@ built, Oct 21, 2026).
 bundle install
 bin/hallmark install-alloy                 # Alloy 6.2.0 to ~/.cache/hallmark, SHA-256 verified; needs Java 17+
 bin/hallmark install-sidecar               # also builds the sidecar jar (javac + jar from a JDK 17+); no extra download
-bundle exec rake test                      # 426 tests; the 31 integration tests skip without the jar or sidecar
+bundle exec rake test                      # 441 tests; the 31 integration tests skip without the jar or sidecar
 bundle exec rake bench                     # what the collectors add per decision (p50, p99, objects); about 2 min
 bundle exec rubocop                        # lint
 bundle exec srb tc                         # type-check lib/ against rbi/; `rake` runs tests, rubocop, then this
@@ -294,6 +310,7 @@ darwin/arm64), with either backend; the default is SAT4J, pure Java.
 
 ```text
 Test suite, Railtie installs collectors              lib/hallmark/railtie.rb, collectors.rb, collectors/*
+  (GraphQL: GraphqlHook names field-path entry points, stamps types' authorized?)   collectors/graphql*.rb
   -> each decision: Collectors::Facts reads facts via the mapping -> Stamp
   -> StampStore: queue, flusher thread, tmp/hallmark/*.jsonl  stamp_store.rb, stamp.rb
 Hallmark.analyze block (`stamps` loads a StampSet: Inference builds the exposures and Coverage)
@@ -436,7 +453,10 @@ the quantified variables named `p`, `r` and `cur`.
   RBI instead, and handle nil in plain Ruby (`if (x = ...)`, `|| raise`).
   New or changed methods need their RBI signature in the same change;
   `srb tc` fails without it. `bin/hallmark` is `# typed: true` with no RBI,
-  so its helpers stay out of the shipped signatures.
+  so its helpers stay out of the shipped signatures. The one `lib/` file at
+  `# typed: true` is `collectors/graphql_trace.rb` (Oct 21, 2026): its
+  per-field hooks forward with `(...)`, the only forwarding that does not
+  allocate a keyword Hash per call, and Sorbet cannot sign `...`.
 - Never name a method `sig`: Sorbet parses any `x.sig` call as a signature
   declaration. Hence `alloy_sig` on `Mapping::Resource` and `Mapping::Grant`.
 - Keep constants in `lib/` to literals Sorbet accepts without `T.let`
@@ -592,7 +612,9 @@ phase, which stretches it to about 7 weeks. Steps, in order:
 5. GraphQL static: `Extractor::GraphqlSchema` (Prism over `app/graphql`),
    the reachability model from `research/models/graphql.als`, lints G4 and
    G5, `examples/graphql_shop`.
-6. GraphQL runtime: tracer naming field-path entry points; G6.
+6. GraphQL runtime: tracer naming field-path entry points; G6. Done Oct
+   21, 2026, before step 5 (which reuses its naming); the GitLab rerun is
+   recorded in the private log `gitlab.md` ("Phase 3 step 6").
 7. List scopes (M5, G5): scope calls stamped, `Scope#resolve` read.
 8. REST serializer fields (Grape::Entity, ActiveModel::Serializer).
 9. Revocation, narrow: cached role reads lint; `after_revocation` stamps.

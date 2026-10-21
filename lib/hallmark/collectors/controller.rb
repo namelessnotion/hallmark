@@ -19,11 +19,11 @@ module Hallmark
         def hallmark_entry_point
           return yield unless Collectors.active?
 
-          Collectors.within_entry_point("#{self.class.name}##{action_name}") do |current|
+          Collectors.within_entry_point("#{self.class.name}##{action_name}", host: self) do |current|
             yield
             status = response.status
             unless current.checked || current.halted || !current.sampled || status >= 400
-              Collectors.unchecked!(current.entry_point, status: status, verb: request.request_method)
+              Collectors.unchecked!(current.entry_point_name, status: status, verb: request.request_method)
             end
           end
         end

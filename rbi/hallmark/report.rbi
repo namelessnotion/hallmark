@@ -118,7 +118,13 @@ module Hallmark
     def coverage_lines; end
 
     sig { params(coverage: Coverage).returns(T::Array[String]) }
+    def coverage_notes(coverage); end
+
+    sig { params(coverage: Coverage).returns(T::Array[String]) }
     def opaque_lines(coverage); end
+
+    sig { params(coverage: Coverage).returns(T::Array[String]) }
+    def mismatch_lines(coverage); end
 
     sig { params(coverage: Coverage).returns(T::Hash[String, T::Array[String]]) }
     def coverage_lists(coverage); end

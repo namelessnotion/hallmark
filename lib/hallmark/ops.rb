@@ -10,7 +10,8 @@ module Hallmark
   #    `index?`, `show?`, the forms `new?` and `edit?`, a few view names
   #    (`preview?`, `stats?`, `export?`), and names that start or end like
   #    one (`index_collections?`, `show_in_v4?`, `new_transfer?`,
-  #    `ledger_stats?`, `followers_count?`);
+  #    `ledger_stats?`, `followers_count?`), and graphql-ruby's type-level
+  #    `authorized?`, which decides whether an object may be shown;
   # 3. the routes that reach it: a rule that only GET (or HEAD) requests
   #    authorize reads, since by HTTP's convention a GET changes nothing.
   #    The routes are those the test run recorded, else those read from
@@ -32,7 +33,7 @@ module Hallmark
   # on the op (`permitted`) for the op from steps 1, 2 and 4 (`Ops.named`).
   class Ops
     READ_NAMES = %w[index show new edit preview paged statistics stats overview search feed export download
-                    pdf].freeze
+                    pdf authorized].freeze
     READ_PREFIXES = %w[index_ show_ new_ edit_ preview_ export_ download_].freeze
     READ_SUFFIXES = %w[_count _stats _statistics _overview _preview _chart].freeze
     SAFE_VERBS = %w[GET HEAD].freeze

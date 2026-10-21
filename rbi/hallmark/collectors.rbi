@@ -5,9 +5,19 @@ module Hallmark
     # A Symbol (a method name) or a lambda, from the mapping
     Source = T.type_alias { T.nilable(T.any(String, Symbol, Proc)) }
 
+    # A request's entry point: its name, or a callable building it when a
+    # decision is stamped
+    EntryPoint = T.type_alias { T.any(String, T.proc.returns(String)) }
+
     class Request
-      sig { returns(String) }
+      sig { returns(EntryPoint) }
       def entry_point; end
+
+      sig { params(entry_point: EntryPoint).returns(EntryPoint) }
+      def entry_point=(entry_point); end
+
+      sig { returns(String) }
+      def entry_point_name; end
 
       sig { returns(T::Boolean) }
       def checked; end
@@ -34,11 +44,29 @@ module Hallmark
       end
       def roles=(roles); end
 
+      # The object serving the request, such as a controller
+      sig { returns(T.untyped) }
+      def host; end
+
       sig do
-        params(entry_point: String, checked: T::Boolean, halted: T::Boolean, sampled: T::Boolean,
-               roles: T.nilable(T::Hash[T.untyped, T::Hash[T.untyped, T::Array[String]]])).void
+        params(entry_point: EntryPoint, checked: T::Boolean, halted: T::Boolean, sampled: T::Boolean,
+               roles: T.nilable(T::Hash[T.untyped, T::Hash[T.untyped, T::Array[String]]]), host: T.untyped).void
       end
-      def initialize(entry_point:, checked:, halted:, sampled:, roles:); end
+      def initialize(entry_point:, checked:, halted:, sampled:, roles:, host: nil); end
+    end
+
+    class ContextPolicy
+      sig { returns(String) }
+      def name; end
+
+      sig { returns(T.untyped) }
+      def user; end
+
+      sig { returns(T.untyped) }
+      def current_tenant; end
+
+      sig { params(name: String, user: T.untyped, current_tenant: T.untyped).void }
+      def initialize(name, user, current_tenant); end
     end
 
     # A request's role reads (`Request#roles`).
@@ -75,10 +103,11 @@ module Hallmark
 
       sig do
         type_parameters(:R)
-          .params(name: String, blk: T.proc.params(request: Request).returns(T.type_parameter(:R)))
+          .params(name: EntryPoint, host: T.untyped,
+                  blk: T.proc.params(request: Request).returns(T.type_parameter(:R)))
           .returns(T.type_parameter(:R))
       end
-      def within_entry_point(name, &blk); end
+      def within_entry_point(name, host: nil, &blk); end
 
       sig { returns(T.nilable(Request)) }
       def current_request; end
@@ -91,6 +120,9 @@ module Hallmark
 
       sig { params(entry_point: String, status: T.nilable(Integer), verb: T.nilable(String)).void }
       def unchecked!(entry_point, status: nil, verb: nil); end
+
+      sig { params(mismatch: ContextMismatch).void }
+      def context_mismatch!(mismatch); end
 
       # Returns what the block returns: a decision, or a library's result object.
       sig do
@@ -122,6 +154,9 @@ module Hallmark
 
       sig { void }
       def install_libraries; end
+
+      sig { void }
+      def install_policy_libraries; end
     end
 
     class Facts

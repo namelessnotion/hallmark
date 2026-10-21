@@ -69,10 +69,28 @@ module Hallmark
     end
   end
 
+  # A GraphQL request whose context names a different current tenant from
+  # the controller serving it (G6, docs/PLAN.md "GraphQL field
+  # authorization"): the controller's entry point, the operation's root
+  # type ("Query") and the class of each current tenant (nil for none).
+  # No ids: two tenants of one class that differ are told apart only here.
+  ContextMismatch = Struct.new(:entry_point, :operation, :controller_tenant, :graphql_tenant, keyword_init: true) do
+    def to_s
+      "#{entry_point} (#{operation}): the controller's current tenant is #{controller_tenant || "none"}, " \
+        "the GraphQL context's #{graphql_tenant || "none"}#{" (another record)" if controller_tenant == graphql_tenant}"
+    end
+
+    def to_json_line
+      JSON.generate({ "type" => "context_mismatch", "entry_point" => entry_point, "operation" => operation,
+                      "controller_tenant" => controller_tenant, "graphql_tenant" => graphql_tenant })
+    end
+  end
+
   # The stamps of one run, read back from JSONL, with the hashed example
-  # each stamp was first seen with when the collectors recorded ids.
+  # each stamp was first seen with when the collectors recorded ids, and
+  # the GraphQL requests whose two current tenants differed (`mismatches`).
   class StampSet
-    attr_reader :stamps, :unchecked, :routes, :examples
+    attr_reader :stamps, :unchecked, :routes, :examples, :mismatches
 
     # A JSONL file, or a directory of them (`tmp/hallmark`), in which case
     # every file of the latest run (the one with the most recently written
@@ -128,27 +146,32 @@ module Hallmark
     def self.read(files) = parse(files.flat_map { |file| File.readlines(file, chomp: true) })
 
     def self.parse(lines)
-      stamps = []
-      unchecked = []
-      routes = []
+      events = Hash.new { |hash, type| hash[type] = [] }
       examples = {}
       lines.each do |line|
         next if line.strip.empty?
 
         data = JSON.parse(line)
-        case data["type"]
-        when "stamp"
-          stamps << (stamp = stamp(data))
-          examples[stamp] ||= example(data["example"])
-        when "unchecked"
-          unchecked << Unchecked.new(entry_point: data.fetch("entry_point").to_s, status: data["status"],
-                                     verb: data["verb"])
-        when "route"
-          routes << Route.new(entry_point: data.fetch("entry_point").to_s, verb: data["verb"].to_s,
-                              path: data["path"].to_s)
-        end
+        next unless (event = event(data))
+
+        events[data["type"]] << event
+        examples[event] ||= example(data["example"]) if event.is_a?(Stamp)
       end
-      new(stamps, unchecked, routes, examples: examples.compact)
+      new(events["stamp"], events["unchecked"], events["route"], examples: examples.compact,
+                                                                 mismatches: events["context_mismatch"])
+    end
+
+    # The event one parsed line holds; nil for a type this version does not know.
+    def self.event(data)
+      case data["type"]
+      when "stamp" then stamp(data)
+      when "unchecked"
+        Unchecked.new(entry_point: data.fetch("entry_point").to_s, status: data["status"], verb: data["verb"])
+      when "route"
+        Route.new(entry_point: data.fetch("entry_point").to_s, verb: data["verb"].to_s, path: data["path"].to_s)
+      when "context_mismatch"
+        ContextMismatch.new(**data.slice(*ContextMismatch.members.map(&:to_s)).transform_keys(&:to_sym))
+      end
     end
 
     # A stamp line's fields; any other key (`type`, `example`) is left out.
@@ -161,11 +184,12 @@ module Hallmark
       Example.new(user: data["user"], record: data["record"], tenant: data["tenant"])
     end
 
-    def initialize(stamps = [], unchecked = [], routes = [], examples: {})
+    def initialize(stamps = [], unchecked = [], routes = [], examples: {}, mismatches: [])
       @stamps = stamps.uniq
       @unchecked = unchecked.uniq
       @routes = routes.uniq
       @examples = examples
+      @mismatches = mismatches.uniq
     end
   end
 end

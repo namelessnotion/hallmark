@@ -167,12 +167,15 @@ module Hallmark
         hidden = gap.combinations.size - COMBINATIONS_SHOWN
         lines << "    and #{hidden} more" if hidden.positive?
       end
-      lines.concat(opaque_lines(coverage))
+      lines.concat(coverage_notes(coverage))
       coverage_lists(coverage).each do |title, names|
         lines << "  #{title}: #{names.join(", ")}" if names.any?
       end
       lines.concat(route_lines(coverage))
     end
+
+    # The notes printed after the per-rule gaps, before the lists.
+    def coverage_notes(coverage) = opaque_lines(coverage) + mismatch_lines(coverage)
 
     # Calls inside rules the extractor could not read (docs/adr/0003).
     def opaque_lines(coverage)
@@ -181,6 +184,16 @@ module Hallmark
       ["  Calls in rules and controller checks that Hallmark could not read (the checked guard assumes each one " \
        "denies):",
        *coverage.opaque.map { |entry| "    #{entry}" }]
+    end
+
+    # GraphQL requests whose context's current tenant was not the
+    # controller's (G6). Stamps of type checks read the context's; the model
+    # checks every current tenant either way.
+    def mismatch_lines(coverage)
+      return [] if coverage.mismatches.empty?
+
+      ["  GraphQL requests whose context names another current tenant than the controller's (G6):",
+       *coverage.mismatches.map { |mismatch| "    #{mismatch}" }]
     end
 
     # The coverage lists printed after the per-rule gaps, by title.

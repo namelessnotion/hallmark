@@ -131,6 +131,7 @@ module Hallmark
         @stamps = T.let(T.unsafe(nil), T::Array[Stamp])
         @unchecked = T.let(T.unsafe(nil), T::Array[Unchecked])
         @routes = T.let(T.unsafe(nil), T::Array[Route])
+        @mismatches = T.let(T.unsafe(nil), T::Array[ContextMismatch])
         @examples = T.let(T.unsafe(nil), T::Hash[Stamp, Example])
         @seen = T.let(T.unsafe(nil), T::Set[Stamp])
         @baseline = T.let(T.unsafe(nil), T::Set[Stamp])

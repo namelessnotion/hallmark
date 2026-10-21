@@ -114,6 +114,10 @@ module Hallmark
     sig { returns(T::Array[String]) }
     attr_reader :checks_unread
 
+    # GraphQL requests whose context's current tenant was not the controller's (G6)
+    sig { returns(T::Array[ContextMismatch]) }
+    attr_reader :mismatches
+
     # Calls inside rules that the extractor could not read
     sig { returns(T::Array[Opaque]) }
     attr_reader :opaque
@@ -122,8 +126,8 @@ module Hallmark
     sig { returns(T::Array[String]) }
     attr_reader :code_only
 
-    sig { params(mapping: Mapping, stamps: T::Array[Stamp]).void }
-    def initialize(mapping, stamps)
+    sig { params(mapping: Mapping, stamps: T::Array[Stamp], mismatches: T::Array[ContextMismatch]).void }
+    def initialize(mapping, stamps, mismatches: [])
       @mapping = T.let(T.unsafe(nil), Mapping)
       @universe = T.let(T.unsafe(nil), T::Array[String])
       @dims = T.let(T.unsafe(nil), T::Array[Dim])
@@ -143,6 +147,7 @@ module Hallmark
       @checks_unread = T.let(T.unsafe(nil), T::Array[String])
       @opaque = T.let(T.unsafe(nil), T::Array[Opaque])
       @code_only = T.let(T.unsafe(nil), T::Array[String])
+      @mismatches = T.let(T.unsafe(nil), T::Array[ContextMismatch])
     end
 
     sig { params(unit: Inference::Unit).void }

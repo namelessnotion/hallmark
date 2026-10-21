@@ -54,7 +54,7 @@ module Hallmark
       @extractor = extractor
       @ops = Ops.new(mapping, stamps: @stamps, routes: @routes.empty? ? extractor&.routes || [] : @routes,
                               controllers: extractor&.controllers)
-      @coverage = Coverage.new(mapping, @stamps)
+      @coverage = Coverage.new(mapping, @stamps, mismatches: stamp_set.mismatches)
       stamped = build_units
       @units = (stamped + code_units(stamped.map(&:key))).sort_by { |unit| [unit.policy, unit.rule, unit.resource] }
       @exposures = build_exposures

@@ -6,8 +6,8 @@ require "json"
 module Hallmark
   class Watch
     # The stamps a watch has folded in: the baseline's, then each batch's
-    # new lines (stamps, unchecked requests, routes, and the example each
-    # stamp was first seen with). Stamps keep the order they were first
+    # new lines (stamps, unchecked requests, routes, GraphQL context
+    # mismatches, and the example each stamp was first seen with). Stamps keep the order they were first
     # read in, and those not in the baseline are live.
     class Stamps
       # `set` is the stamp set the baseline was built from.
@@ -16,6 +16,7 @@ module Hallmark
         @stamps = set.stamps.dup
         @unchecked = set.unchecked.dup
         @routes = set.routes.dup
+        @mismatches = set.mismatches.dup
         @examples = {}
         add_examples(set)
         @seen = Set.new(@stamps)
@@ -23,7 +24,7 @@ module Hallmark
       end
 
       # Everything folded in so far, as one stamp set for Inference.
-      def set = StampSet.new(@stamps, @unchecked, @routes, examples: @examples)
+      def set = StampSet.new(@stamps, @unchecked, @routes, examples: @examples, mismatches: @mismatches)
 
       # Adds the lines; returns the stamps new to the watch, in the order read.
       def fold(lines)
@@ -33,6 +34,7 @@ module Hallmark
         @stamps.concat(fresh)
         @unchecked |= set.unchecked
         @routes |= set.routes
+        @mismatches |= set.mismatches
         add_examples(set)
         fresh
       end

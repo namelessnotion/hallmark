@@ -19,10 +19,12 @@ module HallmarkTestHelpers
   end
 
   # Installs the collectors with a fresh stamp store for the block, then
-  # returns what they stamped. Needs test/support/shop.rb.
-  def collect(current_tenant: :seller, sample_rate: 1.0)
+  # returns what they stamped; `map` adds declarations to the shop's
+  # mapping. Needs test/support/shop.rb.
+  def collect(current_tenant: :seller, sample_rate: 1.0, map: nil)
     Dir.mktmpdir("hallmark-stamps") do |dir|
       mapping = Shop.map(Hallmark::Mapping.new, current_tenant: current_tenant)
+      mapping.instance_exec(&map) if map
       Hallmark::Collectors.install!(mapping: mapping, store: Hallmark::StampStore.new(dir, run: "test"),
                                     sample_rate: sample_rate)
       begin

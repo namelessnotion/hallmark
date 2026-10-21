@@ -37,7 +37,8 @@ Pundit, Action Policy and DeclarativePolicy code:
   the checks they cover
 - collectors for Action Policy, Pundit and DeclarativePolicy, installed by a
   Railtie in the test environment, which record each authorization decision
-  as a stamp; guards inferred from the stamps; a report of entry points that
+  as a stamp, and a graphql-ruby tracer that names each decision after the
+  field being resolved and stamps types' own `authorized?` checks; guards inferred from the stamps; a report of entry points that
   never authorized (threat 10) and of what the tests never exercised; in
   staging or production the same collectors stamp a sampled share of live
   requests through a bounded queue, to files, a Redis stream or a callable,
@@ -60,7 +61,7 @@ one real app per authorization library, each with a confirmed real bug)
 passed on Oct 19, 2026. Phase 2 (the extractor) passed its gate on five
 apps on Oct 21, 2026.
 
-Not built yet (phase 3): the graphql-ruby schema walk and tracing; field
+Not built yet (phase 3): the graphql-ruby schema walk; field
 reads read from GraphQL types and serializers (field exposures are declared
 by hand for now); list scopes; and stale access after revocation.
 The models for those live in `research/models`.
@@ -291,6 +292,25 @@ current tenant). Stamps hold no ids. An exception inside a rule counts as a
 deny. Rules a Pundit policy spec calls on the policy itself
 (`described_class.new(user, record).update?`, pundit/rspec's `permit`,
 pundit-matchers' `permit_actions`) are stamped too, as queries.
+
+A GraphQL query is an entry point of its own for each field it resolves,
+named in GraphQL terms: `Query.project.pipelineSchedules`,
+`Mutation.pipelineScheduleCreate`, with aliases resolved to the field's
+name, list indices dropped and connection wrappers (`edges`, `nodes`,
+`node`) dropped below the root. A decision made while a field resolves, or
+while a type's `authorized?` checks its value, takes that field's name; one
+made in lazy or batched resolution takes the operation's (`Query`), since a
+batch loads for many fields at once. A type's `authorized?` that the app
+wrote is stamped as the rule `Types::ProjectType#authorized?` on the object
+(a check graphql-ruby answers with nil is a deny), unless a policy library
+decided inside it, which is then stamped once, as the library's rule. Its
+user is `context[:current_user]`, and it has no current tenant, unless the
+map block says where they are: `graphql current_user: ->(ctx) { ... },
+current_tenant: ->(ctx) { ctx[:current_organization] }`. With that and
+`current_tenant ..., controller:`, a request whose two current tenants
+differ is listed under coverage (G6). graphql-ruby 2.x and 1.x are both
+traced; the query runs inside the controller's request, so its checks
+count for the controller.
 
 From the stamps, each rule's guard is the OR of the fact combinations it
 allowed, and each entry point's guard is the AND of the rules it enforced

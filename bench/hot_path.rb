@@ -28,6 +28,10 @@
 #   skip     skip minus off, at the median and p99: what every decision pays
 #            in sampled mode when it is not sampled, and its allocations
 #
+# The GraphQL rows are one query each (31 fields, then 33 with two
+# decisions); below the table, what each field adds over the bare query,
+# with the tracer on, not sampled and off.
+#
 # Timed loops run with GC off, in batches with a full GC between them, so a
 # pause does not land on one call; allocations are reported instead.
 #
@@ -37,6 +41,7 @@
 require "hallmark"
 require "tmpdir"
 require "support/shop"
+require "support/graphql_shop"
 
 # The benchmark: scenarios, measurement and the table it prints.
 module HotPath
@@ -47,8 +52,10 @@ module HotPath
   WARMUP = 2_000
   STATES = %i[off skip on].freeze
 
-  # Accumulates time spent in mapping readers on this thread. Prepended on
-  # Collectors::Facts, whose `read` is the one way facts reach app code.
+  # Accumulates time spent in mapping readers on this thread, in a thread
+  # variable rather than a fiber-local, since graphql-ruby may resolve
+  # fields in fibers. Prepended on Collectors::Facts, whose `read` is the
+  # one way facts reach app code.
   module ReaderClock
     private
 
@@ -56,20 +63,58 @@ module HotPath
       start = HotPath.now
       super
     ensure
-      Thread.current[:hallmark_bench_readers] += HotPath.now - start
+      HotPath.readers += HotPath.now - start
     end
   end
 
   # One rule call, and the shop mapping's current tenant for it (DeclarativePolicy
-  # policies have no `seller`, so its scenarios read the session's).
-  Scenario = Struct.new(:name, :call, :current_tenant)
+  # policies have no `seller`, so its scenarios read the session's); a
+  # GraphQL query also gives the number of fields it resolves.
+  Scenario = Struct.new(:name, :call, :current_tenant, :fields)
 
   # Times per state (`:bare` and STATES), readers' times in the `on` state,
   # and allocations per call per state.
-  Result = Struct.new(:name, :times, :readers, :allocs)
+  Result = Struct.new(:name, :times, :readers, :allocs, :fields)
+
+  # A schema of fifteen items with no checks of their own, beside the
+  # shop's link, whose type check and `editable` field each decide.
+  module Api
+    Item = Struct.new(:id, :name)
+    ITEMS = Array.new(15) { |index| Item.new(index.to_s, "item #{index}") }.freeze
+
+    # An item: two scalar fields, no check.
+    class ItemType < GraphQL::Schema::Object
+      field :id, ID, null: false
+      field :name, String, null: false
+    end
+
+    # The items, and the shop's link by id.
+    class QueryType < GraphQL::Schema::Object
+      field :items, [ItemType], null: false
+      field :link, GraphqlShop::LinkType do
+        argument :id, ID, as: :key
+      end
+
+      def items = ITEMS
+      def link(key:) = GraphqlShop.links[key]
+    end
+
+    # The schema both GraphQL rows query.
+    class Schema < GraphQL::Schema
+      query QueryType
+    end
+
+    QUIET = GraphQL.parse("{ items { id name } }")
+    DECIDING = GraphQL.parse('{ items { id name } link(id: "1") { editable } }')
+  end
 
   class << self
     def now = Process.clock_gettime(CLOCK, :nanosecond) / 1000.0
+    def readers = Thread.current.thread_variable_get(:hallmark_bench_readers) || 0.0
+
+    def readers=(value)
+      Thread.current.thread_variable_set(:hallmark_bench_readers, value)
+    end
 
     def run
       scenarios = build_scenarios
@@ -94,6 +139,7 @@ module HotPath
       member = Shop::User.new("ann")
       Shop.memberships[[member, seller]] = ["admin"]
       link = Shop::Link.new(seller)
+      GraphqlShop.links["1"] = link
       context = PunditShop::Context.new(member, seller)
       publisher = PunditShop::ProductPublisher.new(member, seller)
       session = Shop::Session.new(member, seller, link)
@@ -116,8 +162,18 @@ module HotPath
           Hallmark::Collectors.within_entry_point("BenchController#show") do
             5.times { DpShop::LinkPolicy.new(member, link).allowed?(:update_link) }
           end
-        }, -> { Shop.session&.seller })
+        }, -> { Shop.session&.seller }),
+        graphql_scenario("GraphQL query, no decision", Api::QUIET, 31, session),
+        graphql_scenario("GraphQL query, 2 decisions", Api::DECIDING, 33, session)
       ]
+    end
+
+    def graphql_scenario(name, document, fields, session)
+      context = { current_user: session.user, current_seller: session.seller }
+      Scenario.new(name, lambda {
+        Shop.session = session
+        Api::Schema.execute(document: document, context: context)
+      }, -> { Shop.session&.seller }, fields)
     end
 
     def time_bare(call)
@@ -139,9 +195,9 @@ module HotPath
       batches do
         STATES.each do |state|
           switch(state)
-          Thread.current[:hallmark_bench_readers] = 0.0
+          HotPath.readers = 0.0
           times.fetch(state) << timed(call)
-          readers << Thread.current[:hallmark_bench_readers] if state == :on
+          readers << HotPath.readers if state == :on
         end
       end
       allocs = STATES.to_h do |state|
@@ -149,7 +205,8 @@ module HotPath
         [state, allocations(call)]
       end
       switch(:on)
-      Result.new(scenario.name, times.merge(bare: bare_times), readers, allocs.merge(bare: bare_allocs))
+      Result.new(scenario.name, times.merge(bare: bare_times), readers, allocs.merge(bare: bare_allocs),
+                 scenario.fields)
     end
 
     # The state the collectors are in, set off the clock. Writes their
@@ -196,8 +253,26 @@ module HotPath
       header = ["scenario".ljust(32), *titles].join(" ")
       puts header, "-" * header.size
       results.each { |result| puts row(result) }
+      print_per_field(results)
       stamps = Hallmark::StampSet.load(dir).stamps.size
       puts "", "#{stamps} distinct stamps written"
+    end
+
+    # What each field of a GraphQL query adds over the bare query, at the
+    # median, by state (the `on` row's decisions included).
+    def print_per_field(results)
+      graphql = results.select(&:fields)
+      return if graphql.empty?
+
+      puts "", "GraphQL, microseconds added per field over the bare query (p50):"
+      graphql.each do |result|
+        bare = percentile(result.times.fetch(:bare), 50)
+        added = STATES.map do |state|
+          format("%<state>s %<added>.3f", state: state,
+                                          added: (percentile(result.times.fetch(state), 50) - bare) / result.fields)
+        end
+        puts "  #{result.name} (#{result.fields} fields): #{added.join(", ")}"
+      end
     end
 
     def row(result)

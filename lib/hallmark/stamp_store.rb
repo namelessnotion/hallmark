@@ -59,9 +59,9 @@ module Hallmark
     # Whether stamps are recorded with hashed ids.
     def ids? = !@id_key.nil?
 
-    # Queues a Stamp, Unchecked or Route event, with the ids a stamp was
-    # seen with when `ids?`; never blocks on I/O, and with a capacity never
-    # waits for the flusher either.
+    # Queues a Stamp, Unchecked, Route or ContextMismatch event, with the
+    # ids a stamp was seen with when `ids?`; never blocks on I/O, and with a
+    # capacity never waits for the flusher either.
     def record(event, example: nil)
       @lock.synchronize do
         reset if @pid != Process.pid

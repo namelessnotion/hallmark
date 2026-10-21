@@ -35,7 +35,9 @@ module Hallmark
   # `routes_unchecked` call no authorization in the code Hallmark reads, and
   # `routes_unresolved` authorize a record whose class or rule it could not
   # tell. `checks_unread` are entry points whose controller makes a check
-  # in its own code that leaves nothing certain.
+  # in its own code that leaves nothing certain. `mismatches` are GraphQL
+  # requests whose context named a current tenant other than the
+  # controller's (G6).
   class Coverage
     # One fact a stamp records, as a dimension of the fact space: a boolean,
     # or the set of roles held in one place (`roles` is true).
@@ -54,9 +56,10 @@ module Hallmark
     ANONYMOUS_LACKS = %i[owner permitted record_roles current_roles roles].freeze
 
     attr_reader :gaps, :never_allowed, :unreached, :class_level, :without_op, :unmapped, :redirected, :opaque,
-                :code_only, :exempt, :routes_unread, :routes_unchecked, :routes_unresolved, :checks_unread, :stale
+                :code_only, :exempt, :routes_unread, :routes_unchecked, :routes_unresolved, :checks_unread, :stale,
+                :mismatches
 
-    def initialize(mapping, stamps)
+    def initialize(mapping, stamps, mismatches: [])
       @mapping = mapping
       @universe = role_universe(stamps)
       @dims = []
@@ -76,6 +79,7 @@ module Hallmark
       @checks_unread = []
       @opaque = []
       @code_only = []
+      @mismatches = mismatches.dup
     end
 
     def observe(unit)
@@ -97,7 +101,7 @@ module Hallmark
     def empty?
       [@gaps, @never_allowed, @unreached, @class_level, @without_op, @unmapped, @redirected, @opaque,
        @code_only, @exempt, @stale, @routes_unread, @routes_unchecked, @routes_unresolved,
-       @checks_unread].all?(&:empty?)
+       @checks_unread, @mismatches].all?(&:empty?)
     end
 
     # Fact combinations, as conjunctions, that none of `stamps` covers.

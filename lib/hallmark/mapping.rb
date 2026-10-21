@@ -68,6 +68,10 @@ module Hallmark
       def principals? = !self_role.nil?
     end
 
+    # How the GraphQL collector reads a query's signed-in user and current
+    # tenant from its context: lambdas taking the context (`graphql`).
+    GraphqlContext = Struct.new(:current_user, :current_tenant, keyword_init: true)
+
     # A per-rule override: the rule's op, a hand-written guard, or both, and
     # the resource it checks when no stamp shows it.
     Rule = Struct.new(:policy, :name, :op, :guard, :resource, keyword_init: true) do
@@ -78,7 +82,7 @@ module Hallmark
 
     attr_reader :principal_name, :principal_source, :principal_roles, :resources, :grants, :tenancy,
                 :current_tenant_source, :current_tenant_controller, :principal_controller, :platform_roles, :rules,
-                :unchecked_allowed, :terms, :public_actions, :field_policies, :restrictions
+                :unchecked_allowed, :terms, :public_actions, :field_policies, :restrictions, :graphql_context
 
     def initialize
       @principal_name = "User"
@@ -97,6 +101,7 @@ module Hallmark
       @public_actions = {}
       @field_policies = {}
       @restrictions = {}
+      @graphql_context = nil
     end
 
     # An intended permission: every holder of `role` may `op` every record of
@@ -267,6 +272,18 @@ module Hallmark
     def current_tenant(source = nil, controller: nil, &block)
       @current_tenant_source = source || block
       @current_tenant_controller = controller&.to_s
+    end
+
+    # Where the GraphQL collector finds a query's signed-in user and current
+    # tenant: lambdas taking the query's context. Without this declaration
+    # the user is `context[:current_user]` and there is no current tenant.
+    # With both this `current_tenant:` and `current_tenant ..., controller:`,
+    # a request whose two current tenants differ is recorded (G6).
+    #
+    #   graphql current_user: ->(ctx) { ctx[:current_user] },
+    #           current_tenant: ->(ctx) { ctx[:current_organization] }
+    def graphql(current_user: nil, current_tenant: nil)
+      @graphql_context = GraphqlContext.new(current_user: current_user, current_tenant: current_tenant)
     end
 
     # Roles that intentionally grant access across tenants, such as the
