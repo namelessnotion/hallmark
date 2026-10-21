@@ -86,15 +86,14 @@ module Hallmark
     end
 
     def unchecked_result(report, entry_point)
-      extractor = report.analysis.inference&.extractor
-      location = extractor&.controllers&.action_location(entry_point)
+      location = report.extractor&.controllers&.action_location(entry_point)
       result("hallmark/unchecked", "#{entry_point} finished without an authorization call (threat 10).",
              [location].compact, entry_point)
     end
 
     def drift_result(item)
       text = Report.drift_lines(item).map(&:strip).join(" ").delete_prefix("DRIFT ")
-      result("hallmark/drift", text, [item.location], "#{item.rule}|#{item.decision}|#{item.facts}")
+      result("hallmark/drift", text, [item.location], item.key)
     end
 
     # A result at the first location, the rest related.

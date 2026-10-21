@@ -44,5 +44,9 @@ module Hallmark
 
     sig { returns(String) }
     def to_s; end
+
+    # SHA-256 hex of the check as the model builder renders it
+    sig { params(mapping: Mapping).returns(String) }
+    def digest(mapping); end
   end
 end

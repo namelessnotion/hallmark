@@ -17,6 +17,10 @@ module Hallmark
   Drift = Struct.new(:rule, :resource, :decision, :bound, :facts, :location, :seen, :raised, keyword_init: true) do
     def allow? = decision == "allow"
 
+    # What makes two drifts the same, across runs: the rule, the decision
+    # and the facts.
+    def key = "#{rule}|#{decision}|#{facts}"
+
     # The drift in each unit's stamps, in unit order.
     def self.find(mapping, units)
       units.flat_map { |unit| of(mapping, unit) }

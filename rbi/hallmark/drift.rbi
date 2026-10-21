@@ -42,6 +42,10 @@ module Hallmark
     sig { returns(T::Boolean) }
     def allow?; end
 
+    # "<rule>|<decision>|<facts>"
+    sig { returns(String) }
+    def key; end
+
     sig { params(mapping: Mapping, units: T::Array[Inference::Unit]).returns(T::Array[Drift]) }
     def self.find(mapping, units); end
 

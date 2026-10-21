@@ -94,10 +94,18 @@ module Hallmark
     def self.files(path, run: nil)
       return File.exist?(path) ? [path] : [] unless File.directory?(path)
 
-      runs = Dir[File.join(path, "stamps-*.jsonl")].group_by { |file| File.basename(file)[/\Astamps-([^-]+)-/, 1] }
+      runs = Dir[File.join(path, "stamps-*.jsonl")].group_by { |file| run_name(file) }
       key = run || latest(runs)
       key ? runs.fetch(key, []).sort : []
     end
+
+    # The run a stamp file belongs to, from its name
+    # (`stamps-<run>-<pid>.jsonl`); nil for any other name.
+    def self.run_name(file) = File.basename(file)[/\Astamps-([^-]+)-/, 1]
+
+    # The run `files` reads at `path`: `run` itself, else the latest run's
+    # name; nil for a single file not named after a run, or no files.
+    def self.run_of(path, run: nil) = run || files(path).first&.then { |file| run_name(file) }
 
     # The run whose newest file has the newest mtime, ties broken by run id.
     # Run ids do not order runs: HALLMARK_RUN can be any word ("ci"), and a

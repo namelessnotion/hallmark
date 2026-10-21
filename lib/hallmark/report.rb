@@ -44,6 +44,10 @@ module Hallmark
     # since the guards checked may not be the app's, and so does a
     # DeclarativePolicy hazard (D3, D4), whose policy does not mean what it
     # reads as. An unknown is not a failure, but it is not clean either.
+    # The extractor the analysis's guards were read with, if any; SARIF
+    # finds an unchecked entry point's action through it.
+    def extractor = analysis.inference&.extractor
+
     def failed? = findings.any? || unchecked.any? || drift.any? || lints.any?
     def clean? = !failed? && unknown.empty?
 

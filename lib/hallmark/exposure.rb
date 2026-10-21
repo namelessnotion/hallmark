@@ -1,6 +1,9 @@
 # typed: strict
 # frozen_string_literal: true
 
+require "digest"
+require "json"
+
 module Hallmark
   # One way the application lets a request read or write a kind of record,
   # and the guard it applies first. SPACE derived these by symbolic execution;
@@ -28,5 +31,16 @@ module Hallmark
     def name_suffix = "#{Naming.identifier(action)}_#{op}_#{Naming.identifier(resource)}"
 
     def to_s = "#{action} (#{op} #{resource}, guard: #{guard})"
+
+    # SHA-256 of what the model builder renders for this exposure and what
+    # that depends on: its names, op, resource, guard, rules and the public
+    # action the mapping gives those rules. Two equal digests make the same
+    # check, so a baseline and `hallmark watch` agree on what changed.
+    def digest(mapping)
+      action = mapping.public_action_for(rules || [])
+      public_action = action && "#{action.audience} #{action.condition}"
+      Digest::SHA256.hexdigest(JSON.generate([check_name, op.to_s, resource, guard.to_s, (rules || []).sort,
+                                              public_action]))
+    end
   end
 end

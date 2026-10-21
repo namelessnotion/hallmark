@@ -23,10 +23,33 @@ end
 # they are there at boot, when a live mode records them.
 ShopApp.initialize!
 
+# Serves `requests` ([verb, path, session]) with each session in place.
+def serve(app, requests)
+  requests.map do |verb, path, session|
+    Shop.session = session
+    app.request(verb, path).status
+  end
+end
+
 ann = Shop::User.new("ann")
-Shop.session = Shop::Session.new(ann, ann, Shop::Link.new(ann))
 app = Rack::MockRequest.new(ShopApp)
-statuses = [app.get("/links/1/edit").status, app.get("/links/1").status]
+own = Shop::Session.new(ann, ann, Shop::Link.new(ann))
+statuses =
+  case ENV.fetch("SHOP_SCENARIO", nil)
+  # What test/watch_end_to_end_test.rb's CI run sees: a seller on its own link.
+  when "watch_ci" then serve(app, [["GET", "/links/1/edit", own], ["PATCH", "/links/1", own]])
+  # Live traffic: ann's admin, acting for ann, on another seller's link (M2).
+  # The users and the link have ids, so hashed ids name them.
+  when "watch_live"
+    bob = Shop::User.new("bob")
+    carol = Shop::User.new("carol")
+    link = Shop::Link.new(carol)
+    { bob => 2, carol => 3, link => 7 }.each { |object, id| object.define_singleton_method(:id) { id } }
+    Shop.memberships[[bob, ann]] = ["admin"]
+    cross = Shop::Session.new(bob, ann, link)
+    serve(app, [["GET", "/links/7/edit", cross], ["PATCH", "/links/7", cross]])
+  else serve(app, [["GET", "/links/1/edit", own], ["GET", "/links/1", own]])
+  end
 Hallmark::Collectors.flush
 
 stamps = Dir[File.join(ARGV.fetch(0), "tmp", "hallmark", "*.jsonl")]

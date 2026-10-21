@@ -59,6 +59,10 @@ module Hallmark
       @lints = T.let(T.unsafe(nil), T::Array[Extractor::DeclarativeTranslator::Lint])
     end
 
+    # The extractor behind the analysis's guards, if any
+    sig { returns(T.nilable(Extractor)) }
+    def extractor; end
+
     sig { returns(T::Boolean) }
     def failed?; end
 

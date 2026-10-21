@@ -75,6 +75,16 @@ module Hallmark
     sig { returns(T.nilable(Mapping)) }
     attr_reader :mapping
 
+    # What `hallmark watch` calls with each new event
+    sig { returns(T.nilable(T.proc.params(event: Watch::Event).void)) }
+    attr_reader :on_finding
+
+    sig do
+      params(callable: T.nilable(T.proc.params(event: Watch::Event).void))
+        .returns(T.nilable(T.proc.params(event: Watch::Event).void))
+    end
+    def on_finding=(callable); end
+
     # "test", "shadow", "sampled", "off", or nil to let the Railtie decide
     sig { returns(T.nilable(String)) }
     attr_reader :mode
@@ -95,6 +105,7 @@ module Hallmark
       @root = T.let(T.unsafe(nil), String)
       @extract = T.let(T.unsafe(nil), T::Boolean)
       @mapping = T.let(T.unsafe(nil), T.nilable(Mapping))
+      @on_finding = T.let(T.unsafe(nil), T.nilable(T.proc.params(event: Watch::Event).void))
       @mode = T.let(T.unsafe(nil), T.nilable(String))
       @sample_rate = T.let(T.unsafe(nil), T.nilable(Float))
       @sink = T.let(T.unsafe(nil), Sinks::Sink)

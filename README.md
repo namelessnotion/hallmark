@@ -35,7 +35,9 @@ Pundit, Action Policy and DeclarativePolicy code:
   as a stamp; guards inferred from the stamps; a report of entry points that
   never authorized (threat 10) and of what the tests never exercised; in
   staging or production the same collectors stamp a sampled share of live
-  requests through a bounded queue, to files, a Redis stream or a callable
+  requests through a bounded queue, to files, a Redis stream or a callable,
+  and `hallmark watch`, a process outside the app, checks those stamps as
+  they arrive against the baseline CI wrote (`hallmark check --baseline`)
 - RSpec matchers (`require "hallmark/rspec"`): `satisfy_catalog` and
   `have_no_counterexample(:update?)` check a policy's rules one at a time,
   on the sidecar by default
@@ -53,9 +55,9 @@ one real app per authorization library, each with a confirmed real bug)
 passed on Oct 19, 2026. Phase 2 (the extractor) passed its gate on five
 apps on Oct 21, 2026.
 
-Not built yet (phase 3): `hallmark watch`, which checks live stamps as they
-arrive; the graphql-ruby schema walk and tracing; field-level mapping and
-declared restrictions; list scopes; and stale access after revocation.
+Not built yet (phase 3): the graphql-ruby schema walk and tracing;
+field-level mapping and declared restrictions; list scopes; and stale
+access after revocation.
 The models for those live in `research/models`.
 
 ## Requirements
@@ -305,6 +307,46 @@ the first time a process writes a stamp, it adds the user, record and
 current tenant it was seen with, each as an HMAC-SHA256 of `Class:id` under
 that key. Only someone holding the key can match them to records, and test
 mode refuses them (`docs/adr/0004-production-stamps.md`).
+
+### Watching live stamps
+
+`hallmark watch` checks live stamps as they arrive, in a process of its own:
+it loads the mapping file, never the app, and keeps a solver sidecar warm.
+It starts from what CI already knows, a baseline that `hallmark check`
+writes from the test suite's run:
+
+```bash
+bin/hallmark check --baseline hallmark-baseline.json config/hallmark.rb   # in CI, once per build
+bin/hallmark watch --baseline hallmark-baseline.json config/hallmark.rb   # beside the app
+```
+
+The baseline holds that run's stamps and, per check, a digest of what was
+checked and its verdict. The watch folds each batch of new stamps into the
+baseline's, infers the guards again, and sends to the solver only the
+checks whose digest changed. It reports what the baseline did not have: a
+counterexample on a check that passed in CI, an entry point that served a
+request without authorizing, drift, and once, a failing check that no longer
+fails. A check that already failed in CI is counted, not repeated. With
+hashed ids on, a finding names the request it was first seen in:
+
+```text
+FAIL  LinksController#update (write Link)
+      guard: (logged_in & ((in_current_tenant & role(:owner, tenant: :current)) | role(:admin, tenant: :current)))
+      ...
+      first seen as user h:2c6cc085c541, record h:a2830a779cb7
+```
+
+It tails the stamp files of one run under `--stamps` (default
+`HALLMARK_STAMPS`), the run `--run` names or else the newest, or a Redis
+stream with `--redis URL` (and `--run`, or `--all-runs`; it needs the
+`redis-client` or `redis` gem, which Hallmark does not depend on).
+`--json` prints one JSON object per event, `--sarif FILE` keeps a SARIF log
+of everything new since it started, and `c.on_finding = ->(event) { ... }`
+in the mapping file is called with each new event, for alerts. `--once`
+checks what is there and exits 1 on anything new that fails, 2 on an
+unknown, else 0; otherwise the watch runs until SIGINT or SIGTERM. A
+baseline written with another mapping file, scope or Hallmark version is
+stale: the watch says so and checks every exposure once.
 
 ## RSpec matchers
 
@@ -589,6 +631,8 @@ lib/hallmark/               mapping, guards, model builder, solver clients, deco
 solver/src/                 the solver sidecar (Java, built by `hallmark install-sidecar`)
 lib/hallmark/collectors/    runtime hooks for each authorization library and controllers
 lib/hallmark/sinks.rb       where stamps go: files, a Redis stream, a callable
+lib/hallmark/baseline.rb    what CI knows, written by `hallmark check --baseline`
+lib/hallmark/watch.rb       `hallmark watch`, with its file and Redis tails in watch/
 lib/hallmark/extractor/     reads policies, controllers and config/routes.rb with Prism
 lib/hallmark/rspec.rb       the RSpec matchers (`require "hallmark/rspec"`)
 rbi/                        Sorbet signatures for lib/ (no sorbet-runtime needed)

@@ -81,9 +81,14 @@ module Hallmark
     sig { returns(Ops) }
     attr_reader :ops
 
+    # The stamps it was built from
+    sig { returns(StampSet) }
+    attr_reader :stamp_set
+
     sig { params(mapping: Mapping, stamp_set: StampSet, extractor: T.nilable(Extractor)).void }
     def initialize(mapping, stamp_set, extractor: nil)
       @mapping = T.let(T.unsafe(nil), Mapping)
+      @stamp_set = T.let(T.unsafe(nil), StampSet)
       @stamps = T.let(T.unsafe(nil), T::Array[Stamp])
       @routes = T.let(T.unsafe(nil), T::Array[Route])
       @reached = T.let(T.unsafe(nil), T::Array[String])

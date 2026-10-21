@@ -157,6 +157,14 @@ module Hallmark
     sig { params(path: String, run: T.nilable(String)).returns(T::Array[String]) }
     def self.files(path, run: nil); end
 
+    # "stamps-<run>-<pid>.jsonl" gives <run>; nil for any other name
+    sig { params(file: String).returns(T.nilable(String)) }
+    def self.run_name(file); end
+
+    # The run `files` reads at a path: `run`, else the latest run
+    sig { params(path: String, run: T.nilable(String)).returns(T.nilable(String)) }
+    def self.run_of(path, run: nil); end
+
     # Stamp files grouped by run id; nil for files outside the naming pattern
     sig { params(runs: T::Hash[T.nilable(String), T::Array[String]]).returns(T.nilable(String)) }
     def self.latest(runs); end

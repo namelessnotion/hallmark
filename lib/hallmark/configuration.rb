@@ -44,7 +44,7 @@ module Hallmark
     attr_accessor :alloy_jar, :java, :scope, :timeout, :sat_solver, :sidecar_heap, :stamps, :run, :root, :extract,
                   :id_key
     attr_writer :sidecar_jar, :ids
-    attr_reader :mapping, :mode, :solver, :sample_rate, :sink
+    attr_reader :mapping, :mode, :solver, :sample_rate, :sink, :on_finding
 
     def initialize
       @alloy_jar = ENV.fetch("HALLMARK_ALLOY_JAR") { default_jar_path }
@@ -112,6 +112,18 @@ module Hallmark
     # a callable taking the line (and the run).
     def sink=(value)
       @sink = Sinks.build(value)
+    end
+
+    # Called by `hallmark watch` once per new event (a finding, an unchecked
+    # entry point, drift, or a check that no longer fails), with a
+    # `Watch::Event`; for alerts. An exception it raises is warned about and
+    # the watch goes on.
+    def on_finding=(callable)
+      unless callable.nil? || callable.respond_to?(:call)
+        raise ConfigurationError, "on_finding takes a callable (a lambda given the event), not a #{callable.class.name}"
+      end
+
+      @on_finding = callable
     end
 
     def ids? = @ids == true
@@ -202,8 +214,9 @@ module Hallmark
     private
 
     # What the live modes read: the sample rate, the sink, and hashed ids
-    # beside stamps (docs/adr/0004).
+    # beside stamps (docs/adr/0004); and what `hallmark watch` calls.
     def live_settings
+      @on_finding = nil
       @sample_rate = nil
       if (rate = ENV.fetch("HALLMARK_SAMPLE", nil))
         self.sample_rate = Float(rate)

@@ -2,16 +2,36 @@
 # typed: true
 # frozen_string_literal: true
 
+require "optparse"
 require_relative "../lib/hallmark"
 
 USAGE = <<~TEXT.freeze
   Usage:
-    hallmark check [--sarif OUT] FILE...
+    hallmark check [--sarif OUT] [--baseline OUT] FILE...
                               run the analyses declared in FILEs; exit 1 on any counterexample,
                               unchecked entry point, drift or policy-DSL hazard, else 2 on any
                               unknown (or error), else 0. A FILE that only maps (config/hallmark.rb)
                               is checked against the stamps the test suite recorded. --sarif also
-                              writes what fails as SARIF 2.1.0 to OUT.
+                              writes what fails as SARIF 2.1.0 to OUT; --baseline writes what CI
+                              knows (stamps, each check's digest and verdict) for `hallmark watch`.
+    hallmark watch --baseline FILE [options] MAPPING
+                              tail the stamps live requests write (HALLMARK_MODE=shadow or sampled),
+                              re-check only the exposures they change, and report what the baseline
+                              did not have: new counterexamples, unchecked entry points and drift,
+                              and checks that no longer fail. Never boots the app.
+        --stamps DIR          stamp directory to tail (default HALLMARK_STAMPS, tmp/hallmark)
+        --run RUN             the run to tail (default HALLMARK_RUN, else the newest)
+        --interval SECONDS    how often to poll the files, or wait on Redis (default 2)
+        --redis URL           tail the Redis stream instead (needs the redis-client or redis gem)
+        --stream NAME         the stream (default #{Hallmark::Sinks::RedisStream::DEFAULT_STREAM})
+        --from-start          read the stream from its first entry, not its end
+        --all-runs            keep every run's lines from the stream (else --run is needed)
+        --json                one JSON object per event on stdout instead of text
+        --sarif FILE          rewrite a SARIF log of everything new after each batch
+        --solver cli|sidecar  the backend (default the sidecar, the CLI when it is not built)
+        --once                one batch over what is there, then exit 1 on anything new that
+                              fails, else 2 on an unknown, else 0; without it, run until
+                              SIGINT or SIGTERM
     hallmark model FILE       print the Alloy model generated for FILE
     hallmark extract FILE     print the guard read from each policy rule's code under the app root
                               (FILE's directory, or its parent when FILE is in config/)
@@ -44,12 +64,12 @@ def load_analyses(files)
   Hallmark.analyses
 end
 
-# Takes `--sarif OUT` out of the arguments, returning OUT.
-def sarif_option(args)
-  index = args.index("--sarif")
+# Takes `FLAG OUT` (`--sarif OUT`) out of the arguments, returning OUT.
+def file_option(args, flag)
+  index = args.index(flag)
   return nil unless index
 
-  out = args[index + 1] || abort("--sarif needs a file to write")
+  out = args[index + 1] || abort("#{flag} needs a file to write")
   args.slice!(index, 2)
   out
 end
@@ -57,10 +77,83 @@ end
 # The SARIF log, with results that have no line in the app's code pointing
 # at the mapping file, relative to the app root.
 def write_sarif(out, reports, file)
+  File.write(out, Hallmark::Sarif.new(reports, fallback: sarif_fallback(file)).to_json)
+end
+
+def sarif_fallback(file)
   root = File.expand_path(Hallmark.configuration.root)
   path = File.expand_path(file.to_s)
-  fallback = path.start_with?("#{root}/") ? path.delete_prefix("#{root}/") : file
-  File.write(out, Hallmark::Sarif.new(reports, fallback: fallback).to_json)
+  path.start_with?("#{root}/") ? path.delete_prefix("#{root}/") : file.to_s
+end
+
+# What CI knows, for `hallmark watch`: the run's stamps and each check's
+# digest and verdict.
+def write_baseline(out, reports, files)
+  config = Hallmark.configuration
+  run = Hallmark::StampSet.run_of(config.stamps, run: config.run) if reports.any? { |report| report.analysis.inference }
+  Hallmark::Baseline.build(reports, mapping_digest: Hallmark::Baseline.digest_files(files), run: run).write(out)
+end
+
+# `hallmark watch`: parses its options, loads the mapping (never the app)
+# and the baseline, and runs until stopped, or once.
+def watch(args)
+  options = watch_options(args)
+  abort USAGE unless args.size == 1 && options[:baseline]
+  file = args.fetch(0)
+  mapping = mapping_from(file)
+  watch = Hallmark::Watch.new(
+    mapping: mapping, baseline: Hallmark::Baseline.load(options.fetch(:baseline)), source: watch_source(options),
+    solver: watch_solver(options[:solver]), mapping_digest: Hallmark::Baseline.digest_files([file]),
+    extractor: Hallmark::Extractor.load(mapping), json: options.fetch(:json), sarif: options[:sarif],
+    sarif_fallback: sarif_fallback(file)
+  )
+  watch.run(once: options.fetch(:once), interval: options.fetch(:interval))
+end
+
+def watch_options(args)
+  options = { interval: 2.0, json: false, once: false, from_start: false, all_runs: false }
+  parser = OptionParser.new do |opts|
+    %w[baseline stamps run redis stream sarif solver].each do |name|
+      opts.on("--#{name} VALUE") { |value| options[name.to_sym] = value }
+    end
+    opts.on("--interval SECONDS", Float) { |value| options[:interval] = value }
+    %w[json once from-start all-runs].each do |name|
+      opts.on("--#{name}") { options[name.tr("-", "_").to_sym] = true }
+    end
+  end
+  parser.parse!(args)
+  options
+rescue OptionParser::ParseError => e
+  abort "hallmark watch: #{e.message}\n\n#{USAGE}"
+end
+
+# Files of one run under --stamps, or a Redis stream with --redis.
+def watch_source(options)
+  config = Hallmark.configuration
+  run = options[:run] || config.run
+  return Hallmark::Watch::FileTail.new(options[:stamps] || config.stamps, run: run) unless options[:redis]
+
+  Hallmark::Watch::RedisTail.new(
+    Hallmark::Watch::RedisTail.connect(options.fetch(:redis)),
+    stream: options[:stream] || Hallmark::Sinks::RedisStream::DEFAULT_STREAM, run: run,
+    all_runs: options.fetch(:all_runs), from_start: options.fetch(:from_start),
+    block: (Integer(options.fetch(:interval) * 1000) unless options.fetch(:once))
+  )
+end
+
+# The sidecar, warm for the life of the watch, unless --solver,
+# HALLMARK_SOLVER or `c.solver` picks a backend; the CLI when it is not built.
+def watch_solver(name)
+  config = Hallmark.configuration
+  config.solver = name if name
+  return Hallmark::Solver.build(config) if config.solver_chosen?
+
+  sidecar = Hallmark::Solver::Sidecar.new(config)
+  return sidecar if sidecar.available?
+
+  warn "hallmark watch: the solver sidecar is not built (run `hallmark install-sidecar`); " \
+       "using the CLI, one JVM start per batch"
+  Hallmark::Solver::CLI.new(config)
 end
 
 # The app a mapping file belongs to: the parent of its config/ directory
@@ -159,12 +252,16 @@ end
 begin
   case ARGV.shift
   when "check"
-    sarif = sarif_option(ARGV)
+    sarif = file_option(ARGV, "--sarif")
+    baseline = file_option(ARGV, "--baseline")
     files = ARGV.dup
     reports = load_analyses(ARGV).map(&:run)
     puts reports.join("\n\n")
     write_sarif(sarif, reports, files.first) if sarif
+    write_baseline(baseline, reports, files) if baseline
     exit(Hallmark::Report.exit_code(reports))
+  when "watch"
+    exit(watch(ARGV))
   when "model"
     load_analyses(ARGV).each { |analysis| puts Hallmark::ModelBuilder.new(analysis).source }
   when "extract"

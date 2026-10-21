@@ -43,10 +43,11 @@ module Hallmark
       def entry_points = stamps.select(&:enforced).filter_map(&:entry_point).uniq
     end
 
-    attr_reader :units, :exposures, :coverage, :unchecked, :drift, :extractor, :ops
+    attr_reader :units, :exposures, :coverage, :unchecked, :drift, :extractor, :ops, :stamp_set
 
     def initialize(mapping, stamp_set, extractor: nil)
       @mapping = mapping
+      @stamp_set = stamp_set
       @stamps = stamp_set.stamps
       @routes = stamp_set.routes
       @reached = (@stamps.filter_map(&:entry_point) + stamp_set.unchecked.map(&:entry_point)).uniq

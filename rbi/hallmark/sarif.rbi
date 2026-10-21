@@ -25,9 +25,12 @@ module Hallmark
     sig { returns(T::Array[Rule]) }
     def self.rules; end
 
-    sig { params(reports: T::Array[Report], fallback: T.nilable(String)).void }
+    # A report, or what `hallmark watch` found new since it started
+    Source = T.type_alias { T.any(Report, Watch::Log) }
+
+    sig { params(reports: T::Array[Source], fallback: T.nilable(String)).void }
     def initialize(reports, fallback: nil)
-      @reports = T.let(T.unsafe(nil), T::Array[Report])
+      @reports = T.let(T.unsafe(nil), T::Array[Source])
       @fallback = T.let(T.unsafe(nil), T.nilable(String))
     end
 
@@ -39,13 +42,13 @@ module Hallmark
 
     private
 
-    sig { params(report: Report).returns(T::Array[T::Hash[String, T.untyped]]) }
+    sig { params(report: Source).returns(T::Array[T::Hash[String, T.untyped]]) }
     def results(report); end
 
     sig { params(finding: Finding).returns(T::Hash[String, T.untyped]) }
     def finding_result(finding); end
 
-    sig { params(report: Report, entry_point: String).returns(T::Hash[String, T.untyped]) }
+    sig { params(report: Source, entry_point: String).returns(T::Hash[String, T.untyped]) }
     def unchecked_result(report, entry_point); end
 
     sig { params(item: Drift).returns(T::Hash[String, T.untyped]) }

@@ -27,8 +27,9 @@ done and phase 3 (runtime modes and GraphQL) is next, planned Oct 21, 2026
 ("Phase 3 (runtime and GraphQL)" below, `docs/PLAN.md` "Phase 3 plan"); phase
 2's plan is "Phase 2 (extractor)" below and `docs/PLAN.md` ("Roadmap", "Phase 2 plan"). The gate's
 two false-positive sources (op errors, two catalog gaps) were fixed Oct 21,
-2026 (Phase 2 step 7 below). Phase 3 steps 1 (hot path and benchmark) and
-2 (live modes, sinks, hashed ids) were done Oct 21, 2026. The phase 1 gate's record is in
+2026 (Phase 2 step 7 below). Phase 3 steps 1 (hot path and benchmark),
+2 (live modes, sinks, hashed ids) and 3 (baseline and `hallmark watch`)
+were done Oct 21, 2026. The phase 1 gate's record is in
 "Phase 1 (core gem): the gate" below. The first real-app run (original Gumroad on Pundit, Oct 16, 2026, not
 a gate app) is in "First run on original Gumroad" below. Gate runs so far:
 GitLab (DeclarativePolicy, Oct 17, 2026) and Forem (Pundit, Oct 18, 2026),
@@ -186,6 +187,23 @@ Built:
   of "Class:id" references, HMAC'd by the flusher onto a stamp's first line
   only, read back as `StampSet#examples`. `docs/PLAN.md` ("The shipped live
   modes"), `docs/adr/0004`.
+- Baseline and watch (phase 3 step 3, Oct 21, 2026; `baseline.rb`,
+  `watch.rb`, `watch/`): `hallmark check --baseline OUT` writes
+  `Hallmark::Baseline`, one JSON file with the run's stamp lines and per
+  check `Exposure#digest(mapping)` and verdict, plus the failing unchecked
+  entry points and `Drift#key`s. `hallmark watch --baseline FILE MAPPING`
+  seeds `Watch::Stamps` from those lines, tails `Watch::FileTail` (one run's
+  files, byte offsets, complete lines) or `Watch::RedisTail` (XREAD,
+  redis-rb or redis-client, required only there), re-runs `Inference` over
+  all stamps each batch and sends only exposures whose digest changed to
+  the solver (a subset `Analysis`; sidecar by default, CLI fallback).
+  New is a counterexample on a check not already failing, an unchecked entry
+  point or drift not in the baseline; a check that stops failing is
+  reported once; unknowns are retried when new stamps touch them. Text,
+  `--json`, `--sarif` (`Watch::Log`), `c.on_finding`, and examples
+  (`first seen as user h:...`) printed by the watch only. A changed mapping
+  file, scope or version makes the baseline stale: every exposure is
+  checked once. `docs/PLAN.md` ("The shipped watch").
 - Ownership without membership and public actions (Oct 21, 2026):
   `resource ..., owner_outside_tenant: true | :read | :write` (catalog
   `ownsOutsideTenant`, field `Resource.ownerOutside`), and `public_action
@@ -210,7 +228,7 @@ explicit permission on one record, for Gumroad's collaborators).
 bundle install
 bin/hallmark install-alloy                 # Alloy 6.2.0 to ~/.cache/hallmark, SHA-256 verified; needs Java 17+
 bin/hallmark install-sidecar               # also builds the sidecar jar (javac + jar from a JDK 17+); no extra download
-bundle exec rake test                      # 363 tests; the 25 integration tests skip without the jar or sidecar
+bundle exec rake test                      # 397 tests; the 27 integration tests skip without the jar or sidecar
 bundle exec rake bench                     # what the collectors add per decision (p50, p99, objects); about 2 min
 bundle exec rubocop                        # lint
 bundle exec srb tc                         # type-check lib/ against rbi/; `rake` runs tests, rubocop, then this
@@ -224,6 +242,8 @@ bin/hallmark model FILE                    # print the generated Alloy model; th
 bin/hallmark extract examples/storefront/hallmark.rb    # guards read from examples/storefront/app/policies
 bin/hallmark rules FILE [POLICY...]        # check each rule on its own, from code and recorded stamps
 bin/hallmark check --sarif OUT FILE        # also write what fails as SARIF 2.1.0
+bin/hallmark check --baseline OUT FILE     # also write what CI knows (stamps, check digests, verdicts) for watch
+bin/hallmark watch --baseline B FILE       # tail live stamps, report what B lacks; --once, --json, --sarif, --redis URL
 bundle exec rake fixtures:regenerate       # refresh test/fixtures/{medium_clone,storefront} from a real run
 java -jar ~/.cache/hallmark/alloy-6.2.0.jar exec -c '*' research/models/tenancy.als
 ```
@@ -271,6 +291,10 @@ Hallmark.analyze block (`stamps` loads a StampSet: Inference builds the exposure
   -> Receipt: verdict per check (counterexample, none, unknown);  receipt.rb
      CLI witnesses from XML, sidecar witnesses as JSON tuples
   -> Report and Finding: witness explained in app terms, plus drift  report.rb, finding.rb
+
+hallmark watch: Baseline (check --baseline) seeds Watch::Stamps    baseline.rb, watch.rb, watch/*
+  -> FileTail or RedisTail lines -> Inference over all stamps -> exposures whose digest changed
+  -> a subset Analysis on a warm sidecar -> what the baseline lacks: text, JSON, SARIF, c.on_finding
 
 RSpec: require "hallmark/rspec"                                    lib/hallmark/rspec.rb
   -> matcher finds the mapping (let, configuration, config/hallmark.rb) and the stamps
@@ -537,7 +561,11 @@ phase, which stretches it to about 7 weeks. Steps, in order:
    routes are recorded on `after_routes_loaded`, and examples are printed
    beside findings by `watch` (step 3), which knows the stamp behind one.
 3. `hallmark check --baseline` and `hallmark watch` (re-checks only
-   exposures a new stamp changes, on a warm sidecar).
+   exposures a new stamp changes, on a warm sidecar). Done Oct 21, 2026;
+   inference runs again over all stamps each batch (checking stays
+   incremental by digest), and the baseline carries the run's stamp lines
+   that seed the watch. Tested on the shop app end to end (test mode for
+   the baseline, shadow mode with hashed ids for the cross-seller update).
 4. Field-level mapping (`field_policy`) and `c.restrict` (threat 11).
 5. GraphQL static: `Extractor::GraphqlSchema` (Prism over `app/graphql`),
    the reachability model from `research/models/graphql.als`, lints G4 and
