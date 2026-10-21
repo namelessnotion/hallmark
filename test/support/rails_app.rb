@@ -19,11 +19,9 @@ class ShopApp < Rails::Application
   config.secret_key_base = "0" * 64
   config.hosts.clear
 end
+# The routes live in the app's config/routes.rb (written by the test), so
+# they are there at boot, when a live mode records them.
 ShopApp.initialize!
-ShopApp.routes.draw do
-  get "/links/:id" => "pundit_shop/links#show"
-  get "/links/:id/edit" => "pundit_shop/links#edit"
-end
 
 ann = Shop::User.new("ann")
 Shop.session = Shop::Session.new(ann, ann, Shop::Link.new(ann))
@@ -38,5 +36,7 @@ puts JSON.generate(
   mapped: Hallmark.configuration.mapping&.resources&.keys,
   statuses: statuses,
   stamps: set&.stamps&.map { |stamp| [stamp.entry_point, stamp.rule, stamp.decision] },
-  unchecked: set&.unchecked&.map(&:entry_point)
+  unchecked: set&.unchecked&.map(&:entry_point),
+  routes_before_exit: set&.routes&.map(&:entry_point),
+  files: stamps.map { |file| File.basename(file).sub(/-\d+\.jsonl\z/, "") }.uniq
 )

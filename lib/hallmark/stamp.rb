@@ -40,8 +40,12 @@ module Hallmark
     def allow? = decision == "allow"
     def rule_key = "#{policy}##{rule}"
 
-    def to_json_line
-      JSON.generate({ "type" => "stamp" }.merge(to_h.transform_keys(&:to_s)))
+    # With `example`, the hashed ids it was first seen with, beside its
+    # fields (docs/adr/0004).
+    def to_json_line(example = nil)
+      data = { "type" => "stamp" }.merge(to_h.transform_keys(&:to_s))
+      data["example"] = example.to_json_object if example
+      JSON.generate(data)
     end
   end
 
@@ -65,9 +69,10 @@ module Hallmark
     end
   end
 
-  # The stamps of one run, read back from JSONL.
+  # The stamps of one run, read back from JSONL, with the hashed example
+  # each stamp was first seen with when the collectors recorded ids.
   class StampSet
-    attr_reader :stamps, :unchecked, :routes
+    attr_reader :stamps, :unchecked, :routes, :examples
 
     # A JSONL file, or a directory of them (`tmp/hallmark`), in which case
     # every file of the latest run (the one with the most recently written
@@ -118,13 +123,15 @@ module Hallmark
       stamps = []
       unchecked = []
       routes = []
+      examples = {}
       lines.each do |line|
         next if line.strip.empty?
 
         data = JSON.parse(line)
         case data["type"]
         when "stamp"
-          stamps << Stamp.new(**data.slice(*Stamp.members.map(&:to_s)).transform_keys(&:to_sym))
+          stamps << (stamp = stamp(data))
+          examples[stamp] ||= example(data["example"])
         when "unchecked"
           unchecked << Unchecked.new(entry_point: data.fetch("entry_point").to_s, status: data["status"],
                                      verb: data["verb"])
@@ -133,13 +140,24 @@ module Hallmark
                               path: data["path"].to_s)
         end
       end
-      new(stamps, unchecked, routes)
+      new(stamps, unchecked, routes, examples: examples.compact)
     end
 
-    def initialize(stamps = [], unchecked = [], routes = [])
+    # A stamp line's fields; any other key (`type`, `example`) is left out.
+    def self.stamp(data) = Stamp.new(**data.slice(*Stamp.members.map(&:to_s)).transform_keys(&:to_sym))
+
+    # The hashed example a stamp line carries, if any.
+    def self.example(data)
+      return nil unless data.is_a?(Hash)
+
+      Example.new(user: data["user"], record: data["record"], tenant: data["tenant"])
+    end
+
+    def initialize(stamps = [], unchecked = [], routes = [], examples: {})
       @stamps = stamps.uniq
       @unchecked = unchecked.uniq
       @routes = routes.uniq
+      @examples = examples
     end
   end
 end

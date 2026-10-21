@@ -35,6 +35,15 @@ module HallmarkTestHelpers
     end
   end
 
+  # Sets environment variables for the block (nil unsets one), then restores them.
+  def with_env(values)
+    saved = values.keys.to_h { |key| [key, ENV.fetch(key, nil)] }
+    values.each { |key, value| ENV[key] = value }
+    yield
+  ensure
+    saved&.each { |key, value| ENV[key] = value }
+  end
+
   # Integration tests need Java 17+ and the Alloy jar (`hallmark install-alloy`).
   def require_solver!
     solver = Hallmark::Solver::CLI.new

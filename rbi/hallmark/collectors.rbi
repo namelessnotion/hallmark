@@ -114,6 +114,9 @@ module Hallmark
 
       private
 
+      sig { params(store: StampStore, stamp: Stamp, facts: Facts, policy: T.untyped, record: T.untyped).void }
+      def record(store, stamp, facts, policy, record); end
+
       sig { returns(T::Boolean) }
       def sample?; end
 
@@ -139,6 +142,9 @@ module Hallmark
                enforced: T::Boolean, entry_point: T.nilable(String)).returns(Stamp)
       end
       def stamp(policy:, rule:, record:, allowed:, raised:, enforced:, entry_point:); end
+
+      sig { params(policy: T.untyped, record: T.untyped).returns(Example) }
+      def example(policy, record); end
 
       private
 

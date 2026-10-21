@@ -13,7 +13,7 @@ is found, the report says "no counterexample within scope N", never "safe".
 
 ## Status
 
-Phase 2 in progress. It works end to end, on hand-written guards, on
+Phase 3 in progress. It works end to end, on hand-written guards, on
 guards inferred from what the app's test suite did, and on guards read from
 Pundit, Action Policy and DeclarativePolicy code:
 
@@ -33,7 +33,9 @@ Pundit, Action Policy and DeclarativePolicy code:
 - collectors for Action Policy, Pundit and DeclarativePolicy, installed by a
   Railtie in the test environment, which record each authorization decision
   as a stamp; guards inferred from the stamps; a report of entry points that
-  never authorized (threat 10) and of what the tests never exercised
+  never authorized (threat 10) and of what the tests never exercised; in
+  staging or production the same collectors stamp a sampled share of live
+  requests through a bounded queue, to files, a Redis stream or a callable
 - RSpec matchers (`require "hallmark/rspec"`): `satisfy_catalog` and
   `have_no_counterexample(:update?)` check a policy's rules one at a time,
   on the sidecar by default
@@ -48,10 +50,12 @@ Pundit, Action Policy and DeclarativePolicy code:
 
 Phase 1 is done: its deliverables are built, and its gate (Hallmark run on
 one real app per authorization library, each with a confirmed real bug)
-passed on Oct 19, 2026.
+passed on Oct 19, 2026. Phase 2 (the extractor) passed its gate on five
+apps on Oct 21, 2026.
 
-Not built yet (phase 3): shadow and sampled runtime modes, the graphql-ruby
-schema walk and tracing, and field-level mapping.
+Not built yet (phase 3): `hallmark watch`, which checks live stamps as they
+arrive; the graphql-ruby schema walk and tracing; field-level mapping and
+declared restrictions; list scopes; and stale access after revocation.
 The models for those live in `research/models`.
 
 ## Requirements
@@ -266,6 +270,41 @@ The report then adds:
 - **Not observed**: per rule, the fact combinations no test allowed or denied.
   These are coverage gaps, never findings: a counterexample is only ever
   built from a decision the app actually made.
+
+## Collecting from live requests
+
+The collectors can also run in staging or production. `HALLMARK_MODE=shadow`
+stamps every request, `HALLMARK_MODE=sampled` a share of them (1% unless
+`HALLMARK_SAMPLE` says otherwise), in any Rails environment. Whether a
+request is stamped is decided before any fact is read, so a request that is
+not costs well under a microsecond per decision; one that is costs a few
+microseconds of Hallmark's own work plus the mapping's readers (`rake
+bench`). Requests only queue events: a flusher thread dedupes them, and a
+full queue drops events rather than slow a request. The solver never runs
+in the app.
+
+Stamps go to `tmp/hallmark` unless the configuration names a sink:
+
+```ruby
+# config/hallmark.rb
+Hallmark.configure do |c|
+  c.sink = Hallmark::Sinks::RedisStream.new(Redis.new(url: ENV["HALLMARK_REDIS_URL"]))
+  # or any callable: c.sink = ->(line) { ShipIt.publish(line) }
+  c.map { ... }
+end
+```
+
+A live run is named after the deploy (a `REVISION` file in the app root,
+`HEROKU_SLUG_COMMIT` or `GIT_SHA`, unless `HALLMARK_RUN` names it), so every
+process of one deploy writes the same run, and the routes are recorded when
+Rails loads them, at boot for an eager-loading app.
+
+Stamps hold no ids. To trace a live finding back to a request, set
+`HALLMARK_IDS=on` and a key of 32 characters or more in `HALLMARK_ID_KEY`:
+the first time a process writes a stamp, it adds the user, record and
+current tenant it was seen with, each as an HMAC-SHA256 of `Class:id` under
+that key. Only someone holding the key can match them to records, and test
+mode refuses them (`docs/adr/0004-production-stamps.md`).
 
 ## RSpec matchers
 
@@ -532,8 +571,11 @@ from the stamp store down runs afterwards, in CI or on your machine.
 | `HALLMARK_SIDECAR_JAR` | path to the built sidecar | `~/.cache/hallmark/hallmark-solver-<digest>.jar` |
 | `HALLMARK_SIDECAR_HEAP` | sidecar heap cap, in MB | `512` |
 | `HALLMARK_STAMPS` | where collectors write stamps and `check` reads them | `tmp/hallmark` |
-| `HALLMARK_MODE` | `test` to collect in any Rails environment, `off` to never collect | collect in `test` only |
-| `HALLMARK_RUN` | run id in stamp file names, shared by parallel test workers; also the run `check` and the analysis `stamps` read from a stamp directory | a timestamp when writing; the newest run when reading |
+| `HALLMARK_MODE` | `test` to collect in any Rails environment, `shadow` or `sampled` to collect from live requests, `off` to never collect | collect in `test` only |
+| `HALLMARK_SAMPLE` | share of requests stamped, from 0 to 1 | `0.01` in `sampled`, else `1` |
+| `HALLMARK_IDS` | `on` to add hashed ids to the first occurrence of each stamp (`shadow` and `sampled` only) | off |
+| `HALLMARK_ID_KEY` | the HMAC key for those ids, 32 characters or more | none |
+| `HALLMARK_RUN` | run id in stamp file names, shared by parallel test workers; also the run `check` and the analysis `stamps` read from a stamp directory | a timestamp when writing (in `shadow` and `sampled`, the deploy's revision); the newest run when reading |
 | `HALLMARK_ROOT` | the app whose `app/policies` the extractor reads | the working directory; the Rails root under the Railtie; the mapping file's app for the CLI |
 | `HALLMARK_EXTRACT` | `off` to check stamps and hand-written guards only | on |
 
@@ -546,6 +588,7 @@ data/hallmark/catalog.als   the pattern catalog shipped with the gem
 lib/hallmark/               mapping, guards, model builder, solver clients, decoder
 solver/src/                 the solver sidecar (Java, built by `hallmark install-sidecar`)
 lib/hallmark/collectors/    runtime hooks for each authorization library and controllers
+lib/hallmark/sinks.rb       where stamps go: files, a Redis stream, a callable
 lib/hallmark/extractor/     reads policies, controllers and config/routes.rb with Prism
 lib/hallmark/rspec.rb       the RSpec matchers (`require "hallmark/rspec"`)
 rbi/                        Sorbet signatures for lib/ (no sorbet-runtime needed)
@@ -558,6 +601,7 @@ examples/storefront/        a Gumroad-shaped store with per-seller roles, buggy 
 research/models/            hand-written models for memberships, GraphQL,
                             DeclarativePolicy, revocation and role config
 test/                       unit tests (no Java) and integration tests
+bench/hot_path.rb           what the collectors add per decision (`rake bench`)
 docs/PLAN.md                the design plan and roadmap
 CLAUDE.md                   working notes for contributors and coding agents
 ```
@@ -569,6 +613,7 @@ bundle exec rake test
 bundle exec rubocop
 bundle exec srb tc                     # type-check lib/ against rbi/
 bundle exec rake fixtures:regenerate   # after changing the catalog or model builder
+bundle exec rake bench                 # the collectors' cost per decision, about 2 minutes
 bundle exec rspec examples/storefront/link_policy_spec.rb   # the matchers on the real solver
 ```
 

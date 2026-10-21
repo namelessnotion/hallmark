@@ -67,9 +67,9 @@ module Hallmark
 
       def active? = @active == true
 
-      # Whether to collect: the configured mode when set, else only in the
-      # test environment.
-      def enabled?(mode, environment) = mode ? mode == "test" : environment == "test"
+      # Whether to collect: the configured mode when set (test, shadow or
+      # sampled), else only in the test environment.
+      def enabled?(mode, environment) = mode ? Configuration::COLLECTING.include?(mode) : environment == "test"
 
       def flush = @store&.flush
 
@@ -146,10 +146,10 @@ module Hallmark
         store = @store
         return unless active? && facts && store
 
-        store.record(facts.stamp(
-                       policy: policy, rule: rule_name(rule), record: record, allowed: allowed ? true : false,
-                       raised: raised, enforced: enforced, entry_point: entry_point || current_request&.entry_point
-                     ))
+        stamp = facts.stamp(policy: policy, rule: rule_name(rule), record: record, allowed: allowed ? true : false,
+                            raised: raised, enforced: enforced,
+                            entry_point: entry_point || current_request&.entry_point)
+        record(store, stamp, facts, policy, record)
       rescue StandardError => e
         warn_once(e)
       end
@@ -170,6 +170,12 @@ module Hallmark
       end
 
       private
+
+      # Hands the stamp to the store, with the ids it was seen with when the
+      # store records them.
+      def record(store, stamp, facts, policy, record)
+        store.record(stamp, example: (facts.example(policy, record) if store.ids?))
+      end
 
       # A rate of 0 never samples: `rand` is never below it.
       def sample?
@@ -238,6 +244,15 @@ module Hallmark
         end
         stamp.current_roles = current_roles(stamp, user, current, roles)
         stamp
+      end
+
+      # The user, record and current tenant of a decision, as references
+      # the stamp store hashes (docs/adr/0004). Read again rather than kept
+      # from `stamp`: only stores that record ids ask, and the readers are
+      # the policy's own.
+      def example(policy, record)
+        Example.new(user: Example.ref(principal(policy)), record: (Example.ref(record) unless recordless?(record)),
+                    tenant: Example.ref(current_tenant(policy)))
       end
 
       private

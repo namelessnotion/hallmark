@@ -10,16 +10,27 @@ require "rbconfig"
 class RailtieTest < Minitest::Test
   APP = File.join(ROOT, "test", "support", "rails_app.rb")
   CONFIG = "Hallmark.configure { |config| config.map { Shop.map(self) } }\n"
+  ROUTES = <<~RUBY
+    Rails.application.routes.draw do
+      get "/links/:id" => "pundit_shop/links#show"
+      get "/links/:id/edit" => "pundit_shop/links#edit"
+    end
+  RUBY
 
   # `models` maps file names to sources written under the app's app/models,
   # which Rails autoloads (or eager loads with `eager_load: true`).
-  def boot(environment, mode: nil, config: CONFIG, models: {}, eager_load: false)
+  SHOP_ROUTES = %w[PunditShop::LinksController#show PunditShop::LinksController#edit].freeze
+
+  # `env` adds environment variables; `revision` writes a REVISION file.
+  def boot(environment, mode: nil, config: CONFIG, models: {}, eager_load: false, env: {}, revision: nil)
     Dir.mktmpdir("hallmark-app") do |root|
       FileUtils.mkdir_p(File.join(root, "config"))
       File.write(File.join(root, "config", "hallmark.rb"), config)
+      File.write(File.join(root, "config", "routes.rb"), ROUTES)
+      File.write(File.join(root, "REVISION"), revision) if revision
       write_models(root, models)
       env = { "RAILS_ENV" => environment, "HALLMARK_MODE" => mode, "HALLMARK_STAMPS" => nil, "HALLMARK_RUN" => nil,
-              "SHOP_EAGER_LOAD" => eager_load ? "1" : nil }
+              "HALLMARK_SAMPLE" => nil, "SHOP_EAGER_LOAD" => eager_load ? "1" : nil }.merge(env)
       output, error, status = Open3.capture3(env, RbConfig.ruby, "-I", File.join(ROOT, "lib"), APP, root)
       assert_predicate status, :success?, error
       JSON.parse(output.lines.last).merge("routes" => routes_after_exit(root))
@@ -93,10 +104,32 @@ class RailtieTest < Minitest::Test
     refute_nil result.fetch("mapped")
   end
 
+  # Shadow mode collects from live requests in any environment, names the
+  # run after the deploy, and records the routes at boot rather than exit.
+  def test_shadow_mode_collects_in_a_live_environment
+    result = boot("development", mode: "shadow", revision: "f3ef06a69\n")
+
+    assert result.fetch("active")
+    assert_equal [["PunditShop::LinksController#edit", "edit?", "allow"]], result.fetch("stamps")
+    assert_equal SHOP_ROUTES, result.fetch("routes_before_exit") & SHOP_ROUTES
+    assert_equal ["stamps-f3ef06a69"], result.fetch("files")
+  end
+
+  def test_sampled_mode_stamps_only_the_sampled_share
+    result = boot("development", mode: "sampled", env: { "HALLMARK_SAMPLE" => "0" })
+
+    assert result.fetch("active")
+    assert_empty result.fetch("stamps")
+    assert_empty result.fetch("unchecked")
+    assert_equal SHOP_ROUTES, result.fetch("routes_before_exit") & SHOP_ROUTES
+  end
+
   def test_enabled_by_mode_or_environment
     assert Hallmark::Collectors.enabled?(nil, "test")
     refute Hallmark::Collectors.enabled?(nil, "production")
     refute Hallmark::Collectors.enabled?("off", "test")
-    assert_raises(Hallmark::ConfigurationError) { Hallmark::Configuration.new.mode = "shadow" }
+    assert Hallmark::Collectors.enabled?("shadow", "production")
+    assert Hallmark::Collectors.enabled?("sampled", "production")
+    assert_raises(Hallmark::ConfigurationError) { Hallmark::Configuration.new.mode = "guard" }
   end
 end

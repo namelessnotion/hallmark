@@ -22,13 +22,29 @@ module Hallmark
     # Where collectors write stamps, relative to the app root.
     DEFAULT_STAMPS = "tmp/hallmark"
 
-    # Runtime modes (docs/PLAN.md, "Runtime modes and performance budget").
-    # Only `test` exists so far: collectors on, stamps from the test suite.
-    MODES = %w[test off].freeze
+    # Runtime modes (docs/PLAN.md, "Runtime modes and performance budget"):
+    # `test` collects from the test suite; `shadow` (staging, or production
+    # behind a flag) and `sampled` (production) collect from live requests,
+    # with a bounded queue, the routes recorded at boot, and ids when asked
+    # for; `off` never collects.
+    MODES = %w[test shadow sampled off].freeze
+    COLLECTING = %w[test shadow sampled].freeze
+    # The share of requests whose decisions `sampled` stamps, unless
+    # HALLMARK_SAMPLE or `c.sample_rate` says otherwise; the other modes
+    # stamp every one.
+    SAMPLED_RATE = 0.01
+    # Events a live process lets wait for the flusher before dropping them.
+    LIVE_CAPACITY = 10_000
+    # Characters an id key needs at least (`SecureRandom.hex(32)` gives 64).
+    ID_KEY_MIN = 32
+    # Where a deploy's revision is found, after HALLMARK_RUN: a REVISION file
+    # in the app root (Capistrano), then these variables.
+    REVISION_VARIABLES = %w[HEROKU_SLUG_COMMIT GIT_SHA].freeze
 
-    attr_accessor :alloy_jar, :java, :scope, :timeout, :sat_solver, :sidecar_heap, :stamps, :run, :root, :extract
-    attr_writer :sidecar_jar
-    attr_reader :mapping, :mode, :solver
+    attr_accessor :alloy_jar, :java, :scope, :timeout, :sat_solver, :sidecar_heap, :stamps, :run, :root, :extract,
+                  :id_key
+    attr_writer :sidecar_jar, :ids
+    attr_reader :mapping, :mode, :solver, :sample_rate, :sink
 
     def initialize
       @alloy_jar = ENV.fetch("HALLMARK_ALLOY_JAR") { default_jar_path }
@@ -56,6 +72,7 @@ module Hallmark
       @mapping = nil
       @mode = nil
       self.mode = ENV.fetch("HALLMARK_MODE", nil)
+      live_settings
     end
 
     # The app's mapping, which the collectors read facts through.
@@ -76,6 +93,77 @@ module Hallmark
       end
 
       @mode = value
+    end
+
+    # The share of requests (and of decisions outside a request) whose
+    # decisions are stamped, from 0 to 1; nil leaves it to the mode.
+    def sample_rate=(value)
+      unless value.nil? || (value.is_a?(Numeric) && value.between?(0, 1))
+        raise ConfigurationError, "sample_rate must be a number from 0 to 1, not #{value.inspect}"
+      end
+
+      @sample_rate = value&.to_f
+    end
+
+    def sample_rate_for(mode) = @sample_rate || (mode == "sampled" ? SAMPLED_RATE : 1.0)
+
+    # Where stamps go: nil for files under `stamps`, a sink
+    # (`Sinks::RedisStream.new(redis)`, anything with `write(line, run)`), or
+    # a callable taking the line (and the run).
+    def sink=(value)
+      @sink = Sinks.build(value)
+    end
+
+    def ids? = @ids == true
+
+    # The key ids are hashed with in `mode`, or nil when ids are off. Ids
+    # are for tracing live requests: test mode refuses them, so stamps in
+    # CI artifacts and fixtures stay id-free.
+    def id_key_for(mode)
+      return nil unless ids?
+      raise ConfigurationError, "ids are for the shadow and sampled modes, not #{mode}" unless live?(mode)
+
+      key = @id_key.to_s
+      return key if key.length >= ID_KEY_MIN
+
+      raise ConfigurationError, "ids need a key of at least #{ID_KEY_MIN} characters in HALLMARK_ID_KEY or " \
+                                "`c.id_key` (for example `SecureRandom.hex(32)`)"
+    end
+
+    # Whether `mode` collects from live requests rather than a test suite.
+    def live?(mode) = %w[shadow sampled].include?(mode)
+
+    # The run collectors write in `mode`: HALLMARK_RUN (`c.run`), else in
+    # the live modes the deploy's revision, so every process of a deploy
+    # writes the same run, else the time. Test runs are named by time, so
+    # each suite is a run of its own.
+    def write_run(mode, root)
+      named = run || (revision(root) if live?(mode))
+      return named.to_s.gsub(/[^A-Za-z0-9_]/, "_") if named
+
+      Time.now.utc.strftime("%Y%m%dT%H%M%S%LZ")
+    end
+
+    # The deploy's revision: a REVISION file in the app root, then
+    # REVISION_VARIABLES; nil when none is set.
+    def revision(root)
+      file = File.join(root.to_s, "REVISION")
+      if File.file?(file)
+        text = File.read(file).strip
+        return text unless text.empty?
+      end
+      REVISION_VARIABLES.each do |variable|
+        value = ENV.fetch(variable, "").strip
+        return value unless value.empty?
+      end
+      nil
+    end
+
+    # The store the collectors write through in `mode`: bounded in the live
+    # modes, through `sink`, hashing ids when they are on.
+    def stamp_store(mode, root)
+      StampStore.new(stamps, run: write_run(mode, root), capacity: (LIVE_CAPACITY if live?(mode)), sink: sink,
+                             id_key: id_key_for(mode))
     end
 
     # `:cli` or `:sidecar`. HALLMARK_SOLVER named the SAT solver before the
@@ -109,6 +197,20 @@ module Hallmark
 
     def cache_dir
       File.join(ENV.fetch("XDG_CACHE_HOME") { File.join(Dir.home, ".cache") }, "hallmark")
+    end
+
+    private
+
+    # What the live modes read: the sample rate, the sink, and hashed ids
+    # beside stamps (docs/adr/0004).
+    def live_settings
+      @sample_rate = nil
+      if (rate = ENV.fetch("HALLMARK_SAMPLE", nil))
+        self.sample_rate = Float(rate)
+      end
+      @sink = nil
+      @ids = ENV.fetch("HALLMARK_IDS", "off") == "on"
+      @id_key = ENV.fetch("HALLMARK_ID_KEY", nil)
     end
   end
 end

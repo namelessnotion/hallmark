@@ -2,7 +2,7 @@
 
 Phase 3 runs the collectors outside the test suite (shadow and sampled modes), where an operator who sees a counterexample needs to find the request behind it. Stamps hold no ids, and their value depends on that: equal decisions collapse into one stamp, so a busy app writes a handful of lines per entry point, and verification cost follows the number of distinct shapes, not traffic. Adding a user or record id to a stamp would make nearly every request a new stamp.
 
-So a stamp's key (every field it has today) stays id-free in every mode. When `c.ids` is on (off by default, refused in test mode, and requiring `c.id_key` or `HALLMARK_ID_KEY`), the first occurrence of a stamp in a process carries an `example`: the user, the record and the current tenant as HMAC-SHA256 hex digests under the per-environment key. Equality, deduplication and inference ignore the example; the report prints it beside a finding ("first seen as user h:ab12..., record h:cd34..."), and an operator holding the key can match it against the app's own ids.
+So a stamp's key (every field it has today) stays id-free in every mode. When `c.ids` is on (off by default, refused in test mode, and requiring `c.id_key` or `HALLMARK_ID_KEY`), the first occurrence of a stamp in a process carries an `example`: the user, the record and the current tenant as HMAC-SHA256 hex digests under the per-environment key. Equality, deduplication and inference ignore the example; `hallmark watch`, which knows the stamp behind each finding it reports, prints it beside the finding ("first seen as user h:ab12..., record h:cd34..."), and an operator holding the key can match it against the app's own ids.
 
 ## Considered options
 

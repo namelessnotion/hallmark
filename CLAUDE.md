@@ -27,8 +27,8 @@ done and phase 3 (runtime modes and GraphQL) is next, planned Oct 21, 2026
 ("Phase 3 (runtime and GraphQL)" below, `docs/PLAN.md` "Phase 3 plan"); phase
 2's plan is "Phase 2 (extractor)" below and `docs/PLAN.md` ("Roadmap", "Phase 2 plan"). The gate's
 two false-positive sources (op errors, two catalog gaps) were fixed Oct 21,
-2026 (Phase 2 step 7 below). Phase 3 step 1 (hot path and benchmark) was
-done Oct 21, 2026. The phase 1 gate's record is in
+2026 (Phase 2 step 7 below). Phase 3 steps 1 (hot path and benchmark) and
+2 (live modes, sinks, hashed ids) were done Oct 21, 2026. The phase 1 gate's record is in
 "Phase 1 (core gem): the gate" below. The first real-app run (original Gumroad on Pundit, Oct 16, 2026, not
 a gate app) is in "First run on original Gumroad" below. Gate runs so far:
 GitLab (DeclarativePolicy, Oct 17, 2026) and Forem (Pundit, Oct 18, 2026),
@@ -173,6 +173,19 @@ Built:
   Stamp in place and caches what the mapping fixes; `StampStore.new(capacity:)`
   drops and counts (`#dropped`) when full. Under 20 µs p99 per sampled
   decision on the test shop. `docs/PLAN.md` ("The shipped hot path").
+- Live modes (phase 3 step 2, Oct 21, 2026; `configuration.rb`,
+  `sinks.rb`, `example.rb`, `railtie.rb`): `HALLMARK_MODE=shadow|sampled`
+  collects in any environment, sampled by `HALLMARK_SAMPLE`
+  (`Configuration#sample_rate_for`), through a bounded store
+  (`#stamp_store`) whose flusher writes to a sink (`Sinks::File`,
+  `Sinks::RedisStream` over the app's client, a callable; `c.sink =`), in a
+  run named after the deploy (`#write_run`: `REVISION`, `HEROKU_SLUG_COMMIT`,
+  `GIT_SHA`). Routes are recorded on `after_routes_loaded` (Rails 7.1+; in
+  `after_initialize` the app cannot load them yet). Opt-in hashed ids
+  (`HALLMARK_IDS=on`, `HALLMARK_ID_KEY`, refused in test mode): an `Example`
+  of "Class:id" references, HMAC'd by the flusher onto a stamp's first line
+  only, read back as `StampSet#examples`. `docs/PLAN.md` ("The shipped live
+  modes"), `docs/adr/0004`.
 - Ownership without membership and public actions (Oct 21, 2026):
   `resource ..., owner_outside_tenant: true | :read | :write` (catalog
   `ownsOutsideTenant`, field `Resource.ownerOutside`), and `public_action
@@ -197,7 +210,7 @@ explicit permission on one record, for Gumroad's collaborators).
 bundle install
 bin/hallmark install-alloy                 # Alloy 6.2.0 to ~/.cache/hallmark, SHA-256 verified; needs Java 17+
 bin/hallmark install-sidecar               # also builds the sidecar jar (javac + jar from a JDK 17+); no extra download
-bundle exec rake test                      # 345 tests; the 25 integration tests skip without the jar or sidecar
+bundle exec rake test                      # 363 tests; the 25 integration tests skip without the jar or sidecar
 bundle exec rake bench                     # what the collectors add per decision (p50, p99, objects); about 2 min
 bundle exec rubocop                        # lint
 bundle exec srb tc                         # type-check lib/ against rbi/; `rake` runs tests, rubocop, then this
@@ -225,7 +238,8 @@ timestamp, so revert that.
 Settings come from the environment (`HALLMARK_ALLOY_JAR`, `HALLMARK_JAVA`,
 `HALLMARK_SCOPE`, `HALLMARK_TIMEOUT`, `HALLMARK_SOLVER`, `HALLMARK_SAT_SOLVER`,
 `HALLMARK_SIDECAR_JAR`, `HALLMARK_SIDECAR_HEAP`, `HALLMARK_STAMPS`,
-`HALLMARK_MODE`, `HALLMARK_RUN`, `HALLMARK_ROOT`, `HALLMARK_EXTRACT`) or
+`HALLMARK_MODE`, `HALLMARK_SAMPLE`, `HALLMARK_IDS`, `HALLMARK_ID_KEY`,
+`HALLMARK_RUN`, `HALLMARK_ROOT`, `HALLMARK_EXTRACT`) or
 `Hallmark.configure`. `HALLMARK_RUN` names the run the collectors write and
 (`c.run`) the run `hallmark check`, an analysis's `stamps` and the matchers'
 fallback read from a stamp directory; unset, they read the newest run in
@@ -519,7 +533,9 @@ phase, which stretches it to about 7 weeks. Steps, in order:
    own tail is noisier than Hallmark's cost. Numbers in `docs/PLAN.md`.
 2. Runtime modes `shadow` and `sampled`, sinks (file, Redis stream over the
    app's client, a callable), run named by deploy revision, opt-in HMAC ids
-   as a first-seen example outside the stamp's key.
+   as a first-seen example outside the stamp's key. Done Oct 21, 2026; live
+   routes are recorded on `after_routes_loaded`, and examples are printed
+   beside findings by `watch` (step 3), which knows the stamp behind one.
 3. `hallmark check --baseline` and `hallmark watch` (re-checks only
    exposures a new stamp changes, on a warm sidecar).
 4. Field-level mapping (`field_policy`) and `c.restrict` (threat 11).

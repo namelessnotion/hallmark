@@ -4,14 +4,6 @@ require "test_helper"
 
 # Picking a backend, and how a check with no verdict reads in a report.
 class SolverTest < Minitest::Test
-  def with_env(values)
-    saved = values.keys.to_h { |key| [key, ENV.fetch(key, nil)] }
-    values.each { |key, value| ENV[key] = value }
-    yield
-  ensure
-    saved&.each { |key, value| ENV[key] = value }
-  end
-
   # `true` and `false` stand in for java: the exit status decides.
   def test_java_runs_when_the_command_exits_zero
     assert Hallmark::Solver.java_runs?("true")

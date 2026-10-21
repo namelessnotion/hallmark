@@ -37,6 +37,23 @@ module Hallmark
     SOLVERS = T.let(T.unsafe(nil), T::Array[Symbol])
     SAT_SOLVERS = T.let(T.unsafe(nil), T::Array[String])
     MODES = T.let(T.unsafe(nil), T::Array[String])
+    COLLECTING = T.let(T.unsafe(nil), T::Array[String])
+    REVISION_VARIABLES = T.let(T.unsafe(nil), T::Array[String])
+
+    # The share of requests stamped; nil leaves it to the mode
+    sig { returns(T.nilable(Float)) }
+    attr_reader :sample_rate
+
+    # Where stamps go: nil for files under `stamps`
+    sig { returns(Sinks::Sink) }
+    attr_reader :sink
+
+    # The key ids are hashed with (HALLMARK_ID_KEY)
+    sig { returns(T.nilable(String)) }
+    attr_accessor :id_key
+
+    sig { params(ids: T::Boolean).returns(T::Boolean) }
+    attr_writer :ids
 
     # Directory the collectors write stamps to
     sig { returns(String) }
@@ -58,7 +75,7 @@ module Hallmark
     sig { returns(T.nilable(Mapping)) }
     attr_reader :mapping
 
-    # "test", "off", or nil to let the Railtie decide
+    # "test", "shadow", "sampled", "off", or nil to let the Railtie decide
     sig { returns(T.nilable(String)) }
     attr_reader :mode
 
@@ -79,7 +96,39 @@ module Hallmark
       @extract = T.let(T.unsafe(nil), T::Boolean)
       @mapping = T.let(T.unsafe(nil), T.nilable(Mapping))
       @mode = T.let(T.unsafe(nil), T.nilable(String))
+      @sample_rate = T.let(T.unsafe(nil), T.nilable(Float))
+      @sink = T.let(T.unsafe(nil), Sinks::Sink)
+      @ids = T.let(T.unsafe(nil), T::Boolean)
+      @id_key = T.let(T.unsafe(nil), T.nilable(String))
     end
+
+    # Untyped: the value comes from the app's configuration file, and is checked
+    sig { params(value: T.untyped).void }
+    def sample_rate=(value); end
+
+    sig { params(mode: String).returns(Float) }
+    def sample_rate_for(mode); end
+
+    sig { params(value: T.untyped).void }
+    def sink=(value); end
+
+    sig { returns(T::Boolean) }
+    def ids?; end
+
+    sig { params(mode: String).returns(T.nilable(String)) }
+    def id_key_for(mode); end
+
+    sig { params(mode: T.nilable(String)).returns(T::Boolean) }
+    def live?(mode); end
+
+    sig { params(mode: String, root: T.any(String, Pathname)).returns(String) }
+    def write_run(mode, root); end
+
+    sig { params(root: T.any(String, Pathname)).returns(T.nilable(String)) }
+    def revision(root); end
+
+    sig { params(mode: String, root: T.any(String, Pathname)).returns(StampStore) }
+    def stamp_store(mode, root); end
 
     sig { params(blk: T.proc.bind(Mapping).void).returns(Mapping) }
     def map(&blk); end
@@ -101,5 +150,10 @@ module Hallmark
 
     sig { returns(String) }
     def cache_dir; end
+
+    private
+
+    sig { void }
+    def live_settings; end
   end
 end

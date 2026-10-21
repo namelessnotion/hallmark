@@ -95,8 +95,8 @@ module Hallmark
     sig { returns(String) }
     def rule_key; end
 
-    sig { returns(String) }
-    def to_json_line; end
+    sig { params(example: T.nilable(Example)).returns(String) }
+    def to_json_line(example = nil); end
   end
 
   class Unchecked
@@ -147,6 +147,10 @@ module Hallmark
     sig { returns(T::Array[Unchecked]) }
     attr_reader :unchecked
 
+    # The hashed ids each stamp was first seen with, when ids were recorded
+    sig { returns(T::Hash[Stamp, Example]) }
+    attr_reader :examples
+
     sig { params(path: String, run: T.nilable(String)).returns(StampSet) }
     def self.load(path, run: nil); end
 
@@ -163,11 +167,22 @@ module Hallmark
     sig { params(lines: T::Array[String]).returns(StampSet) }
     def self.parse(lines); end
 
-    sig { params(stamps: T::Array[Stamp], unchecked: T::Array[Unchecked], routes: T::Array[Route]).void }
-    def initialize(stamps = [], unchecked = [], routes = [])
+    # A parsed JSON line
+    sig { params(data: T.untyped).returns(Stamp) }
+    def self.stamp(data); end
+
+    sig { params(data: T.untyped).returns(T.nilable(Example)) }
+    def self.example(data); end
+
+    sig do
+      params(stamps: T::Array[Stamp], unchecked: T::Array[Unchecked], routes: T::Array[Route],
+             examples: T::Hash[Stamp, Example]).void
+    end
+    def initialize(stamps = [], unchecked = [], routes = [], examples: {})
       @stamps = T.let(T.unsafe(nil), T::Array[Stamp])
       @unchecked = T.let(T.unsafe(nil), T::Array[Unchecked])
       @routes = T.let(T.unsafe(nil), T::Array[Route])
+      @examples = T.let(T.unsafe(nil), T::Hash[Stamp, Example])
     end
   end
 end
