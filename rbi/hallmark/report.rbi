@@ -8,25 +8,25 @@ module Hallmark
     sig { returns(T::Array[Finding]) }
     attr_reader :findings
 
-    # Exposures with no counterexample within scope
-    sig { returns(T::Array[Exposure]) }
+    # AnyExposures with no counterexample within scope
+    sig { returns(T::Array[AnyExposure]) }
     attr_reader :verified
 
     COMBINATIONS_SHOWN = T.let(T.unsafe(nil), Integer)
     ROUTES_SHOWN = T.let(T.unsafe(nil), Integer)
 
     class Unknown
-      sig { returns(Exposure) }
+      sig { returns(AnyExposure) }
       def exposure; end
 
       sig { returns(String) }
       def reason; end
 
-      sig { params(exposure: Exposure, reason: String).void }
+      sig { params(exposure: AnyExposure, reason: String).void }
       def initialize(exposure, reason); end
     end
 
-    # Exposures the solver gave no verdict for
+    # AnyExposures the solver gave no verdict for
     sig { returns(T::Array[Unknown]) }
     attr_reader :unknown
 
@@ -51,7 +51,7 @@ module Hallmark
     def initialize(analysis, receipt)
       @analysis = T.let(T.unsafe(nil), Analysis)
       @findings = T.let(T.unsafe(nil), T::Array[Finding])
-      @verified = T.let(T.unsafe(nil), T::Array[Exposure])
+      @verified = T.let(T.unsafe(nil), T::Array[AnyExposure])
       @unknown = T.let(T.unsafe(nil), T::Array[Unknown])
       @unchecked = T.let(T.unsafe(nil), T::Array[String])
       @drift = T.let(T.unsafe(nil), T::Array[Drift])
@@ -78,11 +78,17 @@ module Hallmark
     sig { params(finding: Finding).returns(T::Array[String]) }
     def self.finding_lines(finding); end
 
-    sig { params(exposure: Exposure, reason: String).returns(String) }
+    sig { params(exposure: AnyExposure, reason: String).returns(String) }
     def self.unknown_line(exposure, reason); end
 
-    sig { params(exposure: Exposure).returns(String) }
+    sig { params(exposure: AnyExposure).returns(String) }
     def self.ok_line(exposure); end
+
+    sig { params(lint: Extractor::DeclarativeTranslator::Lint).returns(String) }
+    def self.hazard(lint); end
+
+    sig { params(analysis: Analysis).returns(T::Array[Extractor::DeclarativeTranslator::Lint]) }
+    def self.lints_of(analysis); end
 
     sig { params(finding: Finding).returns(T::Array[String]) }
     def finding_lines(finding); end
@@ -101,6 +107,15 @@ module Hallmark
 
     sig { returns(T::Array[String]) }
     def field_lines; end
+
+    sig { returns(T::Array[String]) }
+    def trailer_lines; end
+
+    sig { returns(T::Array[String]) }
+    def graphql_lines; end
+
+    sig { params(title: String, items: T::Array[String]).returns(T::Array[String]) }
+    def note_lines(title, items); end
 
     sig { params(item: Drift).returns(T::Array[String]) }
     def self.drift_lines(item); end
@@ -137,7 +152,7 @@ module Hallmark
 
     private
 
-    sig { params(exposure: Exposure, receipt: Receipt).void }
+    sig { params(exposure: AnyExposure, receipt: Receipt).void }
     def read(exposure, receipt); end
   end
 end

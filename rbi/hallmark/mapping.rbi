@@ -164,6 +164,20 @@ module Hallmark
       def initialize(current_user: nil, current_tenant: nil); end
     end
 
+    class GraphqlType
+      sig { returns(String) }
+      def name; end
+
+      sig { returns(T.nilable(String)) }
+      def resource; end
+
+      sig { returns(T::Boolean) }
+      def crosses_tenants; end
+
+      sig { params(name: String, resource: T.nilable(String), crosses_tenants: T::Boolean).void }
+      def initialize(name:, resource:, crosses_tenants:); end
+    end
+
     class Tenancy
       sig { returns(String) }
       def name; end
@@ -275,6 +289,10 @@ module Hallmark
     sig { returns(T.nilable(GraphqlContext)) }
     attr_reader :graphql_context
 
+    # graphql_type declarations by type class name
+    sig { returns(T::Hash[String, GraphqlType]) }
+    attr_reader :graphql_types
+
     sig { returns(T::Array[Grant]) }
     attr_reader :grants
 
@@ -311,6 +329,7 @@ module Hallmark
       @field_policies = T.let(T.unsafe(nil), T::Hash[String, FieldPolicy])
       @restrictions = T.let(T.unsafe(nil), T::Hash[String, Restriction])
       @graphql_context = T.let(T.unsafe(nil), T.nilable(GraphqlContext))
+      @graphql_types = T.let(T.unsafe(nil), T::Hash[String, GraphqlType])
     end
 
     sig do
@@ -350,7 +369,7 @@ module Hallmark
     end
     def restrict(name, &block); end
 
-    sig { params(exposure: Exposure).returns(T::Array[Restriction]) }
+    sig { params(exposure: AnyExposure).returns(T::Array[Restriction]) }
     def restrictions_for(exposure); end
 
     # Grants, platform roles, the `self:` role and the roles field policies check
@@ -386,6 +405,12 @@ module Hallmark
 
     sig { params(current_user: T.nilable(Proc), current_tenant: T.nilable(Proc)).returns(GraphqlContext) }
     def graphql(current_user: nil, current_tenant: nil); end
+
+    sig do
+      params(name: T.any(String, T::Module[T.anything]), resource: T.nilable(T.any(String, T::Module[T.anything])),
+             crosses_tenants: T::Boolean).returns(GraphqlType)
+    end
+    def graphql_type(name, resource: nil, crosses_tenants: false); end
 
     sig { params(names: T.any(String, Symbol)).returns(T::Array[String]) }
     def platform_role(*names); end

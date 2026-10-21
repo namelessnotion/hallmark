@@ -35,7 +35,7 @@ module Hallmark
       sig { params(finding: Finding, example: T.nilable(Example)).returns(Event) }
       def self.finding(finding, example); end
 
-      sig { params(exposure: Exposure).returns(Event) }
+      sig { params(exposure: AnyExposure).returns(Event) }
       def self.resolved(exposure); end
 
       sig { params(item: Report::Unknown).returns(Event) }
@@ -47,7 +47,7 @@ module Hallmark
       sig { params(item: Drift).returns(Event) }
       def self.drift(item); end
 
-      sig { params(exposure: Exposure).returns(T::Hash[String, String]) }
+      sig { params(exposure: AnyExposure).returns(T::Hash[String, String]) }
       def self.exposure_data(exposure); end
 
       sig { params(example: Example).returns(String) }
@@ -143,7 +143,7 @@ module Hallmark
       sig { params(lines: T::Array[String]).returns(T::Array[Stamp]) }
       def fold(lines); end
 
-      sig { params(exposure: Exposure).returns(T.nilable(Example)) }
+      sig { params(exposure: AnyExposure).returns(T.nilable(Example)) }
       def example_for(exposure); end
 
       private
@@ -218,19 +218,19 @@ module Hallmark
     sig { params(baseline: Baseline, stale: T::Array[String]).void }
     def seed(baseline, stale); end
 
-    sig { params(exposure: Exposure, fresh: T::Array[Stamp]).returns(T::Boolean) }
+    sig { params(exposure: AnyExposure, fresh: T::Array[Stamp]).returns(T::Boolean) }
     def changed?(exposure, fresh); end
 
-    sig { params(changed: T::Array[Exposure]).returns(T.nilable(Report)) }
+    sig { params(changed: T::Array[AnyExposure]).returns(T.nilable(Report)) }
     def check(changed); end
 
-    sig { params(batch: Batch, changed: T::Array[Exposure], report: T.nilable(Report)).void }
+    sig { params(batch: Batch, changed: T::Array[AnyExposure], report: T.nilable(Report)).void }
     def verdicts(batch, changed, report); end
 
     sig { params(batch: Batch, finding: Finding, digests: T::Hash[String, String]).void }
     def found(batch, finding, digests); end
 
-    sig { params(batch: Batch, exposure: Exposure, digests: T::Hash[String, String]).void }
+    sig { params(batch: Batch, exposure: AnyExposure, digests: T::Hash[String, String]).void }
     def passed(batch, exposure, digests); end
 
     sig { params(inference: Inference).returns(T::Array[Event]) }

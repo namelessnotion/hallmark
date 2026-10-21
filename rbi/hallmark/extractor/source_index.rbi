@@ -67,6 +67,29 @@ module Hallmark
         def arity_zero?; end
       end
 
+      class Call
+        sig { returns(Prism::CallNode) }
+        def node; end
+
+        sig { returns(String) }
+        def file; end
+
+        sig { returns(String) }
+        def owner; end
+
+        sig { params(node: Prism::CallNode, file: String, owner: String).void }
+        def initialize(node:, file:, owner:); end
+
+        sig { returns(Symbol) }
+        def name; end
+
+        sig { returns(T::Array[Prism::Node]) }
+        def arguments; end
+
+        sig { returns(String) }
+        def location; end
+      end
+
       class PreCheck
         sig { returns(String) }
         def name; end
@@ -147,7 +170,8 @@ module Hallmark
         sig { returns(T::Array[String]) }
         def overrides; end
 
-        # EE modules prepend_mod_with adds ("EE::ProjectPolicy")
+        # EE modules prepend_mod_with adds ("EE::ProjectPolicy"), and modules
+        # `prepend` names as written
         sig { returns(T::Array[String]) }
         def prepends; end
 
@@ -158,6 +182,17 @@ module Hallmark
         sig { params(value: T.nilable(T::Boolean)).returns(T.nilable(T::Boolean)) }
         def module=(value); end
 
+        # Receiverless calls in the class body, as written
+        sig { returns(T::Array[Call]) }
+        def calls; end
+
+        # Where the class or module is first opened ("app/graphql/types/x.rb:3")
+        sig { returns(T.nilable(String)) }
+        def location; end
+
+        sig { params(value: T.nilable(String)).returns(T.nilable(String)) }
+        def location=(value); end
+
         sig do
           params(name: String, superclass: T.nilable(String), namespace: T::Array[String],
                  defs: T::Hash[String, Method], includes: T::Array[String], aliases: T::Hash[String, String],
@@ -166,11 +201,12 @@ module Hallmark
                  singletons: T::Hash[String, Prism::DefNode], callbacks: T::Array[Callback],
                  constants: T::Hash[String, Prism::Node], conditions: T::Hash[String, Condition],
                  dp_rules: T::Array[DpRule], delegates: T::Array[Delegate], overrides: T::Array[String],
-                 prepends: T::Array[String], module: T.nilable(T::Boolean)).void
+                 prepends: T::Array[String], module: T.nilable(T::Boolean), calls: T::Array[Call],
+                 location: T.nilable(String)).void
         end
         def initialize(name:, superclass:, namespace:, defs:, includes:, aliases:, default_rule:, pre_checks:,
                        skipped_pre_checks:, attributes:, singletons:, callbacks:, constants:, conditions:, dp_rules:,
-                       delegates:, overrides:, prepends:, module: nil); end
+                       delegates:, overrides:, prepends:, module: nil, calls: [], location: nil); end
       end
 
       sig { returns(String) }
@@ -192,6 +228,9 @@ module Hallmark
 
       sig { params(name: String, seen: T::Array[String]).returns(T::Array[String]) }
       def collect_ancestors(name, seen); end
+
+      sig { params(scope: Scope).returns(T::Array[String]) }
+      def prepended_modules(scope); end
 
       sig { params(name: String).returns(T::Boolean) }
       def action_policy?(name); end
@@ -220,6 +259,12 @@ module Hallmark
       sig { params(class_name: String).returns(T::Array[Callback]) }
       def callbacks(class_name); end
 
+      sig { params(class_name: String).returns(T::Array[Call]) }
+      def calls(class_name); end
+
+      sig { params(class_name: String, base: String).returns(T::Boolean) }
+      def inherits?(class_name, base); end
+
       sig { params(class_name: String, callback: Callback, action: String).returns(T::Boolean) }
       def applies?(class_name, callback, action); end
 
@@ -242,6 +287,9 @@ module Hallmark
 
       sig { params(scope: Scope, node: Prism::DefNode, file: String, visibility: Symbol).void }
       def define(scope, node, file, visibility); end
+
+      sig { params(scope: Scope, node: Prism::DefNode, file: String).returns(Prism::DefNode) }
+      def define_singleton(scope, node, file); end
 
       VISIBILITIES = T.let(T.unsafe(nil), T::Array[Symbol])
 
@@ -275,8 +323,14 @@ module Hallmark
       sig { params(class_name: String, name: String).returns(T.nilable(Prism::Node)) }
       def constant(class_name, name); end
 
-      sig { params(scope: Scope, node: T.nilable(Prism::Node)).void }
-      def singleton_body(scope, node); end
+      sig { params(scope: Scope, node: T.nilable(Prism::Node), file: String).void }
+      def singleton_body(scope, node, file); end
+
+      sig { params(scope: Scope, name: Symbol, args: T::Array[Prism::Node]).void }
+      def mixin(scope, name, args); end
+
+      sig { params(scope: Scope, call: Prism::CallNode, file: String).void }
+      def record_call(scope, call, file); end
 
       sig { params(scope: Scope, args: T::Array[Prism::Node]).void }
       def class_attribute(scope, args); end

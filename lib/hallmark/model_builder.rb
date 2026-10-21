@@ -32,7 +32,7 @@ module Hallmark
     end
 
     def source
-      sections = [header, tenancy, roles, resources, permits, owner_outside, grants, exposures]
+      sections = [header, tenancy, roles, resources, permits, owner_outside, grants, exposures, graphql]
       sections.reject(&:empty?).join("\n\n") << "\n"
     end
 
@@ -115,13 +115,14 @@ module Hallmark
 
     def role_names
       names = @analysis.exposures.flat_map { |exposure| exposure.guard.roles }
+      names += graphql_guards.flat_map(&:roles)
       names += mapping.declared_roles
       names += mapping.restrictions.values.flat_map(&:roles)
       names.uniq.sort
     end
 
     def checks_admin?
-      guards = @analysis.exposures.map(&:guard) + mapping.field_policies.values.map(&:guard)
+      guards = @analysis.exposures.map(&:guard) + mapping.field_policies.values.map(&:guard) + graphql_guards
       guards.any? { |guard| guard.leaves.any? { |leaf| leaf.kind == :admin } }
     end
 
@@ -140,18 +141,26 @@ module Hallmark
       end.join("\n\n")
     end
 
-    def resources
+    # The resources the model declares: those of the exposures, grants and
+    # the GraphQL model's types.
+    def used_resources
       used = (@analysis.exposures.map(&:resource) + mapping.grants.map(&:resource)).uniq
-      mapping.resources.values.select { |resource| used.include?(resource.name) }.map do |resource|
-        declaration = "sig #{resource.alloy_sig} extends Resource {}"
+      used |= graphql_model&.resources || []
+      mapping.resources.values.select { |resource| used.include?(resource.name) }
+    end
+
+    # A resource's signature, with the GraphQL model's relations on it.
+    def resources
+      used_resources.map do |resource|
+        fields = graphql_model&.relations_of(resource.name) || []
+        declaration = "sig #{resource.alloy_sig} extends Resource {#{" #{fields.join(", ")} " if fields.any?}}"
         [resource_comment(resource), declaration, *resource_facts(resource)].join("\n")
       end.concat(flags).join("\n\n")
     end
 
     # The record flags section (`FlagModel`).
     def flags
-      used = (@analysis.exposures.map(&:resource) + mapping.grants.map(&:resource)).uniq
-      source = FlagModel.new(mapping.resources.values.select { |resource| used.include?(resource.name) }).source
+      source = FlagModel.new(used_resources).source
       source ? [source] : []
     end
 
@@ -209,8 +218,7 @@ module Hallmark
     def permits
       return "fact no_permits { no Permit }" if mapping.resources.values.none?(&:permits?)
 
-      used = (@analysis.exposures.map(&:resource) + mapping.grants.map(&:resource)).uniq
-      without = mapping.resources.values.select { |resource| used.include?(resource.name) && !resource.permits? }
+      without = used_resources.reject(&:permits?)
       without.map { |resource| "fact #{resource.alloy_sig}_has_no_permits { no target.#{resource.alloy_sig} }" }
              .join("\n")
     end
@@ -221,9 +229,7 @@ module Hallmark
       resources = mapping.resources.values
       return "fact owners_need_membership { no ownerOutside }" if resources.all? { |r| r.owner_outside_ops.empty? }
 
-      used = (@analysis.exposures.map(&:resource) + mapping.grants.map(&:resource)).uniq
-      resources.select { |resource| used.include?(resource.name) }.map { |resource| owner_outside_fact(resource) }
-               .join("\n")
+      used_resources.map { |resource| owner_outside_fact(resource) }.join("\n")
     end
 
     def owner_outside_fact(resource)
@@ -237,7 +243,54 @@ module Hallmark
     def op_sig(op) = op == :read ? "Read" : "Write"
 
     def exposures
-      @analysis.exposures.map { |exposure| exposure_block(exposure) }.join("\n\n")
+      @analysis.exposures.filter_map { |exposure| exposure_block(exposure) if exposure.is_a?(Exposure) }.join("\n\n")
+    end
+
+    # The GraphQL checks' model (`GraphqlModel`), shared by its checks: one
+    # per analysis, from the schema its checks were read from.
+    def graphql_model = @analysis.exposures.grep(GraphqlCheck).first&.graph
+
+    def graphql_guards = graphql_model&.guards&.map(&:first) || []
+
+    # The GraphQL reachability section and one check per GraphQL check.
+    def graphql
+      model = graphql_model
+      return "" unless model
+
+      tenancy = !mapping.tenancy.nil?
+      checks = @analysis.exposures.grep(GraphqlCheck).map { |check| graphql_block(check, model, tenancy) }
+      [model.source(tenancy), *checks].join("\n\n")
+    end
+
+    # Every object of the type a viewer reaches must be readable by the
+    # catalog; for a field, wherever its own check passes, its policy and
+    # the restrictions covering it must hold.
+    def graphql_block(check, model, tenancy)
+      if check.field
+        comment, formula = field_intended(check)
+        body = "#{model.field_read(check, tenancy)} implies #{formula}"
+      else
+        comment, body = intended(check, "Read")
+      end
+      <<~ALS.chomp
+        -- #{check.action}: read #{check.target}, guard: #{check.guard}#{comment}
+        assert #{check.check_name} {
+          all #{model.quantifier(check, tenancy)} | #{body}
+        }
+        check #{check.check_name} #{scope_clause}
+      ALS
+    end
+
+    def field_intended(check)
+      policy = mapping.field_policy_for(check.resource, check.field) ||
+               raise(ConfigurationError, "#{check.action} has no field policy")
+      comments = "\n-- field policy: #{policy.key} readable where #{policy.guard}"
+      conjuncts = [policy.guard.to_alloy("Read")]
+      mapping.restrictions_for(check).each do |restriction|
+        comments += "\n-- restriction #{restriction.name.inspect}: #{restriction.covering(check).join("; ")}"
+        conjuncts << restriction.negation(check, mapping.platform_roles)
+      end
+      [comments, conjuncts.size == 1 ? conjuncts.first : "(#{conjuncts.join(" and ")})"]
     end
 
     # Guards in a tenant-aware model also see the current tenant `cur`, so

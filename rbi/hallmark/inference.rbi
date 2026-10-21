@@ -61,11 +61,16 @@ module Hallmark
     sig { returns(T::Array[Unit]) }
     attr_reader :units
 
-    sig { returns(T::Array[Exposure]) }
+    # The entry points' exposures, then the GraphQL checks
+    sig { returns(T::Array[AnyExposure]) }
     attr_reader :exposures
 
     sig { returns(T.nilable(Extractor)) }
     attr_reader :extractor
+
+    # The app's GraphQL model, when it has app/graphql
+    sig { returns(T.nilable(GraphqlModel)) }
+    attr_reader :graphql
 
     sig { returns(Coverage) }
     attr_reader :coverage
@@ -96,12 +101,16 @@ module Hallmark
       @ops = T.let(T.unsafe(nil), Ops)
       @coverage = T.let(T.unsafe(nil), Coverage)
       @units = T.let(T.unsafe(nil), T::Array[Unit])
-      @exposures = T.let(T.unsafe(nil), T::Array[Exposure])
+      @exposures = T.let(T.unsafe(nil), T::Array[AnyExposure])
+      @graphql = T.let(T.unsafe(nil), T.nilable(GraphqlModel))
       @unchecked = T.let(T.unsafe(nil), T::Array[String])
       @drift = T.let(T.unsafe(nil), T::Array[Drift])
     end
 
     private
+
+    sig { returns(T::Array[GraphqlCheck]) }
+    def graphql_checks; end
 
     sig { params(entry_point: String, resource: String).returns(T.nilable(String)) }
     def scoped_load(entry_point, resource); end
@@ -139,7 +148,7 @@ module Hallmark
     sig { params(sets: T::Array[T::Array[Guard]]).returns(T::Array[T::Array[Guard]]) }
     def minimal(sets); end
 
-    sig { returns(T::Array[Exposure]) }
+    sig { returns(T::Array[AnyExposure]) }
     def build_exposures; end
 
 

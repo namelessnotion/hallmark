@@ -14,7 +14,9 @@ module Hallmark
     # roles the principal holds in it.
     TenantRoles = Struct.new(:tenant, :user, :roles, keyword_init: true)
 
-    attr_reader :exposure, :principal, :record, :owner, :roles, :current_tenant, :record_tenant, :flags
+    # `path` is, for a GraphQL check, the query a client would send to
+    # reach the witness (`GraphqlModel#path`); nil otherwise.
+    attr_reader :exposure, :principal, :record, :owner, :roles, :current_tenant, :record_tenant, :flags, :path
 
     def self.from(exposure, instance, mapping)
       check = exposure.check_name
@@ -34,7 +36,8 @@ module Hallmark
         record_tenant: tenant_roles(instance, principal, instance.field(record, "tenant").first),
         flags: mapping.fetch(exposure.resource).flags.to_h do |name|
           [name, instance.sources(Naming.flag_field(name), record).any?]
-        end
+        end,
+        path: exposure.is_a?(GraphqlCheck) ? exposure.path(instance) : nil
       )
     end
 
@@ -64,7 +67,7 @@ module Hallmark
     def self.role_name(atom) = Naming.atom(atom).sub(/\$\d+\z/, "").delete_prefix("Role_")
 
     def initialize(exposure:, mapping:, principal:, record:, owner:, roles:, current_tenant: nil, record_tenant: nil,
-                   flags: {})
+                   flags: {}, path: nil)
       @exposure = exposure
       @mapping = mapping
       @resource = mapping.fetch(exposure.resource)
@@ -75,6 +78,7 @@ module Hallmark
       @current_tenant = current_tenant
       @record_tenant = record_tenant
       @flags = flags
+      @path = path
     end
 
     def anonymous? = Naming.atom(principal).start_with?("Anonymous")
@@ -142,6 +146,7 @@ module Hallmark
       if (narrowed = narrowing_hint)
         return narrowed
       end
+      return graphql_hint if exposure.is_a?(GraphqlCheck)
       return public_hint if anonymous?
       return owner_hint if owner_outside?
       if cross_tenant?
@@ -198,6 +203,7 @@ module Hallmark
       return "Explicit permission on a record" if guard.permits?
       return "Ownership" if @resource.owned?
       return ROLE_GRANT if guard.roles.any?
+      return ROLE_GRANT if exposure.is_a?(GraphqlCheck) && @mapping.grants.any? { |g| g.resource == @resource.name }
 
       "Public actions"
     end
@@ -208,6 +214,25 @@ module Hallmark
       target = record_tenant
       own_record? && !target.nil? && target.roles.empty? && @resource.owner_outside_ops.empty? &&
         exposure.guard.leaves.any? { |leaf| leaf.kind == :owner }
+    end
+
+    # Every way to an object of a GraphQL type passes the type's
+    # `authorized?`, so that is where a check closes all of them; or the
+    # access is intended, and the map block should say so.
+    def graphql_hint
+      key = exposure.rules&.first.to_s
+      where = exposure.locations&.first
+      "every way to #{a_resource} through GraphQL passes #{key.sub("#", ".")}#{" (#{where})" if where}; check the " \
+        "object there, or if this is intended, declare it in the map block: #{graphql_declarations(key).join(" / ")}"
+    end
+
+    # A grant for each role the witness holds in the record's tenant, else
+    # a public action on the type check.
+    def graphql_declarations(key)
+      held = record_tenant&.roles || []
+      return held.map { |role| "grant :#{role}, :read, \"#{exposure.resource}\"" } unless anonymous? || held.empty?
+
+      ["public_action \"#{key.split("#").first}\", :authorized?#{", audience: :signed_in" unless anonymous?}"]
     end
 
     def owner_hint

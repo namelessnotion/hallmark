@@ -15,17 +15,17 @@ module Hallmark
     def self.build(name, &blk); end
 
     # The denials whose resource, op and fields cover the exposure
-    sig { params(exposure: Exposure).returns(T::Array[Denial]) }
+    sig { params(exposure: AnyExposure).returns(T::Array[Denial]) }
     def covering(exposure); end
 
-    sig { params(exposure: Exposure).returns(T::Boolean) }
+    sig { params(exposure: AnyExposure).returns(T::Boolean) }
     def covers?(exposure); end
 
     sig { returns(T::Array[String]) }
     def roles; end
 
     # "(not (...))" over the covering denials, for the exposure's check
-    sig { params(exposure: Exposure, platform_roles: T::Array[String]).returns(String) }
+    sig { params(exposure: AnyExposure, platform_roles: T::Array[String]).returns(String) }
     def negation(exposure, platform_roles); end
 
     sig { params(mapping: Mapping).void }
@@ -56,7 +56,7 @@ module Hallmark
       end
       def initialize(role:, ops:, resource:, fields: nil, condition: nil); end
 
-      sig { params(exposure: Exposure).returns(T::Boolean) }
+      sig { params(exposure: AnyExposure).returns(T::Boolean) }
       def covers?(exposure); end
 
       sig { params(platform_roles: T::Array[String]).returns(String) }

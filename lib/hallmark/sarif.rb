@@ -31,7 +31,9 @@ module Hallmark
     end
 
     # The rules, in the order the log lists them.
-    def self.rules
+    def self.rules = core_rules + graphql_rules
+
+    def self.core_rules
       [
         Rule.new(id: "hallmark/counterexample", short: "Access no catalog pattern allows",
                  help: "The guard lets a principal reach a record in a way no access pattern in the catalog " \
@@ -45,7 +47,21 @@ module Hallmark
                  help: "A DeclarativePolicy condition is cached at a scope that leaves out what its body reads, " \
                        "so one user's or subject's answer is reused for another."),
         Rule.new(id: "hallmark/D4", short: "Ruby boolean operator in a rule block",
-                 help: "DeclarativePolicy conditions are objects, so &&, || and ! do not combine them; use &, | and ~.")
+                 help: "DeclarativePolicy conditions are objects, so &&, || and ! do not combine them; " \
+                       "use &, | and ~.")
+      ]
+    end
+
+    def self.graphql_rules
+      [
+        Rule.new(id: "hallmark/G4", short: "GraphQL mutation checked late or not at all",
+                 help: "A mutation has no ready?, authorized? or authorize of its own and authorizes nothing in " \
+                       "resolve, is mounted with Action Policy's authorize: (which runs after it executed), or " \
+                       "overrides a load_ method so the loaded object's type check never runs."),
+        Rule.new(id: "hallmark/G5", short: "GraphQL scope switched off",
+                 help: "A list field sets scope: false, or a type turns off reauthorize_scoped_objects with a " \
+                       "scope_items that reads no tenant, so list members are not checked as the type's own " \
+                       "objects are.")
       ]
     end
 
@@ -81,7 +97,9 @@ module Hallmark
       exposure = finding.exposure
       hint = finding.hint
       intended = finding.intended
-      text = "#{exposure.action} (#{exposure.op} #{exposure.target}): #{finding.message}. " \
+      path = finding.path
+      text = "#{exposure.action} (#{exposure.op} #{exposure.target}): #{finding.message}." \
+             "#{" Path: #{path}." if path} " \
              "Intended pattern: #{finding.pattern}.#{" Intended: #{intended}." if intended}" \
              "#{" #{hint[0].to_s.upcase}#{hint[1..]}." if hint}"
       result("hallmark/counterexample", text, exposure.locations || [], exposure.check_name)

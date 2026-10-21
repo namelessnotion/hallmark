@@ -80,7 +80,8 @@ module Hallmark
 
     # nil is unknown
     sig do
-      params(facts: T.any(StampFacts, WitnessFacts, T::Hash[Guard, T::Boolean])).returns(T.nilable(T::Boolean))
+      params(facts: T.any(StampFacts, WitnessFacts, GraphqlModel::Facts, T::Hash[Guard, T::Boolean]))
+        .returns(T.nilable(T::Boolean))
     end
     def evaluate(facts); end
 

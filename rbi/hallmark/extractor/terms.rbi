@@ -55,8 +55,14 @@ module Hallmark
       sig { params(node: Prism::CallNode).returns(String) }
       def call(node); end
 
+      sig { params(node: Prism::CallNode, receiver: Prism::Node).returns(T.nilable(String)) }
+      def operator(node, receiver); end
+
       sig { params(node: Prism::CallNode).returns(T.nilable(String)) }
       def reader(node); end
+
+      sig { params(text: String).returns(String) }
+      def renamed(text); end
 
       sig { params(node: Prism::CallNode).returns(T::Array[String]) }
       def arguments(node); end

@@ -31,6 +31,7 @@ module Hallmark
   # (`Mapping#field_policy`); nil for the whole record.
   Exposure = Struct.new(:action, :op, :resource, :guard, :basis, :locations, :rules, :field,
                         keyword_init: true) do
+    def graphql? = false
     def check_name = "safe_#{name_suffix}"
     def predicate_name = "allows_#{name_suffix}"
 

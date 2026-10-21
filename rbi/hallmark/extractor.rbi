@@ -55,8 +55,11 @@ module Hallmark
       @mapping = T.let(T.unsafe(nil), Mapping)
       @root = T.let(T.unsafe(nil), String)
       @index = T.let(T.unsafe(nil), SourceIndex)
+      @terms = T.let(T.unsafe(nil), Terms)
       @translator = T.let(T.unsafe(nil), MethodTranslator)
       @declarative = T.let(T.unsafe(nil), DeclarativeTranslator)
+      @graphql = T.let(T.unsafe(nil), T.nilable(GraphqlSchema))
+      @graphql_read = T.let(T.unsafe(nil), T::Boolean)
       @cache = T.let(T.unsafe(nil), T::Hash[String, T.nilable(Extracted)])
       @controllers = T.let(T.unsafe(nil), T.nilable(Controllers))
       @grape = T.let(T.unsafe(nil), T.nilable(GrapeEndpoints))
@@ -72,6 +75,15 @@ module Hallmark
 
     sig { returns(Controllers) }
     def controllers; end
+
+    sig { returns(T.nilable(GraphqlSchema)) }
+    def graphql; end
+
+    sig { params(resource: String, ability: String).returns(T.nilable(Guard)) }
+    def ability_guard(resource, ability); end
+
+    sig { params(resource: String, rule: String, policy: T.nilable(String)).returns(T.nilable(Guard)) }
+    def rule_guard(resource, rule, policy = nil); end
 
     sig { returns(T::Array[Extracted]) }
     def rules; end

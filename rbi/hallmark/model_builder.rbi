@@ -7,13 +7,13 @@ module Hallmark
       def source; end
 
       # Exposures keyed by check name
-      sig { returns(T::Hash[String, Exposure]) }
+      sig { returns(T::Hash[String, AnyExposure]) }
       def checks; end
 
       sig { returns(Analysis) }
       def analysis; end
 
-      sig { params(source: String, checks: T::Hash[String, Exposure], analysis: Analysis).void }
+      sig { params(source: String, checks: T::Hash[String, AnyExposure], analysis: Analysis).void }
       def initialize(source:, checks:, analysis:); end
     end
 
@@ -61,6 +61,9 @@ module Hallmark
     sig { returns(String) }
     def grants; end
 
+    sig { returns(T::Array[Mapping::Resource]) }
+    def used_resources; end
+
     sig { returns(String) }
     def resources; end
 
@@ -97,12 +100,28 @@ module Hallmark
     sig { params(exposure: Exposure).returns(String) }
     def exposure_block(exposure); end
 
+    sig { returns(T.nilable(GraphqlModel)) }
+    def graphql_model; end
+
+    sig { returns(T::Array[Guard]) }
+    def graphql_guards; end
+
+    sig { returns(String) }
+    def graphql; end
+
+    sig { params(check: GraphqlCheck, model: GraphqlModel, tenancy: T::Boolean).returns(String) }
+    def graphql_block(check, model, tenancy); end
+
+    # The comment and the field's policy AND the restrictions covering it
+    sig { params(check: GraphqlCheck).returns([String, String]) }
+    def field_intended(check); end
+
     # The model comment and the formula the exposure's guard must imply
-    sig { params(exposure: Exposure, op: String).returns([String, String]) }
+    sig { params(exposure: AnyExposure, op: String).returns([String, String]) }
     def intended(exposure, op); end
 
     # The catalog's `allowed`, or that OR the public action, with its comment
-    sig { params(exposure: Exposure, op: String).returns([String, String]) }
+    sig { params(exposure: AnyExposure, op: String).returns([String, String]) }
     def record_intended(exposure, op); end
   end
 end

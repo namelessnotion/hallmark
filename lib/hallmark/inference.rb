@@ -32,6 +32,9 @@ module Hallmark
   # A rule's op comes from `Ops`: the mapping, the rule's name, then the
   # routes that reach it (those recorded, else those read from
   # `config/routes.rb`).
+  #
+  # When the app has `app/graphql`, the reachability checks of its schema
+  # (`GraphqlModel#checks`) follow the entry points' exposures.
   class Inference
     include Guard::DSL
 
@@ -43,7 +46,7 @@ module Hallmark
       def entry_points = stamps.select(&:enforced).filter_map(&:entry_point).uniq
     end
 
-    attr_reader :units, :exposures, :coverage, :unchecked, :drift, :extractor, :ops, :stamp_set
+    attr_reader :units, :exposures, :coverage, :unchecked, :drift, :extractor, :ops, :stamp_set, :graphql
 
     def initialize(mapping, stamp_set, extractor: nil)
       @mapping = mapping
@@ -63,6 +66,12 @@ module Hallmark
     end
 
     private
+
+    # The checks of the app's GraphQL model, which this sets (`graphql`).
+    def graphql_checks
+      @graphql = @extractor&.graphql&.model
+      @graphql&.checks || []
+    end
 
     def build_units
       record_level = @stamps.reject(&:class_level)
@@ -194,7 +203,7 @@ module Hallmark
         end
       end
       exposures = links.keys.sort.flat_map { |entry_point| exposures_of(entry_point, links.fetch(entry_point)) }
-      exposures + route_exposures
+      exposures + route_exposures + graphql_checks
     end
 
     def exposures_of(entry_point, units)

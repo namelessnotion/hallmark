@@ -9,7 +9,10 @@ module Hallmark
     # `default_rule`, `pre_check`) and, for controllers, Rails callbacks
     # (`before_action`, `after_action` and their skips) and the constants a
     # class body assigns (`PUBLIC_ACTIONS = %i[show].freeze`). A class
-    # reopened in several files is merged.
+    # reopened in several files is merged. Every receiverless call in a class
+    # body is also kept as written (`calls`), for readers of other DSLs such
+    # as graphql-ruby's `field`, and class methods are kept beside instance
+    # methods as `self.name` (`def self.authorized?` is `"self.authorized?"`).
     class SourceIndex
       # One `def`, with the file it is in relative to the root.
       Method = Struct.new(:name, :node, :file, :visibility, :owner, keyword_init: true) do
@@ -39,6 +42,13 @@ module Hallmark
       # resolved when asked for (`SourceIndex#applies?`).
       Callback = Struct.new(:kind, :names, :only, :except, :prepend, :owner, keyword_init: true)
 
+      # A receiverless call in a class or module body, as written.
+      Call = Struct.new(:node, :file, :owner, keyword_init: true) do
+        def name = node.name
+        def arguments = node.arguments&.arguments || []
+        def location = "#{file}:#{node.location.start_line}"
+      end
+
       CALLBACKS = %i[before_action append_before_action prepend_before_action skip_before_action after_action
                      append_after_action prepend_after_action skip_after_action].freeze
 
@@ -51,7 +61,7 @@ module Hallmark
       # are read by `Declarative`.
       Scope = Struct.new(:name, :superclass, :namespace, :defs, :includes, :aliases, :default_rule, :pre_checks,
                          :skipped_pre_checks, :attributes, :singletons, :callbacks, :constants, :conditions,
-                         :dp_rules, :delegates, :overrides, :prepends, :module, keyword_init: true)
+                         :dp_rules, :delegates, :overrides, :prepends, :module, :calls, :location, keyword_init: true)
 
       # The Action Policy base class, outside the app, whose own rules all
       # deny and whose default rule is `manage?`.
@@ -83,11 +93,17 @@ module Hallmark
 
         seen << name
         modules = scope.includes.reverse.filter_map { |included| resolve(included, scope.namespace) }
-        prepended = scope.prepends.select { |mod| @scopes.key?(mod) }
+        prepended = prepended_modules(scope)
         parent = parent_of(scope)
         [*prepended.flat_map { |mod| collect_ancestors(mod, seen) }, name,
          *modules.flat_map { |mod| collect_ancestors(mod, seen) },
          *(parent ? collect_ancestors(parent, seen) : [])]
+      end
+
+      # The modules prepended to a scope that the app defines: EE modules by
+      # their full name, `prepend X` resolved as Ruby would.
+      def prepended_modules(scope)
+        scope.prepends.filter_map { |mod| @scopes.key?(mod) ? mod : resolve(mod, scope.namespace) }
       end
 
       # Whether the class inherits, at some depth, from Action Policy's base.
@@ -127,7 +143,7 @@ module Hallmark
           defined = scope.defs.values.select { |method| method.visibility == :public && method.arity_zero? }
           defined.map(&:name) + scope.aliases.keys
         end
-        names.select { |name| name.end_with?("?") }.uniq.sort
+        names.select { |name| name.end_with?("?") && !name.start_with?("self.") }.uniq.sort
       end
 
       # The rule Action Policy falls back to for a rule a policy lacks.
@@ -155,6 +171,14 @@ module Hallmark
 
       # A constant as written inside `namespace`, resolved to an indexed scope.
       def resolve_constant(name, namespace) = resolve(name, namespace)
+
+      # The receiverless calls in the class bodies of a class and its app
+      # ancestors (prepended modules first, as `ancestors` orders them).
+      def calls(class_name) = ancestors(class_name).flat_map { |name| @scopes.fetch(name).calls }
+
+      # Whether the class inherits, at some depth, from `base`, a class
+      # outside the app ("GraphQL::Schema").
+      def inherits?(class_name, base) = ancestors(class_name).any? { |ancestor| external_superclass(ancestor) == base }
 
       # Callbacks a class runs, outermost ancestor first, as declared.
       def callbacks(class_name) = ancestors(class_name).reverse.flat_map { |name| @scopes.fetch(name).callbacks }
@@ -197,6 +221,7 @@ module Hallmark
         when Prism::ClassNode, Prism::ModuleNode
           parts = namespace + constant_name(node.constant_path).split("::")
           scope = scope_for(parts.join("::"), namespace)
+          scope.location ||= "#{file}:#{node.location.start_line}"
           mark_kind(scope, node)
           body(scope, node.body, file, parts)
         when Prism::Node
@@ -233,7 +258,8 @@ module Hallmark
         @scopes[name] ||= Scope.new(name: name, superclass: nil, namespace: namespace, defs: {}, includes: [],
                                     aliases: {}, default_rule: nil, pre_checks: [], skipped_pre_checks: [],
                                     attributes: {}, singletons: {}, callbacks: [], constants: {}, conditions: {},
-                                    dp_rules: [], delegates: [], overrides: [], prepends: [], module: nil)
+                                    dp_rules: [], delegates: [], overrides: [], prepends: [], module: nil,
+                                    calls: [], location: nil)
       end
 
       # A class or module body: its defs, visibility changes and the
@@ -246,7 +272,7 @@ module Hallmark
           when Prism::DefNode
             define(scope, statement, file, visibility)
           when Prism::SingletonClassNode
-            singleton_body(scope, statement.body)
+            singleton_body(scope, statement.body, file)
           when Prism::CallNode
             visibility = declaration(scope, statement, file, visibility, parts)
           when Prism::AliasMethodNode
@@ -259,12 +285,20 @@ module Hallmark
         end
       end
 
-      # A `def self.x` is a class method, kept for `class_method_call`.
+      # A `def self.x` is a class method, kept for `class_method_call`, and
+      # as the method `self.x` for translators.
       def define(scope, node, file, visibility)
         name = node.name.to_s
-        return scope.singletons[name] = node if node.receiver
+        return define_singleton(scope, node, file) if node.receiver
 
         scope.defs[name] = Method.new(name: name, node: node, file: file, visibility: visibility, owner: scope.name)
+      end
+
+      def define_singleton(scope, node, file)
+        name = node.name.to_s
+        scope.defs["self.#{name}"] = Method.new(name: "self.#{name}", node: node, file: file, visibility: :public,
+                                                owner: scope.name)
+        scope.singletons[name] = node
       end
 
       # Returns the visibility in force after the call: `private` alone
@@ -282,14 +316,25 @@ module Hallmark
       end
 
       def macro(scope, call, args, file, parts)
+        record_call(scope, call, file)
         case call.name
         when :prepended, :included then body(scope, block_body(call), file, parts) if call.receiver.nil?
-        when :class_methods then singleton_body(scope, block_body(call))
+        when :class_methods then singleton_body(scope, block_body(call), file)
         when *DECLARATIONS then declarative(scope, call, file)
-        when :include then args.each { |arg| scope.includes << constant_name(arg) if constant?(arg) }
+        when :include, :prepend then mixin(scope, call.name, args)
         when *CALLBACKS then callback(scope, call.name, args)
         else policy_macro(scope, call, args)
         end
+      end
+
+      def record_call(scope, call, file)
+        scope.calls << Call.new(node: call, file: file, owner: scope.name) if call.receiver.nil?
+      end
+
+      # `include X` and `prepend X`, as written.
+      def mixin(scope, name, args)
+        list = name == :include ? scope.includes : scope.prepends
+        args.each { |arg| list << constant_name(arg) if constant?(arg) }
       end
 
       # Action Policy's declarations, Rails class attributes, and class
@@ -336,10 +381,10 @@ module Hallmark
         nil
       end
 
-      def singleton_body(scope, node)
+      def singleton_body(scope, node, file)
         statements = node.is_a?(Prism::StatementsNode) ? node.body : []
         statements.each do |statement|
-          scope.singletons[statement.name.to_s] = statement if statement.is_a?(Prism::DefNode)
+          define_singleton(scope, statement, file) if statement.is_a?(Prism::DefNode)
         end
       end
 

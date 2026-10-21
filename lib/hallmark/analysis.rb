@@ -19,8 +19,12 @@ module Hallmark
   #     map { ... }
   #     stamps "tmp/hallmark"
   #   end
+  #
+  # Or from a graphql-ruby schema read from source (`graphql_schema`, also
+  # added by `stamps` when the app has `app/graphql`): one reachability
+  # check per mapped type and per field with a field policy (`GraphqlCheck`).
   class Analysis
-    attr_reader :name, :mapping, :exposures, :inference
+    attr_reader :name, :mapping, :exposures, :inference, :graphql
 
     # `mapping` starts the analysis from a copy of an existing mapping, such as
     # the one `Hallmark.configure { |c| c.map { ... } }` declared for the
@@ -36,6 +40,7 @@ module Hallmark
       @mapping = mapping || Mapping.new
       @exposures = []
       @inference = nil
+      @graphql = nil
     end
 
     # `field:` makes a read of one field of the record (fields exist only on
@@ -57,6 +62,32 @@ module Hallmark
       exposure
     end
 
+    # Adds a GraphQL check as it is (`GraphqlCheck`), with the model it
+    # belongs to.
+    def add_check(check)
+      name = check.check_name
+      raise ConfigurationError, "#{check.action} is declared twice" if @exposures.map(&:check_name).include?(name)
+
+      @graphql ||= check.graph
+      @exposures << check
+      check
+    end
+
+    # Adds the checks of the graphql-ruby schema under `root` (the app root
+    # by default): one per mapped type reached and one per field with a
+    # field policy. Returns the model, nil when the app has no `app/graphql`.
+    def add_graphql(root = Hallmark.configuration.root)
+      raise ConfigurationError, "the GraphQL schema is declared twice in #{name}" if @graphql
+
+      @mapping.validate!
+      model = Extractor.load(@mapping, root)&.graphql&.model
+      return nil unless model
+
+      @graphql = model
+      model.checks.each { |check| add_check(check) }
+      model
+    end
+
     # Adds the exposures inferred from recorded stamps: a StampSet, or a path
     # to a JSONL file or a stamp directory, read for the run `c.run` names
     # (HALLMARK_RUN), else the newest. The mapping must be complete
@@ -69,12 +100,18 @@ module Hallmark
       @mapping.validate!
       inference = Inference.new(@mapping, set, extractor: Extractor.load(@mapping))
       @inference = inference
-      inference.exposures.each do |exposure|
-        add_exposure(action: exposure.action, op: exposure.op, resource: exposure.resource, guard: exposure.guard,
-                     basis: exposure.basis, locations: exposure.locations, rules: exposure.rules,
-                     field: exposure.field)
-      end
+      @graphql ||= inference.graphql
+      inference.exposures.each { |exposure| add(exposure) }
       inference
+    end
+
+    # An exposure or a GraphQL check copied into this analysis, as watch
+    # and inference hand them over.
+    def add(exposure)
+      return add_check(exposure) if exposure.is_a?(GraphqlCheck)
+
+      add_exposure(action: exposure.action, op: exposure.op, resource: exposure.resource, guard: exposure.guard,
+                   basis: exposure.basis, locations: exposure.locations, rules: exposure.rules, field: exposure.field)
     end
 
     def validate!
@@ -96,6 +133,7 @@ module Hallmark
         validate_flags!(condition, resource, "a grant on #{resource.name}") if condition
       end
       @mapping.field_policies.each_value { |policy| validate_field_policy!(policy) }
+      validate_graphql!
       self
     end
 
@@ -161,6 +199,24 @@ module Hallmark
       validate_flags!(guard, resource, what)
     end
 
+    # The GraphQL model's guards, read from code, are checked like an
+    # exposure's: on their resource's flags and permits, with tenant terms
+    # only under a `tenant`.
+    def validate_graphql!
+      model = @graphql
+      return unless model
+
+      model.guards.each do |guard, name|
+        resource = @mapping.fetch(name)
+        what = "a GraphQL check on #{name}"
+        validate_guard_tenants!(guard, what)
+        validate_flags!(guard, resource, what)
+        if guard.permits? && !resource.permits?
+          raise ConfigurationError, "#{what} reads explicit permissions, but #{name} is mapped without `permits:`"
+        end
+      end
+    end
+
     # A guard may read only the flags its resource declares.
     def validate_flags!(guard, resource, what)
       stray = guard.flags - resource.flags
@@ -214,6 +270,13 @@ module Hallmark
       # after the map block.
       def stamps(source = Hallmark.configuration.stamps)
         @analysis.add_stamps(source)
+      end
+
+      # Adds the reachability checks of the graphql-ruby schema in
+      # `app/graphql` under `root` (the app root by default); declare it
+      # after the map block.
+      def graphql_schema(root = Hallmark.configuration.root)
+        @analysis.add_graphql(root) || raise(ConfigurationError, "no app/graphql under #{root}")
       end
     end
   end

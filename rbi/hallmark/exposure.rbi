@@ -37,6 +37,9 @@ module Hallmark
     end
     def initialize(action:, op:, resource:, guard:, basis: nil, locations: nil, rules: nil, field: nil); end
 
+    sig { returns(T::Boolean) }
+    def graphql?; end
+
     sig { returns(String) }
     def check_name; end
 

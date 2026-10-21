@@ -25,6 +25,12 @@ module Hallmark
     sig { returns(T::Array[Rule]) }
     def self.rules; end
 
+    sig { returns(T::Array[Rule]) }
+    def self.core_rules; end
+
+    sig { returns(T::Array[Rule]) }
+    def self.graphql_rules; end
+
     # A report, or what `hallmark watch` found new since it started
     Source = T.type_alias { T.any(Report, Watch::Log) }
 

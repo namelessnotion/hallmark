@@ -29,8 +29,8 @@ done and phase 3 (runtime modes and GraphQL) is next, planned Oct 21, 2026
 two false-positive sources (op errors, two catalog gaps) were fixed Oct 21,
 2026 (Phase 2 step 7 below). Phase 3 steps 1 (hot path and benchmark),
 2 (live modes, sinks, hashed ids), 3 (baseline and `hallmark watch`),
-4 (field policies and restrictions) and 6 (GraphQL runtime tracing, ahead
-of step 5) were done Oct 21, 2026. The phase 1 gate's record is in
+4 (field policies and restrictions), 6 (GraphQL runtime tracing, ahead
+of step 5) and 5 (GraphQL schema walk) were done Oct 21, 2026. The phase 1 gate's record is in
 "Phase 1 (core gem): the gate" below. The first real-app run (original Gumroad on Pundit, Oct 16, 2026, not
 a gate app) is in "First run on original Gumroad" below. Gate runs so far:
 GitLab (DeclarativePolicy, Oct 17, 2026) and Forem (Pundit, Oct 18, 2026),
@@ -243,11 +243,32 @@ Built:
   current_user:, current_tenant:` in the map block) unless a library
   decided inside it (`Collectors::DECIDED`). G6: `ContextMismatch` lines,
   listed under coverage. `docs/PLAN.md` ("The shipped GraphQL tracer").
+- GraphQL schema walk (phase 3 step 5, Oct 21, 2026;
+  `extractor/graphql_schema.rb`, `graphql_model.rb`, `graphql_model/`,
+  `graphql_check.rb`): `Extractor#graphql` reads `app/graphql` and
+  `ee/app/graphql` through a second `SourceIndex` (which now keeps
+  class-body calls, `Scope#calls`; class methods as `"self.x"` defs; where a
+  class is first opened; and `prepend X` modules): schema roots, types and
+  the resources they back (class minus `Types::` and `Type`, or
+  `graphql_type`), fields and what they return (lists, connections,
+  resolvers, interfaces, unions, `HasNodeField`), and checks: type
+  `self.authorized?` (method translator, `Canonical` expression aliases
+  for `context[:current_user]`), GitLab's `authorize` through
+  `Extractor#ability_guard`, field `def authorized?` blocks, Action Policy's
+  `authorize:`/`preauthorize:` (`Extractor#rule_guard`), `scope_items`.
+  `GraphqlModel` collapses paths through unmapped types (kept only when
+  unchecked), renders relations on resource sigs and `gqlReach_<Type>`, and
+  makes `GraphqlCheck`s (`reach_<Type>`, `reach_<Type>_<field>` for fields
+  with a field policy), an `AnyExposure` beside `Exposure` in the RBIs,
+  added by `Inference` (so `check`, baselines and watch include them) or
+  `graphql_schema ROOT` in an analyze block. `Witness` rebuilds the query
+  from the instance (`Finding#path`). Lints G4, G5 ("GraphQL hazard").
+  `docs/PLAN.md` ("The shipped GraphQL schema walk").
 
 Not built yet, but designed and validated as hand-written models in
 `research/models` (see its README for each check's expected result):
-tenancy flaws M4 to M6 (invitations, list scopes, Rolify grants), graphql-ruby,
-DeclarativePolicy, stale access after revocation, role-configuration checks.
+tenancy flaws M4 to M6 (invitations, list scopes, Rolify grants),
+stale access after revocation, role-configuration checks.
 
 Parts of the `docs/PLAN.md` "Ruby API sketch" are still design only:
 `role_hierarchy` and `conflicts` (`c.solver` is built, with `:cli` and
@@ -261,7 +282,7 @@ built, Oct 21, 2026).
 bundle install
 bin/hallmark install-alloy                 # Alloy 6.2.0 to ~/.cache/hallmark, SHA-256 verified; needs Java 17+
 bin/hallmark install-sidecar               # also builds the sidecar jar (javac + jar from a JDK 17+); no extra download
-bundle exec rake test                      # 441 tests; the 31 integration tests skip without the jar or sidecar
+bundle exec rake test                      # 474 tests; the 34 integration tests skip without the jar or sidecar
 bundle exec rake bench                     # what the collectors add per decision (p50, p99, objects); about 2 min
 bundle exec rubocop                        # lint
 bundle exec srb tc                         # type-check lib/ against rbi/; `rake` runs tests, rubocop, then this
@@ -269,6 +290,8 @@ bin/hallmark check examples/medium_clone/hallmark.rb    # exits 1 (two counterex
 bin/hallmark check examples/medium_clone/hallmark_fixed.rb
 bin/hallmark check examples/storefront/hallmark.rb      # exits 1 (M2, current-tenant confusion, expected)
 bin/hallmark check examples/storefront/hallmark_fixed.rb
+bin/hallmark check examples/graphql_shop/hallmark.rb    # exits 1 (G1 to G3 and a G4 hazard, expected)
+bin/hallmark check examples/graphql_shop/hallmark_fixed.rb
 HALLMARK_SOLVER=sidecar bin/hallmark check examples/storefront/hallmark.rb   # same findings via the sidecar
 bundle exec rspec examples/storefront/link_policy_spec.rb   # the matchers, buggy and fixed; passes (sidecar if built)
 bin/hallmark model FILE                    # print the generated Alloy model; the fastest way to debug
@@ -277,7 +300,7 @@ bin/hallmark rules FILE [POLICY...]        # check each rule on its own, from co
 bin/hallmark check --sarif OUT FILE        # also write what fails as SARIF 2.1.0
 bin/hallmark check --baseline OUT FILE     # also write what CI knows (stamps, check digests, verdicts) for watch
 bin/hallmark watch --baseline B FILE       # tail live stamps, report what B lacks; --once, --json, --sarif, --redis URL
-bundle exec rake fixtures:regenerate       # refresh test/fixtures/{medium_clone,storefront} from a real run
+bundle exec rake fixtures:regenerate       # refresh test/fixtures/{medium_clone,storefront,graphql_shop} from a real run
 java -jar ~/.cache/hallmark/alloy-6.2.0.jar exec -c '*' research/models/tenancy.als
 ```
 
@@ -317,9 +340,11 @@ Hallmark.analyze block (`stamps` loads a StampSet: Inference builds the exposure
   + Extractor: app/policies parsed with Prism, rules as guards   extractor.rb, extractor/*
   -> StampFacts reads each stamp as guard leaves: Inference's literals, Drift's evaluation   stamp_facts.rb, drift.rb
   + Ops: each rule's op from the mapping, its name, the routes' verbs   ops.rb, extractor/routes_file.rb
+  + GraphqlSchema (app/graphql) -> GraphqlModel -> GraphqlChecks   extractor/graphql_schema.rb, graphql_model*.rb, graphql_check.rb
   -> Analysis (Mapping + Exposures, each with a Guard)       lib/hallmark/analysis.rb, mapping.rb, guard.rb
      (field policies and restrictions in the mapping)          restriction.rb
   -> ModelBuilder: Alloy source, one assert + check per exposure   model_builder.rb
+     (GraphQL: the shared reachability section, then a reach_ check each)   graphql_model/alloy.rb
   -> Hallmark.solver (c.solver)                                    solver.rb
      Solver::CLI#check: `java -jar alloy.jar exec --type xml`      solver/cli.rb
      Solver::Sidecar#check: JSON-RPC to a long-lived JVM           solver/sidecar.rb, child_process.rb, solver/src/
@@ -611,7 +636,13 @@ phase, which stretches it to about 7 weeks. Steps, in order:
    counterexamples in 5 checks), its fixed version none, on both backends.
 5. GraphQL static: `Extractor::GraphqlSchema` (Prism over `app/graphql`),
    the reachability model from `research/models/graphql.als`, lints G4 and
-   G5, `examples/graphql_shop`.
+   G5, `examples/graphql_shop`. Done Oct 21, 2026: the shop's G1 to G3 and
+   G4 found and cleared; GitLab's !132952 found through
+   `Query.project.pipelineSchedules` from code alone at `7ce3a7d` and gone
+   at `c1a85e83ac3` (mapping and log private: `gitlab-7ce3a7d/step5/`,
+   `gitlab.md` "Phase 3 step 5"); witness paths rebuilt in Ruby, not via
+   `eval`. GraphQL gate bug shortlist:
+   `~/Repos/hallmark-findings/gitlab-graphql-candidates.md`.
 6. GraphQL runtime: tracer naming field-path entry points; G6. Done Oct
    21, 2026, before step 5 (which reuses its naming); the GitLab rerun is
    recorded in the private log `gitlab.md` ("Phase 3 step 6").

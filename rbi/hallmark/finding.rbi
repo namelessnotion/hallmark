@@ -19,7 +19,7 @@ module Hallmark
       def initialize(tenant:, user:, roles:); end
     end
 
-    sig { returns(Exposure) }
+    sig { returns(AnyExposure) }
     attr_reader :exposure
 
     # Alloy atoms, such as "catalog/User$0"
@@ -42,14 +42,18 @@ module Hallmark
     sig { returns(T.nilable(TenantRoles)) }
     attr_reader :record_tenant
 
+    # For a GraphQL check, the query that reaches the witness
+    sig { returns(T.nilable(String)) }
+    attr_reader :path
+
     # The resource's flags and whether the witness record has each
     sig { returns(T::Hash[String, T::Boolean]) }
     attr_reader :flags
 
-    sig { params(exposure: Exposure, instance: Receipt::Instance, mapping: Mapping).returns(Finding) }
+    sig { params(exposure: AnyExposure, instance: Receipt::Instance, mapping: Mapping).returns(Finding) }
     def self.from(exposure, instance, mapping); end
 
-    sig { params(exposure: Exposure, mapping: Mapping).returns(T::Boolean) }
+    sig { params(exposure: AnyExposure, mapping: Mapping).returns(T::Boolean) }
     def self.current_tenant?(exposure, mapping); end
 
     sig do
@@ -62,7 +66,7 @@ module Hallmark
 
     sig do
       params(
-        exposure: Exposure,
+        exposure: AnyExposure,
         mapping: Mapping,
         principal: String,
         record: String,
@@ -70,12 +74,13 @@ module Hallmark
         roles: T::Array[String],
         current_tenant: T.nilable(TenantRoles),
         record_tenant: T.nilable(TenantRoles),
-        flags: T::Hash[String, T::Boolean]
+        flags: T::Hash[String, T::Boolean],
+        path: T.nilable(String)
       ).void
     end
     def initialize(exposure:, mapping:, principal:, record:, owner:, roles:, current_tenant: nil, record_tenant: nil,
-                   flags: {})
-      @exposure = T.let(T.unsafe(nil), Exposure)
+                   flags: {}, path: nil)
+      @exposure = T.let(T.unsafe(nil), AnyExposure)
       @mapping = T.let(T.unsafe(nil), Mapping)
       @resource = T.let(T.unsafe(nil), Mapping::Resource)
       @principal = T.let(T.unsafe(nil), String)
@@ -85,6 +90,7 @@ module Hallmark
       @current_tenant = T.let(T.unsafe(nil), T.nilable(TenantRoles))
       @record_tenant = T.let(T.unsafe(nil), T.nilable(TenantRoles))
       @flags = T.let(T.unsafe(nil), T::Hash[String, T::Boolean])
+      @path = T.let(T.unsafe(nil), T.nilable(String))
       @witness = T.let(T.unsafe(nil), T.nilable(WitnessFacts))
     end
 
@@ -139,6 +145,12 @@ module Hallmark
 
     sig { returns(T::Boolean) }
     def owner_outside?; end
+
+    sig { returns(String) }
+    def graphql_hint; end
+
+    sig { params(key: String).returns(T::Array[String]) }
+    def graphql_declarations(key); end
 
     sig { returns(String) }
     def owner_hint; end

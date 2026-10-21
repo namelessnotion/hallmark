@@ -33,8 +33,7 @@ module Hallmark
       inference = analysis.inference
       @unchecked = inference ? inference.unchecked : []
       @drift = inference ? inference.drift : []
-      # DeclarativePolicy hazards (D3, D4) in the abilities read from code.
-      @lints = inference&.extractor&.lints || []
+      @lints = Report.lints_of(analysis)
       @coverage = inference&.coverage
       analysis.exposures.each { |exposure| read(exposure, receipt) }
     end
@@ -67,12 +66,10 @@ module Hallmark
       lines.concat(unknown_lines)
       verified.each { |exposure| lines << Report.ok_line(exposure) }
       lines.concat(drift_lines)
-      lints.each { |lint| lines << "FAIL  #{lint} (policy-DSL hazard)" }
+      lints.each { |lint| lines << "FAIL  #{lint} (#{Report.hazard(lint)})" }
       lines << ""
       lines << summary
-      lines.concat(coverage_lines)
-      lines.concat(field_lines)
-      lines.join("\n")
+      lines.concat(trailer_lines).join("\n")
     end
 
     # One finding as `hallmark check` prints it; the RSpec matchers print the
@@ -82,6 +79,7 @@ module Hallmark
       lines = ["FAIL  #{exposure.action} (#{exposure.op} #{exposure.target})", "      guard: #{exposure.guard}"]
       lines << "      #{exposure.basis}" if exposure.basis
       lines << "      #{finding.message}"
+      lines << "      path: #{finding.path}" if finding.path
       lines << "      intended pattern: #{finding.pattern}"
       intended = finding.intended
       lines << "      intended: #{intended}" if intended
@@ -94,6 +92,16 @@ module Hallmark
     end
 
     def self.ok_line(exposure) = "ok    #{exposure.action} (#{exposure.op} #{exposure.target})"
+
+    # DeclarativePolicy hazards (D3, D4) in the abilities read from code,
+    # and GraphQL's (G4, G5).
+    def self.lints_of(analysis)
+      (analysis.inference&.extractor&.lints || []) + (analysis.graphql&.lints || [])
+    end
+
+    # What kind of hazard a lint is: DeclarativePolicy's D3 and D4, or
+    # GraphQL's G4 and G5.
+    def self.hazard(lint) = lint.kind.start_with?("G") ? "GraphQL hazard" : "policy-DSL hazard"
 
     def finding_lines(finding) = Report.finding_lines(finding)
 
@@ -109,7 +117,7 @@ module Hallmark
       out = [verdicts(total)].compact
       out << count(unchecked.size, "unchecked entry point") if unchecked.any?
       out << "#{count(drift.size, "drifting decision")} (stamps the rule's code contradicts)" if drift.any?
-      out << count(lints.size, "policy-DSL hazard") if lints.any?
+      lints.group_by { |lint| Report.hazard(lint) }.each { |kind, found| out << count(found.size, kind) }
       out << unknown_summary(total) if unknown.any?
       out
     end
@@ -226,6 +234,33 @@ module Hallmark
           coverage.routes_unchecked,
         "Routes no test reached in controllers outside app/controllers" => coverage.routes_unread
       }
+    end
+
+    # What follows the summary: coverage, the GraphQL walk's notes and the
+    # fields with no policy.
+    def trailer_lines = coverage_lines + graphql_lines + field_lines
+
+    # What the GraphQL schema walk could not model (`GraphqlModel#notes`).
+    # Never findings.
+    def graphql_lines
+      model = analysis.graphql
+      return [] unless model
+
+      notes = model.notes.reject { |_, items| items.empty? }
+      cut = model.cut
+      return [] if notes.empty? && cut.zero?
+
+      lines = ["", "GraphQL schema walk (coverage, not findings):"]
+      notes.each { |title, items| lines.concat(note_lines(title, items)) }
+      lines << "  Paths cut after #{GraphqlModel::MAX_UNMAPPED} types that back no resource: #{cut}" if cut.positive?
+      lines
+    end
+
+    # A titled list showing its first GraphqlModel::SHOWN items.
+    def note_lines(title, items)
+      hidden = items.size - GraphqlModel::SHOWN
+      lines = ["  #{title} (#{items.size}):", *items.first(GraphqlModel::SHOWN).map { |item| "    #{item}" }]
+      hidden.positive? ? lines << "    and #{hidden} more" : lines
     end
 
     # Field reads with no field policy: checked as readable as their record.

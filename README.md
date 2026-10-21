@@ -55,16 +55,25 @@ Pundit, Action Policy and DeclarativePolicy code:
   matchers; a rule's op (read or write) comes from its name and from the
   verbs of the routes that reach it, read from `config/routes.rb` when the
   run recorded none
+- a graphql-ruby schema walk, also from source: every object a viewer can
+  reach from the root fields and `node(id:)`, through fields whose checks
+  pass, must be readable by the catalog, and a field with a field policy
+  must not be readable where its policy says no; findings print the query
+  that reaches the witness, and mutations checked late or not at all (G4)
+  and switched-off scopes (G5) fail the check
+- the GraphQL shop example, a graphql-ruby schema reproducing a field leak,
+  a nested path that skips a check and a `node(id:)` lookup with none, and
+  its fixed schema
 
 Phase 1 is done: its deliverables are built, and its gate (Hallmark run on
 one real app per authorization library, each with a confirmed real bug)
 passed on Oct 19, 2026. Phase 2 (the extractor) passed its gate on five
 apps on Oct 21, 2026.
 
-Not built yet (phase 3): the graphql-ruby schema walk; field
-reads read from GraphQL types and serializers (field exposures are declared
-by hand for now); list scopes; and stale access after revocation.
-The models for those live in `research/models`.
+Not built yet (phase 3): field reads read from REST serializers (field
+exposures outside GraphQL are declared by hand for now); list scopes beyond
+graphql-ruby's `scope_items`; and stale access after revocation. The models
+for those live in `research/models`.
 
 ## Requirements
 
@@ -635,13 +644,68 @@ endpoints are checked like controller actions.
 `hallmark rules FILE [POLICY...]` checks each rule on its own, from code and
 any recorded stamps, as the RSpec matchers do.
 
+### GraphQL
+
+A graphql-ruby schema in `app/graphql` (and GitLab's `ee/app/graphql`) is
+read from source too, never loaded: the schema class and its root types,
+object types and the resources they back (`Types::ProjectType` backs
+`Project`), fields and what they return (`T`, `[T]`, `T.connection_type`,
+a resolver's `type`, an interface's implementers, a union's members), and
+the checks on each: a type's `self.authorized?`, a field's own
+`def authorized?`, GitLab's `authorize :ability` on types, fields and
+resolvers (read as the DeclarativePolicy ability), Action Policy's
+`authorize:` and `preauthorize:` field options (that rule, on what the field
+returns), and `scope_items` on list members. `hallmark check` adds these
+checks when it infers exposures from stamps and the app has `app/graphql`;
+an analysis can ask for them on its own:
+
+```ruby
+Hallmark.analyze "Shop" do
+  map do
+    # ... resources, grants and terms as usual; any type whose class name
+    # does not say what it backs:
+    graphql_type "Types::OrgType", resource: "Organization"
+    field_policy "User", :email, owner
+  end
+
+  graphql_schema   # app/graphql under the app root
+end
+```
+
+The model asks one thing per mapped type: every object of it a viewer can
+reach, starting from what the root fields and `node(id:)` return and
+following fields whose check on the parent passes and whose returned object
+passes its own, must be readable by some catalog pattern. A field with a
+field policy also gets a check of its own. A path through types that back
+no resource is one step when nothing on the way checks anything, and is
+left out (and listed) when something does, since a finding must never rest
+on a check Hallmark did not model. A finding names the query a client would
+send:
+
+```text
+FAIL  GraphQL Invoice (read Invoice)
+      guard: no check
+      type check none in Types::InvoiceType (app/graphql/types/invoice_type.rb:5); reached through Project.billing.invoices
+      a signed-in User (User$2) holding no roles can read an Invoice (Invoice$0) in tenant Organization$2, where they hold roles member
+      path: query { node(id: ...) { ... on Project { billing { invoices { ... } } } } }
+```
+
+Two static hazards fail the check like D3 and D4: G4, a mutation with no
+`ready?`, `authorized?` or `authorize` of its own that authorizes nothing in
+`resolve` (or is mounted with Action Policy's `authorize:`, which runs after
+it executed, or overrides a `load_*` method without `super`); and G5,
+`scope: false` on a list field, or `reauthorize_scoped_objects(false)` with
+a `scope_items` that reads no tenant. `examples/graphql_shop` has all of
+them, and a fixed schema with none.
+
 ### SARIF
 
 `hallmark check --sarif hallmark.sarif config/hallmark.rb` also writes what
 fails the check as SARIF 2.1.0, for code scanning: counterexamples at the
 entry point's authorize call (the rule's code as a related location),
-unchecked entry points at their action, drift at the rule, and policy-DSL
-hazards at their condition. Paths are relative to the app root.
+unchecked entry points at their action, drift at the rule, policy-DSL
+hazards at their condition, and GraphQL checks and hazards at the type,
+field or mutation. Paths are relative to the app root.
 
 ```bash
 bin/hallmark check --sarif hallmark.sarif config/hallmark.rb
@@ -700,7 +764,8 @@ lib/hallmark/collectors/    runtime hooks for each authorization library and con
 lib/hallmark/sinks.rb       where stamps go: files, a Redis stream, a callable
 lib/hallmark/baseline.rb    what CI knows, written by `hallmark check --baseline`
 lib/hallmark/watch.rb       `hallmark watch`, with its file and Redis tails in watch/
-lib/hallmark/extractor/     reads policies, controllers and config/routes.rb with Prism
+lib/hallmark/extractor/     reads policies, controllers, config/routes.rb and app/graphql with Prism
+lib/hallmark/graphql_model* the GraphQL reachability model, its Alloy and its witness paths
 lib/hallmark/rspec.rb       the RSpec matchers (`require "hallmark/rspec"`)
 rbi/                        Sorbet signatures for lib/ (no sorbet-runtime needed)
 sorbet/rbi/                 Tapioca-generated RBIs for the gems lib/ hooks into
@@ -709,6 +774,8 @@ examples/medium_clone/      the SPACE paper's example, buggy and fixed
 examples/storefront/        a Gumroad-shaped store with per-seller roles, buggy and fixed,
                             its policy code (app/policies, fixed/app/policies) and an
                             RSpec spec using the matchers
+examples/graphql_shop/      a graphql-ruby schema (app/graphql, fixed/app/graphql) with
+                            G1 to G4, buggy and fixed
 research/models/            hand-written models for memberships, GraphQL,
                             DeclarativePolicy, revocation and role config
 test/                       unit tests (no Java) and integration tests

@@ -14,6 +14,7 @@ module Hallmark
     #                                record.user == seller, record.user_id == seller.id (in_current_tenant)
     #   platform_role :staff         user.staff, user.staff? (role(:staff))
     #   resource ..., permits: :collaborator_for?   user.collaborator_for?(record) (permitted)
+    #   resource ..., kind: :profile record == user (owner: the user it describes)
     #
     # A record is never a class in a record-level check, so
     # `record.is_a?(Class)` is false, and it exists, so `record.present?` is
@@ -74,6 +75,7 @@ module Hallmark
         end
         terms["#{RECORD}.#{resource.public_if}"] = public_record if resource.public_if.is_a?(Symbol)
         terms["#{user}.#{resource.permits}(#{RECORD})"] = permitted if resource.permits.is_a?(Symbol)
+        terms["#{RECORD} == #{user}"] = owner if resource.kind == :profile
         seed_tenant(terms, resource)
       end
 
@@ -92,8 +94,10 @@ module Hallmark
     # there, so `seller = record.user; seller == user` reads as
     # `record.user == user`. `aliases` renames what controller code calls
     # the policy's names: an instance variable (`"@product" => "record"`), a
-    # local no assignment explains, or a receiverless reader with no
-    # arguments (`"current_seller" => "seller"`).
+    # local no assignment explains, a receiverless reader with no arguments
+    # (`"current_seller" => "seller"`), or a whole call as rendered
+    # (`"context[:current_user]" => "user"`, for graphql-ruby's checks).
+    # `x[:key]` renders as written.
     class Canonical
       OPERATORS = %i[== != eql? equal? < > <= >= === =~].freeze
 
@@ -104,7 +108,7 @@ module Hallmark
 
       def render(node)
         case node
-        when Prism::CallNode then reader(node) || call(node)
+        when Prism::CallNode then reader(node) || renamed(call(node))
         when Prism::LocalVariableReadNode then local(node)
         when Prism::InstanceVariableReadNode then @aliases.fetch(node.name.to_s) { node.name.to_s.delete_prefix("@") }
         when Prism::ParenthesesNode then parentheses(node)
@@ -118,14 +122,22 @@ module Hallmark
 
       def call(node)
         receiver = node.receiver
-        name = node.name.to_s
-        return "!#{render(receiver)}" if node.name == :! && receiver
-        return "#{render(receiver)} #{name} #{arguments(node).first}" if OPERATORS.include?(node.name) && receiver
+        operated = receiver && operator(node, receiver)
+        return operated if operated
 
         prefix = receiver && !receiver.is_a?(Prism::SelfNode) ? "#{render(receiver)}." : ""
         args = arguments(node)
 
-        "#{prefix}#{name}#{"(#{args.join(", ")})" if args.any?}"
+        "#{prefix}#{node.name}#{"(#{args.join(", ")})" if args.any?}"
+      end
+
+      # `!x`, comparisons and `x[:key]`; nil for any other call.
+      def operator(node, receiver)
+        name = node.name
+        return "!#{render(receiver)}" if name == :!
+        return "#{render(receiver)} #{name} #{arguments(node).first}" if OPERATORS.include?(name)
+
+        "#{render(receiver)}[#{arguments(node).join(", ")}]" if name == :[]
       end
 
       # A receiverless reader with no arguments that `aliases` renames.
@@ -134,6 +146,9 @@ module Hallmark
 
         @aliases[node.name.to_s]
       end
+
+      # A whole call `aliases` renames (`context[:current_user]`).
+      def renamed(text) = @aliases.fetch(text, text)
 
       def arguments(node) = (node.arguments&.arguments || []).map { |arg| render(arg) }
 

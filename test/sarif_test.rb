@@ -87,7 +87,8 @@ class SarifTest < Minitest::Test
     assert_empty results(log)
     ids = log.dig("runs", 0, "tool", "driver", "rules").map { |rule| rule.fetch("id") }
 
-    assert_equal %w[hallmark/counterexample hallmark/unchecked hallmark/drift hallmark/D3 hallmark/D4], ids
+    assert_equal %w[hallmark/counterexample hallmark/unchecked hallmark/drift hallmark/D3 hallmark/D4 hallmark/G4
+                    hallmark/G5], ids
   end
 
   # An unchecked entry point points at its action, read from the controller.

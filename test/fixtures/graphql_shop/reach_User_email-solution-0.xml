@@ -1,0 +1,276 @@
+<alloy builddate="2025-01-09T08:17:18.350Z">
+
+<instance bitwidth="4" maxseq="5" mintrace="-1" maxtrace="-1" command="Check reach_User_email for 5" filename="" tracelength="1" looplength="1">
+
+<sig label="seq/Int" ID="0" parentID="1" builtin="yes">
+</sig>
+
+<sig label="Int" ID="1" parentID="2" builtin="yes">
+</sig>
+
+<sig label="String" ID="3" parentID="2" builtin="yes">
+</sig>
+
+<sig label="catalog/Read" ID="4" parentID="5" one="yes">
+   <atom label="catalog/Read$0"/>
+</sig>
+
+<sig label="catalog/Write" ID="6" parentID="5" one="yes">
+   <atom label="catalog/Write$0"/>
+</sig>
+
+<sig label="catalog/Op" ID="5" parentID="2" abstract="yes">
+</sig>
+
+<sig label="catalog/Anonymous" ID="7" parentID="8" one="yes">
+   <atom label="catalog/Anonymous$0"/>
+</sig>
+
+<sig label="catalog/User" ID="9" parentID="8">
+   <atom label="catalog/User$0"/>
+   <atom label="catalog/User$1"/>
+   <atom label="catalog/User$2"/>
+</sig>
+
+<field label="assigned" ID="10" parentID="9">
+   <types> <type ID="9"/> <type ID="11"/> </types>
+</field>
+
+<sig label="catalog/Principal" ID="8" parentID="2" abstract="yes">
+</sig>
+
+<sig label="this/Role_admin" ID="12" parentID="11" one="yes">
+   <atom label="Role_admin$0"/>
+</sig>
+
+<sig label="this/Role_member" ID="13" parentID="11" one="yes">
+   <atom label="Role_member$0"/>
+</sig>
+
+<sig label="catalog/Admin" ID="14" parentID="11" one="yes">
+   <atom label="catalog/Admin$0"/>
+</sig>
+
+<sig label="catalog/Role" ID="11" parentID="2">
+</sig>
+
+<field label="inherits" ID="15" parentID="11">
+   <types> <type ID="11"/> <type ID="11"/> </types>
+</field>
+
+<sig label="catalog/Tenant" ID="16" parentID="2">
+   <atom label="catalog/Tenant$0"/>
+   <atom label="catalog/Tenant$1"/>
+   <atom label="catalog/Tenant$2"/>
+</sig>
+
+<field label="user" ID="17" parentID="16">
+   <types> <type ID="16"/> <type ID="9"/> </types>
+</field>
+
+<sig label="catalog/Membership" ID="18" parentID="2">
+   <atom label="catalog/Membership$0"/>
+   <atom label="catalog/Membership$1"/>
+   <atom label="catalog/Membership$2"/>
+   <atom label="catalog/Membership$3"/>
+   <atom label="catalog/Membership$4"/>
+</sig>
+
+<field label="member" ID="19" parentID="18">
+   <tuple> <atom label="catalog/Membership$0"/> <atom label="catalog/User$2"/> </tuple>
+   <tuple> <atom label="catalog/Membership$1"/> <atom label="catalog/User$1"/> </tuple>
+   <tuple> <atom label="catalog/Membership$2"/> <atom label="catalog/User$1"/> </tuple>
+   <tuple> <atom label="catalog/Membership$3"/> <atom label="catalog/User$1"/> </tuple>
+   <tuple> <atom label="catalog/Membership$4"/> <atom label="catalog/User$0"/> </tuple>
+   <types> <type ID="18"/> <type ID="9"/> </types>
+</field>
+
+<field label="within" ID="20" parentID="18">
+   <tuple> <atom label="catalog/Membership$0"/> <atom label="catalog/Tenant$1"/> </tuple>
+   <tuple> <atom label="catalog/Membership$1"/> <atom label="catalog/Tenant$0"/> </tuple>
+   <tuple> <atom label="catalog/Membership$2"/> <atom label="catalog/Tenant$2"/> </tuple>
+   <tuple> <atom label="catalog/Membership$3"/> <atom label="catalog/Tenant$1"/> </tuple>
+   <tuple> <atom label="catalog/Membership$4"/> <atom label="catalog/Tenant$2"/> </tuple>
+   <types> <type ID="18"/> <type ID="16"/> </types>
+</field>
+
+<field label="roles" ID="21" parentID="18">
+   <tuple> <atom label="catalog/Membership$0"/> <atom label="Role_admin$0"/> </tuple>
+   <tuple> <atom label="catalog/Membership$2"/> <atom label="Role_member$0"/> </tuple>
+   <tuple> <atom label="catalog/Membership$3"/> <atom label="Role_admin$0"/> </tuple>
+   <tuple> <atom label="catalog/Membership$4"/> <atom label="Role_member$0"/> </tuple>
+   <types> <type ID="18"/> <type ID="11"/> </types>
+</field>
+
+<sig label="this/Organization" ID="22" parentID="23">
+</sig>
+
+<field label="gql_Organization_projects" ID="24" parentID="22">
+   <types> <type ID="22"/> <type ID="25"/> </types>
+</field>
+
+<sig label="this/Project" ID="25" parentID="23">
+   <atom label="Project$0"/>
+   <atom label="Project$1"/>
+   <atom label="Project$2"/>
+</sig>
+
+<field label="gql_Project_owner" ID="26" parentID="25">
+   <types> <type ID="25"/> <type ID="27"/> </types>
+</field>
+
+<field label="gql_Project_billing_invoices" ID="28" parentID="25">
+   <types> <type ID="25"/> <type ID="29"/> </types>
+</field>
+
+<sig label="this/Invoice" ID="29" parentID="23">
+</sig>
+
+<sig label="this/UserProfile" ID="27" parentID="23">
+   <atom label="UserProfile$0"/>
+</sig>
+
+<sig label="catalog/Resource" ID="23" parentID="2" abstract="yes">
+</sig>
+
+<field label="owner" ID="30" parentID="23">
+   <tuple> <atom label="UserProfile$0"/> <atom label="catalog/User$1"/> </tuple>
+   <types> <type ID="23"/> <type ID="9"/> </types>
+</field>
+
+<field label="tenant" ID="31" parentID="23">
+   <tuple> <atom label="Project$0"/> <atom label="catalog/Tenant$0"/> </tuple>
+   <tuple> <atom label="Project$1"/> <atom label="catalog/Tenant$0"/> </tuple>
+   <tuple> <atom label="Project$2"/> <atom label="catalog/Tenant$0"/> </tuple>
+   <types> <type ID="23"/> <type ID="16"/> </types>
+</field>
+
+<field label="ownerOutside" ID="32" parentID="23">
+   <types> <type ID="23"/> <type ID="5"/> </types>
+</field>
+
+<sig label="this/Grant_member_read_Organization" ID="33" parentID="34" one="yes">
+   <atom label="Grant_member_read_Organization$0"/>
+</sig>
+
+<sig label="this/Grant_admin_read_Organization" ID="35" parentID="34" one="yes">
+   <atom label="Grant_admin_read_Organization$0"/>
+</sig>
+
+<sig label="this/Grant_member_read_Project" ID="36" parentID="34" one="yes">
+   <atom label="Grant_member_read_Project$0"/>
+</sig>
+
+<sig label="this/Grant_admin_read_Project" ID="37" parentID="34" one="yes">
+   <atom label="Grant_admin_read_Project$0"/>
+</sig>
+
+<sig label="this/Grant_admin_read_Invoice" ID="38" parentID="34" one="yes">
+   <atom label="Grant_admin_read_Invoice$0"/>
+</sig>
+
+<sig label="catalog/Grant" ID="34" parentID="2">
+</sig>
+
+<field label="role" ID="39" parentID="34">
+   <tuple> <atom label="Grant_member_read_Organization$0"/> <atom label="Role_member$0"/> </tuple>
+   <tuple> <atom label="Grant_admin_read_Organization$0"/> <atom label="Role_admin$0"/> </tuple>
+   <tuple> <atom label="Grant_member_read_Project$0"/> <atom label="Role_member$0"/> </tuple>
+   <tuple> <atom label="Grant_admin_read_Project$0"/> <atom label="Role_admin$0"/> </tuple>
+   <tuple> <atom label="Grant_admin_read_Invoice$0"/> <atom label="Role_admin$0"/> </tuple>
+   <types> <type ID="34"/> <type ID="11"/> </types>
+</field>
+
+<field label="op" ID="40" parentID="34">
+   <tuple> <atom label="Grant_member_read_Organization$0"/> <atom label="catalog/Read$0"/> </tuple>
+   <tuple> <atom label="Grant_admin_read_Organization$0"/> <atom label="catalog/Read$0"/> </tuple>
+   <tuple> <atom label="Grant_member_read_Project$0"/> <atom label="catalog/Read$0"/> </tuple>
+   <tuple> <atom label="Grant_admin_read_Project$0"/> <atom label="catalog/Read$0"/> </tuple>
+   <tuple> <atom label="Grant_admin_read_Invoice$0"/> <atom label="catalog/Read$0"/> </tuple>
+   <types> <type ID="34"/> <type ID="5"/> </types>
+</field>
+
+<field label="res" ID="41" parentID="34">
+   <tuple> <atom label="Grant_member_read_Project$0"/> <atom label="Project$0"/> </tuple>
+   <tuple> <atom label="Grant_member_read_Project$0"/> <atom label="Project$1"/> </tuple>
+   <tuple> <atom label="Grant_member_read_Project$0"/> <atom label="Project$2"/> </tuple>
+   <tuple> <atom label="Grant_admin_read_Project$0"/> <atom label="Project$0"/> </tuple>
+   <tuple> <atom label="Grant_admin_read_Project$0"/> <atom label="Project$1"/> </tuple>
+   <tuple> <atom label="Grant_admin_read_Project$0"/> <atom label="Project$2"/> </tuple>
+   <types> <type ID="34"/> <type ID="23"/> </types>
+</field>
+
+<sig label="catalog/Permit" ID="42" parentID="2">
+</sig>
+
+<field label="holder" ID="43" parentID="42">
+   <types> <type ID="42"/> <type ID="9"/> </types>
+</field>
+
+<field label="ops" ID="44" parentID="42">
+   <types> <type ID="42"/> <type ID="5"/> </types>
+</field>
+
+<field label="target" ID="45" parentID="42">
+   <types> <type ID="42"/> <type ID="23"/> </types>
+</field>
+
+<sig label="catalog/Conflict" ID="46" parentID="2">
+   <atom label="catalog/Conflict$0"/>
+</sig>
+
+<field label="a" ID="47" parentID="46">
+   <tuple> <atom label="catalog/Conflict$0"/> <atom label="Role_member$0"/> </tuple>
+   <types> <type ID="46"/> <type ID="11"/> </types>
+</field>
+
+<field label="b" ID="48" parentID="46">
+   <tuple> <atom label="catalog/Conflict$0"/> <atom label="catalog/Admin$0"/> </tuple>
+   <types> <type ID="46"/> <type ID="11"/> </types>
+</field>
+
+<sig label="catalog/CanAssign" ID="49" parentID="2">
+</sig>
+
+<field label="by" ID="50" parentID="49">
+   <types> <type ID="49"/> <type ID="11"/> </types>
+</field>
+
+<field label="gives" ID="51" parentID="49">
+   <types> <type ID="49"/> <type ID="11"/> </types>
+</field>
+
+<sig label="univ" ID="2" builtin="yes">
+</sig>
+
+<sig label="catalog/PlatformRole" ID="52">
+   <type ID="11"/>
+</sig>
+
+<sig label="catalog/Public" ID="53">
+   <type ID="23"/>
+</sig>
+
+<skolem label="$reach_User_email_p" ID="54">
+   <tuple> <atom label="catalog/Anonymous$0"/> </tuple>
+   <types> <type ID="8"/> </types>
+</skolem>
+
+<skolem label="$reach_User_email_cur" ID="55">
+   <tuple> <atom label="catalog/Tenant$2"/> </tuple>
+   <types> <type ID="16"/> </types>
+</skolem>
+
+<skolem label="$reach_User_email_o" ID="56">
+   <tuple> <atom label="UserProfile$0"/> </tuple>
+   <types> <type ID="23"/> </types>
+</skolem>
+
+<skolem label="$reach_User_email_r" ID="57">
+   <tuple> <atom label="UserProfile$0"/> </tuple>
+   <types> <type ID="27"/> </types>
+</skolem>
+
+</instance>
+
+</alloy>

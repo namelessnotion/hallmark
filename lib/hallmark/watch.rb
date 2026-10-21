@@ -133,11 +133,7 @@ module Hallmark
       return nil if changed.empty?
 
       analysis = Analysis.new("watch", mapping: @mapping)
-      changed.each do |exposure|
-        analysis.add_exposure(action: exposure.action, op: exposure.op, resource: exposure.resource,
-                              guard: exposure.guard, basis: exposure.basis, locations: exposure.locations,
-                              rules: exposure.rules, field: exposure.field)
-      end
+      changed.each { |exposure| analysis.add(exposure) }
       analysis.validate!.run(solver: @solver)
     end
 

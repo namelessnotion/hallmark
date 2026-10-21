@@ -9,7 +9,7 @@ USAGE = <<~TEXT.freeze
   Usage:
     hallmark check [--sarif OUT] [--baseline OUT] FILE...
                               run the analyses declared in FILEs; exit 1 on any counterexample,
-                              unchecked entry point, drift or policy-DSL hazard, else 2 on any
+                              unchecked entry point, drift, policy-DSL or GraphQL hazard, else 2 on any
                               unknown (or error), else 0. A FILE that only maps (config/hallmark.rb)
                               is checked against the stamps the test suite recorded. --sarif also
                               writes what fails as SARIF 2.1.0 to OUT; --baseline writes what CI

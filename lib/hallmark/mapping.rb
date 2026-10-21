@@ -72,6 +72,11 @@ module Hallmark
     # tenant from its context: lambdas taking the context (`graphql`).
     GraphqlContext = Struct.new(:current_user, :current_tenant, keyword_init: true)
 
+    # The resource a graphql-ruby type backs, when its class name does not
+    # say (`graphql_type`), and whether the records its fields return may
+    # live in another tenant than the record they are read from.
+    GraphqlType = Struct.new(:name, :resource, :crosses_tenants, keyword_init: true)
+
     # A per-rule override: the rule's op, a hand-written guard, or both, and
     # the resource it checks when no stamp shows it.
     Rule = Struct.new(:policy, :name, :op, :guard, :resource, keyword_init: true) do
@@ -82,7 +87,8 @@ module Hallmark
 
     attr_reader :principal_name, :principal_source, :principal_roles, :resources, :grants, :tenancy,
                 :current_tenant_source, :current_tenant_controller, :principal_controller, :platform_roles, :rules,
-                :unchecked_allowed, :terms, :public_actions, :field_policies, :restrictions, :graphql_context
+                :unchecked_allowed, :terms, :public_actions, :field_policies, :restrictions, :graphql_context,
+                :graphql_types
 
     def initialize
       @principal_name = "User"
@@ -102,6 +108,7 @@ module Hallmark
       @field_policies = {}
       @restrictions = {}
       @graphql_context = nil
+      @graphql_types = {}
     end
 
     # An intended permission: every holder of `role` may `op` every record of
@@ -286,6 +293,23 @@ module Hallmark
       @graphql_context = GraphqlContext.new(current_user: current_user, current_tenant: current_tenant)
     end
 
+    # What a graphql-ruby type backs, for the schema walk (`hallmark check`
+    # on an app with `app/graphql`): `resource:` when its class name minus
+    # `Types::` and `Type` is not the resource (Types::OrgType backs
+    # Organization), and `crosses_tenants: true` when its records may be
+    # returned by a field of a record in another tenant (by default a
+    # child lives in its parent's tenant).
+    #
+    #   graphql_type "Types::OrgType", resource: "Organization"
+    #   graphql_type "Types::UserType", crosses_tenants: true
+    def graphql_type(name, resource: nil, crosses_tenants: false)
+      key = Naming.class_name(name)
+      raise ConfigurationError, "graphql_type #{key} is mapped twice" if @graphql_types.key?(key)
+
+      @graphql_types[key] = GraphqlType.new(name: key, resource: resource && Naming.class_name(resource),
+                                            crosses_tenants: crosses_tenants ? true : false)
+    end
+
     # Roles that intentionally grant access across tenants, such as the
     # vendor's support staff. Holders may do anything in any tenant.
     def platform_role(*names)
@@ -441,6 +465,7 @@ module Hallmark
       @public_actions = @public_actions.dup
       @field_policies = @field_policies.dup
       @restrictions = @restrictions.dup
+      @graphql_types = @graphql_types.dup
     end
 
     # `owner_outside_tenant:` as the ops it names; it needs an owner and a
@@ -476,6 +501,10 @@ module Hallmark
     def validate_narrowing!
       @field_policies.each_value { |policy| fetch(policy.resource) }
       @restrictions.each_value { |restriction| restriction.validate!(self) }
+      @graphql_types.each_value do |type|
+        name = type.resource
+        fetch(name) if name
+      end
     end
 
     # A rule's declared resource must be mapped.

@@ -8,12 +8,16 @@ module Hallmark
     sig { returns(Mapping) }
     attr_reader :mapping
 
-    sig { returns(T::Array[Exposure]) }
+    sig { returns(T::Array[AnyExposure]) }
     attr_reader :exposures
 
     # Set once `stamps` has inferred exposures
     sig { returns(T.nilable(Inference)) }
     attr_reader :inference
+
+    # The GraphQL model its checks come from, if any
+    sig { returns(T.nilable(GraphqlModel)) }
+    attr_reader :graphql
 
     sig do
       params(
@@ -28,8 +32,9 @@ module Hallmark
     def initialize(name, mapping: nil)
       @name = T.let(T.unsafe(nil), String)
       @mapping = T.let(T.unsafe(nil), Mapping)
-      @exposures = T.let(T.unsafe(nil), T::Array[Exposure])
+      @exposures = T.let(T.unsafe(nil), T::Array[AnyExposure])
       @inference = T.let(T.unsafe(nil), T.nilable(Inference))
+      @graphql = T.let(T.unsafe(nil), T.nilable(GraphqlModel))
     end
 
     # `guard` is checked at run time, since callers without Sorbet can pass anything.
@@ -47,14 +52,23 @@ module Hallmark
     end
     def add_exposure(action:, op:, resource:, guard:, basis: nil, locations: nil, rules: nil, field: nil); end
 
+    sig { params(check: GraphqlCheck).returns(GraphqlCheck) }
+    def add_check(check); end
+
+    sig { params(root: T.nilable(String)).returns(T.nilable(GraphqlModel)) }
+    def add_graphql(root = Hallmark.configuration.root); end
+
     sig { params(source: T.any(StampSet, String, Pathname)).returns(Inference) }
     def add_stamps(source); end
+
+    sig { params(exposure: AnyExposure).returns(AnyExposure) }
+    def add(exposure); end
 
     sig { returns(T.self_type) }
     def validate!; end
 
     # Field reads with no field policy, checked as readable as their record
-    sig { returns(T::Array[Exposure]) }
+    sig { returns(T::Array[AnyExposure]) }
     def fields_without_policy; end
 
     # The solver is not started when there is nothing to check.
@@ -63,7 +77,7 @@ module Hallmark
 
     private
 
-    sig { params(exposure: Exposure).void }
+    sig { params(exposure: AnyExposure).void }
     def validate_tenants!(exposure); end
 
     sig { params(guard: Guard, what: String).void }
@@ -72,13 +86,16 @@ module Hallmark
     sig { params(policy: Mapping::FieldPolicy).void }
     def validate_field_policy!(policy); end
 
+    sig { void }
+    def validate_graphql!; end
+
     sig { params(guard: Guard, resource: Mapping::Resource, what: String).void }
     def validate_flags!(guard, resource, what); end
 
-    sig { params(exposure: Exposure, resource: Mapping::Resource).void }
+    sig { params(exposure: AnyExposure, resource: Mapping::Resource).void }
     def validate_outside_tenants!(exposure, resource); end
 
-    sig { params(exposure: Exposure, resource: Mapping::Resource).void }
+    sig { params(exposure: AnyExposure, resource: Mapping::Resource).void }
     def validate_public_action!(exposure, resource); end
 
     public
@@ -109,6 +126,9 @@ module Hallmark
 
       sig { params(source: T.any(StampSet, String, Pathname)).returns(Inference) }
       def stamps(source = Hallmark.configuration.stamps); end
+
+      sig { params(root: T.nilable(String)).returns(GraphqlModel) }
+      def graphql_schema(root = Hallmark.configuration.root); end
     end
   end
 end

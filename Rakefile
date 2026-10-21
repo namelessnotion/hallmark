@@ -29,7 +29,7 @@ namespace :fixtures do
   desc "Re-run the buggy examples through Alloy and refresh test/fixtures/<example>"
   task :regenerate do
     require_relative "lib/hallmark"
-    %w[medium_clone storefront].each do |example|
+    %w[medium_clone storefront graphql_shop].each do |example|
       load File.expand_path("examples/#{example}/hallmark.rb", __dir__)
       model = Hallmark::ModelBuilder.new(Hallmark.analyses.last).build
       output = File.expand_path("test/fixtures/#{example}", __dir__)

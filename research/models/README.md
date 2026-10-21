@@ -41,3 +41,15 @@ Results below are from Alloy 6.2.0 with the default SAT4J solver.
 | `declarative.als` | `D2_Delegated` | Holds | Plain `delegate` keeps the parent's prevent rules |
 | `declarative.als` | `D2_OverridesDropPrevent` | Counterexample | `overrides` drops them, so a blocked author passes |
 | `declarative.als` | `D3_CacheScope` | Counterexample | A `scope: :user` condition that reads `@subject` reuses the first project's answer |
+
+`graphql.als` was the design for the GraphQL schema walk shipped in phase 3
+step 5 (`GraphqlModel`, docs/PLAN.md "The shipped GraphQL schema walk").
+The shipped encoding departs from it in four ways: checks are guards over
+the shipped catalog's terms, each a predicate over the object it checks,
+not values of a small `Guard` enumeration; a type's intended access is its
+resource's catalog patterns (and a field's its `field_policy`), not a
+`policy` per type; objects are the resources' own atoms and fields are
+relations on them, with a type's check per step rather than one `GType` per
+object; and each check also quantifies over the root object a path starts
+from (`o`), so the witness carries where the path begins.
+`examples/graphql_shop` is this model's schema as graphql-ruby source.

@@ -33,7 +33,9 @@ module Hallmark
     # extraction off.
     def self.load(mapping, root = Hallmark.configuration.root)
       return nil unless Hallmark.configuration.extract && root
-      return nil unless (DIRS + Controllers::DIRS).any? { |dir| File.directory?(File.join(root, dir)) }
+
+      dirs = DIRS + Controllers::DIRS + GraphqlSchema::DIRS
+      return nil unless dirs.any? { |dir| File.directory?(File.join(root, dir)) }
 
       new(mapping, root)
     end
@@ -44,10 +46,12 @@ module Hallmark
       @mapping = mapping
       @root = File.expand_path(root)
       @index = SourceIndex.new(@root, DIRS)
-      terms = Terms.new(mapping)
-      @translator = MethodTranslator.new(@index, terms)
-      @declarative = DeclarativeTranslator.new(@index, terms, @translator)
+      @terms = Terms.new(mapping)
+      @translator = MethodTranslator.new(@index, @terms)
+      @declarative = DeclarativeTranslator.new(@index, @terms, @translator)
       @cache = {}
+      @graphql = nil
+      @graphql_read = false
       @controllers = nil
       @grape = nil
       @grape_read = false
@@ -68,6 +72,38 @@ module Hallmark
       @grape_read = true
       dirs = GrapeEndpoints::DIRS.select { |dir| File.directory?(File.join(@root, dir)) }
       @grape = dirs.empty? ? nil : GrapeEndpoints.new(@mapping, @root)
+    end
+
+    # The app's graphql-ruby schema, read on first use (`GraphqlSchema`);
+    # nil when it has no `app/graphql`.
+    def graphql
+      return @graphql if @graphql_read
+
+      @graphql_read = true
+      dirs = GraphqlSchema::DIRS.select { |dir| File.directory?(File.join(@root, dir)) }
+      return @graphql = nil if dirs.empty?
+
+      index = SourceIndex.new(@root, dirs)
+      @graphql = GraphqlSchema.new(index, @mapping, terms: @terms, translator: MethodTranslator.new(index, @terms),
+                                                    policies: self)
+    end
+
+    # A DeclarativePolicy ability on a record of `resource`, through the
+    # resource's policy (Ci::PipelineSchedule's is Ci::PipelineSchedulePolicy);
+    # nil when there is no such DeclarativePolicy policy.
+    def ability_guard(resource, ability)
+      policy = "#{resource}Policy"
+      @index.scopes.key?(policy) ? @declarative.ability(policy, ability, resource) : nil
+    end
+
+    # A Pundit or Action Policy rule on a record of `resource`, through
+    # `policy` or the resource's own; nil when the code has no such rule.
+    def rule_guard(resource, rule, policy = nil)
+      name = policy || "#{resource}Policy"
+      return nil unless @index.scopes.key?(name)
+      return @declarative.ability(name, rule, resource) if @index.declarative?(name)
+
+      @translator.rule(name, rule, resource)
     end
 
     # Every rule each policy class defines or aliases, sorted by key; for a
@@ -147,3 +183,4 @@ require_relative "extractor/declarative_translator"
 require_relative "extractor/controllers"
 require_relative "extractor/grape_endpoints"
 require_relative "extractor/routes_file"
+require_relative "extractor/graphql_schema"
