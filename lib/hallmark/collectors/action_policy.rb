@@ -43,7 +43,7 @@ module Hallmark
       # Tracks the `authorize!` calls in progress on this thread.
       class Listener
         def start(_name, _event_id, payload)
-          ActionPolicyHook.authorizing.push([payload[:policy].to_s, payload[:rule].to_s])
+          ActionPolicyHook.authorizing.push([payload[:policy].to_s, Collectors.rule_name(payload[:rule])])
         end
 
         def finish(_name, _event_id, _payload)
@@ -76,7 +76,8 @@ module Hallmark
 
           applying.push(policy)
           begin
-            enforced = authorizing.last == [policy.class.name.to_s, rule.to_s]
+            current = authorizing.last
+            enforced = !current.nil? && current[1] == Collectors.rule_name(rule) && current[0] == policy.class.name.to_s
             Collectors.observe(policy: policy, rule: rule, record: policy.record, enforced: enforced,
                                outcome: :value, &)
           ensure

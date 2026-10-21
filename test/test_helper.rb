@@ -20,16 +20,18 @@ module HallmarkTestHelpers
 
   # Installs the collectors with a fresh stamp store for the block, then
   # returns what they stamped. Needs test/support/shop.rb.
-  def collect(current_tenant: :seller)
+  def collect(current_tenant: :seller, sample_rate: 1.0)
     Dir.mktmpdir("hallmark-stamps") do |dir|
       mapping = Shop.map(Hallmark::Mapping.new, current_tenant: current_tenant)
-      Hallmark::Collectors.install!(mapping: mapping, store: Hallmark::StampStore.new(dir, run: "test"))
+      Hallmark::Collectors.install!(mapping: mapping, store: Hallmark::StampStore.new(dir, run: "test"),
+                                    sample_rate: sample_rate)
       begin
         yield
       ensure
         Hallmark::Collectors.uninstall!
       end
-      Hallmark::StampSet.load(dir)
+      # Nothing sampled writes no file.
+      Hallmark::StampSet.files(dir).empty? ? Hallmark::StampSet.new : Hallmark::StampSet.load(dir)
     end
   end
 

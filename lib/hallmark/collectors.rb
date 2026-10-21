@@ -23,19 +23,34 @@ module Hallmark
   #
   # The Railtie installs them in the test environment. A hook never breaks
   # the app: a fact that cannot be read drops the stamp with a warning.
+  #
+  # The hot path (docs/PLAN.md, "Runtime modes and performance budget";
+  # measured by `rake bench`): whether to stamp is decided before any fact
+  # is read, once per request (all of a request's decisions are stamped or
+  # none) and per decision outside one; a request reads each user's roles
+  # in each tenant once.
   module Collectors
-    # The entry point a request is running, and whether it called any rule.
-    Request = Struct.new(:entry_point, :checked, :halted, keyword_init: true)
+    # The entry point a request is running, whether it called any rule,
+    # whether its decisions are stamped, and the roles read so far in it
+    # (`Facts#roles_in`), by user and then tenant, compared by identity.
+    Request = Struct.new(:entry_point, :checked, :halted, :sampled, :roles, keyword_init: true)
 
     class << self
       attr_reader :store, :facts
 
-      def install!(mapping: Hallmark.configuration.mapping, store: StampStore.new(Hallmark.configuration.stamps))
+      # `sample_rate` is the share of requests (and of decisions outside a
+      # request) whose decisions are stamped, from 0.0 to 1.0.
+      def install!(mapping: Hallmark.configuration.mapping, store: StampStore.new(Hallmark.configuration.stamps),
+                   sample_rate: 1.0)
         unless mapping
           raise ConfigurationError,
                 "the collectors need a mapping; declare one with `Hallmark.configure { |c| c.map { ... } }`"
         end
+        unless sample_rate.between?(0, 1)
+          raise ConfigurationError, "the sample rate must be a number from 0 to 1, not #{sample_rate.inspect}"
+        end
 
+        @sample_rate = sample_rate.to_f
         @facts = Facts.new(mapping.validate_collection!)
         @store = store
         @warned = {}
@@ -59,9 +74,12 @@ module Hallmark
       def flush = @store&.flush
 
       # Runs a block as one entry point, such as "LinksController#update".
+      # An entry point inside another takes the outer one's sampling and
+      # role reads.
       def within_entry_point(name)
         previous = Thread.current[:hallmark_request]
-        request = Request.new(entry_point: name, checked: false, halted: false)
+        request = Request.new(entry_point: name, checked: false, halted: false,
+                              sampled: previous ? previous.sampled : sample?, roles: previous&.roles)
         Thread.current[:hallmark_request] = request
         yield request
       ensure
@@ -69,6 +87,17 @@ module Hallmark
       end
 
       def current_request = Thread.current[:hallmark_request]
+
+      # Whether to stamp the decision being made: the collectors are on, and
+      # the current request is sampled, or outside a request, this decision
+      # is. Hooks ask before reading anything off the policy; outside a
+      # request each call rolls again, so ask once per decision.
+      def recording?
+        return false unless active?
+
+        request = current_request
+        request ? request.sampled : sample?
+      end
 
       # Marks the current request as authorized without a decision to stamp:
       # a list scope, or an explicit skip such as Pundit's `skip_authorization`.
@@ -89,8 +118,16 @@ module Hallmark
       # returned. `outcome` names the method that reads the decision off that
       # result (Action Policy's `value`); by default the result is the
       # decision. An exception inside the rule is stamped as a deny and
-      # re-raised.
+      # re-raised. A decision not sampled still counts as a check.
       def observe(policy:, rule:, record:, enforced:, entry_point: nil, outcome: nil)
+        unless recording?
+          begin
+            return yield
+          ensure
+            checked!
+          end
+        end
+
         result = yield
         decision(policy: policy, rule: rule, record: record, allowed: outcome ? result.public_send(outcome) : result,
                  enforced: enforced, entry_point: entry_point)
@@ -101,6 +138,8 @@ module Hallmark
         raise
       end
 
+      # Stamps a decision when the collectors are on. Callers ask
+      # `recording?` first; this does not sample again.
       def decision(policy:, rule:, record:, allowed:, enforced:, raised: nil, entry_point: nil)
         checked!
         facts = @facts
@@ -108,12 +147,16 @@ module Hallmark
         return unless active? && facts && store
 
         store.record(facts.stamp(
-                       policy: policy, rule: rule.to_s, record: record, allowed: allowed ? true : false,
+                       policy: policy, rule: rule_name(rule), record: record, allowed: allowed ? true : false,
                        raised: raised, enforced: enforced, entry_point: entry_point || current_request&.entry_point
                      ))
       rescue StandardError => e
         warn_once(e)
       end
+
+      # A rule's name as a String. `Symbol#name` is the Symbol's own frozen
+      # String, where `to_s` would copy it on every decision.
+      def rule_name(rule) = rule.is_a?(Symbol) ? rule.name : rule.to_s
 
       # Warns once per distinct error that a stamp was dropped; hooks call it
       # so that a fact they cannot read never breaks the app.
@@ -127,6 +170,12 @@ module Hallmark
       end
 
       private
+
+      # A rate of 0 never samples: `rand` is never below it.
+      def sample?
+        rate = @sample_rate || 1.0
+        rate >= 1.0 || Kernel.rand < rate
+      end
 
       def install_libraries
         if defined?(::ActionPolicy::Policy::Core)
@@ -152,30 +201,61 @@ module Hallmark
       end
     end
 
-    # Reads the mapped facts off a live policy and record.
+    # Reads the mapped facts off a live policy and record. One instance
+    # serves every thread; its caches hold what the mapping fixes once the
+    # collectors are installed (which classes are the principal and which
+    # resource a class maps to, each rule's op), so a race only computes an
+    # entry twice.
     class Facts
       attr_reader :mapping
 
       def initialize(mapping)
         @mapping = mapping
+        @principal_classes = {}.compare_by_identity
+        @resources = {}.compare_by_identity
+        @ops = {}
       end
 
+      # Fills the stamp in place rather than merging Hashes of facts, so
+      # the Stamp and its role lists are most of what a decision allocates.
       def stamp(policy:, rule:, record:, allowed:, raised:, enforced:, entry_point:)
         user = principal(policy)
         current = current_tenant(policy)
-        base = {
-          entry_point: entry_point, policy: policy.class.name.to_s, rule: rule, enforced: enforced,
-          decision: allowed ? "allow" : "deny", raised: raised, logged_in: !user.nil?,
-          roles: outside_roles(user), current_roles: current_roles(user, current)
-        }
+        request = Collectors.current_request
+        roles = request && (request.roles ||= {}.compare_by_identity)
+        name = policy.class.name.to_s
+        outside = outside_roles(user, roles)
+        stamp = new_stamp(entry_point: entry_point, policy: name, rule: rule, enforced: enforced, allowed: allowed,
+                          raised: raised, logged_in: !user.nil?, roles: outside)
         # Class-level: a class, a name or nothing stands in for the record.
         # `Symbol#name` gives the name itself ("dashboard", "global").
-        return Stamp.new(**base, resource: record&.name, class_level: true) if recordless?(record)
-
-        Stamp.new(**base, **record_facts(record, user, current, base), class_level: false)
+        if recordless?(record)
+          stamp.resource = record&.name
+          stamp.class_level = true
+        else
+          record_facts(stamp, record, user, current, roles, op: op_for(name, rule), outside: outside)
+          stamp.class_level = false
+        end
+        stamp.current_roles = current_roles(stamp, user, current, roles)
+        stamp
       end
 
       private
+
+      # The decision's own fields. Set one by one: `Stamp.new` with keywords
+      # would build a Hash of them first.
+      def new_stamp(entry_point:, policy:, rule:, enforced:, allowed:, raised:, logged_in:, roles:)
+        stamp = Stamp.new
+        stamp.entry_point = entry_point
+        stamp.policy = policy
+        stamp.rule = rule
+        stamp.enforced = enforced
+        stamp.decision = allowed ? "allow" : "deny"
+        stamp.raised = raised
+        stamp.logged_in = logged_in
+        stamp.roles = roles
+        stamp
+      end
 
       # A rule checked with no record: nil, a class (`authorize Link`), or a
       # Symbol, the subject of a headless Pundit or Action Policy policy
@@ -186,7 +266,14 @@ module Hallmark
       def principal(policy)
         user = read(@mapping.principal_source, policy)
         return nil if user.nil?
-        return user if user.class.ancestors.any? { |ancestor| ancestor.name == @mapping.principal_name }
+
+        klass = user.class
+        known = @principal_classes[klass]
+        if known.nil?
+          known = klass.ancestors.any? { |ancestor| ancestor.name == @mapping.principal_name }
+          @principal_classes[klass] = known
+        end
+        return user if known
 
         raise ConfigurationError, "#{policy.class.name} gave a #{user.class.name} as its user, not a " \
                                   "#{@mapping.principal_name}; set `principal \"#{@mapping.principal_name}\", from:`"
@@ -201,42 +288,63 @@ module Hallmark
         raise ConfigurationError, "#{policy.class.name} has no `#{source}` to read the current tenant from"
       end
 
-      # `base` holds the facts read so far: the policy, the rule and the
-      # roles held outside tenants.
-      def record_facts(record, user, current, base)
+      # The record's facts, onto the stamp. `op` is the rule's, and
+      # `outside` the roles the user holds outside tenants.
+      def record_facts(stamp, record, user, current, roles, op:, outside:)
         resource = mapping_for(record)
-        return { resource: record.class.name } unless resource
+        stamp.resource = resource ? resource.name : record.class.name
+        return unless resource
 
-        tenant = tenant_facts(resource, record, user, current)
-        counting = tenant[:record_roles] || base.fetch(:roles)
-        op = @mapping.op_for(base.fetch(:policy), base.fetch(:rule))
-        {
-          resource: resource.name,
-          owner: (owned_by?(resource, record, user) if resource.owned?),
-          public_record: public?(resource, record),
-          granted: granted?(resource, op, counting),
-          permitted: (permitted?(resource, record, user, op) if resource.permits?),
-          **tenant
-        }
+        held = tenant_facts(stamp, resource, record, user, current, roles: roles)
+        stamp.owner = owned_by?(resource, record, user) if resource.owned?
+        stamp.public_record = public?(resource, record)
+        stamp.granted = granted?(resource, op, held || outside)
+        stamp.permitted = permitted?(resource, record, user, op) if resource.permits?
       end
 
-      def tenant_facts(resource, record, user, current)
-        return {} unless resource.tenanted?
+      # The tenant facts, onto the stamp; returns the user's roles in the
+      # record's tenant, nil when the record has none.
+      def tenant_facts(stamp, resource, record, user, current, roles:)
+        return nil unless resource.tenanted?
 
         tenant = read(resource.tenant, record)
         # A record with no tenant (`tenant_optional:`) counts the roles held
         # outside tenants, as the catalog's `rolesFor` does.
-        return { member: false, in_current_tenant: nil, outside_tenants: true, record_roles: nil } if tenant.nil?
+        if tenant.nil?
+          stamp.member = false
+          stamp.outside_tenants = true
+          return nil
+        end
 
-        roles = user ? roles_in(user, tenant) : []
-        { member: !roles.empty?, in_current_tenant: (tenant == current if current),
-          outside_tenants: (false if resource.tenant_optional?), record_roles: roles }
+        held = user ? roles_in(user, tenant, roles) : []
+        stamp.member = !held.empty?
+        stamp.in_current_tenant = (tenant == current if current)
+        stamp.outside_tenants = false if resource.tenant_optional?
+        stamp.record_roles = held
+        # Kept for `current_roles`: the same tenant need not be read twice.
+        stamp.current_roles = held if current && tenant.equal?(current)
+        held
       end
 
-      def outside_roles(user) = user ? names(read(@mapping.principal_roles, user)) : []
+      def outside_roles(user, roles)
+        return [] unless user
+        return names(read(@mapping.principal_roles, user)) unless roles
 
-      def current_roles(user, current)
-        roles_in(user, current) if @mapping.tenancy && user && current
+        (roles[user] ||= {}.compare_by_identity)[:outside] ||= names(read(@mapping.principal_roles, user))
+      end
+
+      # The roles in the current tenant; `tenant_facts` has set them already
+      # when the record lives there.
+      def current_roles(stamp, user, current, roles)
+        return nil unless @mapping.tenancy && user && current
+
+        stamp.current_roles || roles_in(user, current, roles)
+      end
+
+      # A rule's op, by policy and rule name, as the mapping and the name give it.
+      def op_for(policy, rule)
+        ops = @ops[policy] ||= {}
+        ops.fetch(rule) { ops[rule] = @mapping.op_for(policy, rule) }
       end
 
       # Whether a mapped grant covers the rule's op for the roles that count
@@ -259,12 +367,17 @@ module Hallmark
         Array(ops).map(&:to_sym).include?(op)
       end
 
+      # The mapped resource of the record's class or its nearest ancestor;
+      # false in the cache for a class no resource maps.
       def mapping_for(record)
-        record.class.ancestors.each do |ancestor|
-          resource = ancestor.name && @mapping.resources[ancestor.name]
-          return resource if resource
-        end
-        nil
+        klass = record.class
+        cached = @resources[klass]
+        return cached || nil unless cached.nil?
+
+        resources = @mapping.resources
+        resource = klass.ancestors.lazy.filter_map { |ancestor| ancestor.name && resources[ancestor.name] }.first
+        @resources[klass] = resource || false
+        resource
       end
 
       def owned_by?(resource, record, user)
@@ -283,18 +396,32 @@ module Hallmark
       end
 
       # A user's roles in a tenant, plus the `self:` role when the user is
-      # the tenant.
-      def roles_in(user, tenant)
+      # the tenant; read once per request (`roles`, the request's reads).
+      def roles_in(user, tenant, roles = nil)
+        return read_roles_in(user, tenant) unless roles
+
+        (roles[user] ||= {}.compare_by_identity)[tenant] ||= read_roles_in(user, tenant)
+      end
+
+      def read_roles_in(user, tenant)
         tenancy = @mapping.tenancy
         return [] unless tenancy
 
-        roles = names(read(tenancy.roles_in, user, with: tenant))
+        held = names(read(tenancy.roles_in, user, with: tenant))
         self_role = tenancy.self_role
-        roles |= [self_role] if self_role && user == tenant
-        roles.sort
+        return held unless self_role && user == tenant && !held.include?(self_role)
+
+        (held + [self_role]).sort!.freeze
       end
 
-      def names(value) = Array(value).map(&:to_s).uniq.sort
+      # Role names, as sorted, distinct Strings. Frozen: stamps of one
+      # request share them.
+      def names(value)
+        list = Array(value).map(&:to_s)
+        list.uniq!
+        list.sort!
+        list.freeze
+      end
 
       # A mapping option read off an object: a method name, or a lambda
       # taking the object. `roles_in:` also passes the tenant, and `permits:`
@@ -304,13 +431,12 @@ module Hallmark
         when nil then nil
         when Proc then call(source, object, with)
         else
-          name = source.to_s
-          unless object.respond_to?(name)
+          unless object.respond_to?(source)
             raise ConfigurationError,
-                  "#{object.class.name} has no `#{name}` for the mapping"
+                  "#{object.class.name} has no `#{source}` for the mapping"
           end
 
-          with.nil? ? object.public_send(name) : object.public_send(name, with)
+          with.nil? ? object.public_send(source) : object.public_send(source, with)
         end
       end
 

@@ -7,6 +7,7 @@ bin/hallmark
 # everything outside lib/, rbi/ and sorbet/rbi/.
 --ignore=/test/
 --ignore=/examples/
+--ignore=/bench/
 --ignore=/sorbet/tapioca/
 # Claude Code keeps side sessions' git worktrees here; each is a full copy of
 # lib/ and rbi/, so checking them reports every definition as a duplicate.

@@ -21,11 +21,31 @@ module Hallmark
       sig { params(halted: T::Boolean).returns(T::Boolean) }
       def halted=(halted); end
 
-      sig { params(entry_point: String, checked: T::Boolean, halted: T::Boolean).void }
-      def initialize(entry_point:, checked:, halted:); end
+      sig { returns(T::Boolean) }
+      def sampled; end
+
+      # By user, then by tenant (or :outside for roles held outside tenants).
+      sig { returns(T.nilable(T::Hash[T.untyped, T::Hash[T.untyped, T::Array[String]]])) }
+      def roles; end
+
+      sig do
+        params(roles: T.nilable(T::Hash[T.untyped, T::Hash[T.untyped, T::Array[String]]]))
+          .returns(T.nilable(T::Hash[T.untyped, T::Hash[T.untyped, T::Array[String]]]))
+      end
+      def roles=(roles); end
+
+      sig do
+        params(entry_point: String, checked: T::Boolean, halted: T::Boolean, sampled: T::Boolean,
+               roles: T.nilable(T::Hash[T.untyped, T::Hash[T.untyped, T::Array[String]]])).void
+      end
+      def initialize(entry_point:, checked:, halted:, sampled:, roles:); end
     end
 
+    # A request's role reads (`Request#roles`).
+    Roles = T.type_alias { T::Hash[T.untyped, T::Hash[T.untyped, T::Array[String]]] }
+
     @facts = T.let(nil, T.nilable(Facts))
+    @sample_rate = T.let(nil, T.nilable(Float))
     @store = T.let(nil, T.nilable(StampStore))
     @warned = T.let(nil, T.nilable(T::Hash[String, T::Boolean]))
     @active = T.let(nil, T.nilable(T::Boolean))
@@ -37,8 +57,9 @@ module Hallmark
       sig { returns(T.nilable(Facts)) }
       attr_reader :facts
 
-      sig { params(mapping: T.nilable(Mapping), store: StampStore).returns(T.self_type) }
-      def install!(mapping: Hallmark.configuration.mapping, store: StampStore.new(Hallmark.configuration.stamps)); end
+      sig { params(mapping: T.nilable(Mapping), store: StampStore, sample_rate: Numeric).returns(T.self_type) }
+      def install!(mapping: Hallmark.configuration.mapping, store: StampStore.new(Hallmark.configuration.stamps),
+                   sample_rate: 1.0); end
 
       sig { void }
       def uninstall!; end
@@ -62,6 +83,9 @@ module Hallmark
       sig { returns(T.nilable(Request)) }
       def current_request; end
 
+      sig { returns(T::Boolean) }
+      def recording?; end
+
       sig { void }
       def checked!; end
 
@@ -82,10 +106,16 @@ module Hallmark
       end
       def decision(policy:, rule:, record:, allowed:, enforced:, raised: nil, entry_point: nil); end
 
+      sig { params(rule: T.untyped).returns(String) }
+      def rule_name(rule); end
+
       sig { params(error: StandardError).void }
       def warn_once(error); end
 
       private
+
+      sig { returns(T::Boolean) }
+      def sample?; end
 
       sig { void }
       def install_libraries; end
@@ -98,6 +128,9 @@ module Hallmark
       sig { params(mapping: Mapping).void }
       def initialize(mapping)
         @mapping = T.let(T.unsafe(nil), Mapping)
+        @principal_classes = T.let(T.unsafe(nil), T::Hash[T::Module[T.anything], T::Boolean])
+        @resources = T.let(T.unsafe(nil), T::Hash[T::Module[T.anything], T.any(Mapping::Resource, FalseClass)])
+        @ops = T.let(T.unsafe(nil), T::Hash[String, T::Hash[String, T.nilable(Symbol)]])
       end
 
       # `policy` and `record` are the app's objects.
@@ -109,6 +142,12 @@ module Hallmark
 
       private
 
+      sig do
+        params(entry_point: T.nilable(String), policy: String, rule: String, enforced: T::Boolean, allowed: T::Boolean,
+               raised: T.nilable(String), logged_in: T::Boolean, roles: T::Array[String]).returns(Stamp)
+      end
+      def new_stamp(entry_point:, policy:, rule:, enforced:, allowed:, raised:, logged_in:, roles:); end
+
       sig { params(record: T.untyped).returns(T::Boolean) }
       def recordless?(record); end
 
@@ -118,20 +157,29 @@ module Hallmark
       sig { params(policy: T.untyped).returns(T.untyped) }
       def current_tenant(policy); end
 
-      sig { params(record: T.untyped, user: T.untyped, current: T.untyped, base: T::Hash[Symbol, T.untyped]).returns(T::Hash[Symbol, T.untyped]) }
-      def record_facts(record, user, current, base); end
+      sig do
+        params(stamp: Stamp, record: T.untyped, user: T.untyped, current: T.untyped, roles: T.nilable(Roles),
+               op: T.nilable(Symbol), outside: T::Array[String]).void
+      end
+      def record_facts(stamp, record, user, current, roles, op:, outside:); end
 
       sig do
-        params(resource: Mapping::Resource, record: T.untyped, user: T.untyped, current: T.untyped)
-          .returns(T::Hash[Symbol, T.untyped])
+        params(stamp: Stamp, resource: Mapping::Resource, record: T.untyped, user: T.untyped, current: T.untyped,
+               roles: T.nilable(Roles)).returns(T.nilable(T::Array[String]))
       end
-      def tenant_facts(resource, record, user, current); end
+      def tenant_facts(stamp, resource, record, user, current, roles:); end
 
-      sig { params(user: T.untyped).returns(T::Array[String]) }
-      def outside_roles(user); end
+      sig { params(user: T.untyped, roles: T.nilable(Roles)).returns(T::Array[String]) }
+      def outside_roles(user, roles); end
 
-      sig { params(user: T.untyped, current: T.untyped).returns(T.nilable(T::Array[String])) }
-      def current_roles(user, current); end
+      sig do
+        params(stamp: Stamp, user: T.untyped, current: T.untyped, roles: T.nilable(Roles))
+          .returns(T.nilable(T::Array[String]))
+      end
+      def current_roles(stamp, user, current, roles); end
+
+      sig { params(policy: String, rule: String).returns(T.nilable(Symbol)) }
+      def op_for(policy, rule); end
 
       sig { params(resource: Mapping::Resource, op: T.nilable(Symbol), counting: T::Array[String]).returns(T::Boolean) }
       def granted?(resource, op, counting); end
@@ -151,8 +199,11 @@ module Hallmark
       sig { params(resource: Mapping::Resource, record: T.untyped).returns(T::Boolean) }
       def public?(resource, record); end
 
+      sig { params(user: T.untyped, tenant: T.untyped, roles: T.nilable(Roles)).returns(T::Array[String]) }
+      def roles_in(user, tenant, roles = nil); end
+
       sig { params(user: T.untyped, tenant: T.untyped).returns(T::Array[String]) }
-      def roles_in(user, tenant); end
+      def read_roles_in(user, tenant); end
 
       sig { params(value: T.untyped).returns(T::Array[String]) }
       def names(value); end

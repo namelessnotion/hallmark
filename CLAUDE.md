@@ -27,7 +27,8 @@ done and phase 3 (runtime modes and GraphQL) is next, planned Oct 21, 2026
 ("Phase 3 (runtime and GraphQL)" below, `docs/PLAN.md` "Phase 3 plan"); phase
 2's plan is "Phase 2 (extractor)" below and `docs/PLAN.md` ("Roadmap", "Phase 2 plan"). The gate's
 two false-positive sources (op errors, two catalog gaps) were fixed Oct 21,
-2026 (Phase 2 step 7 below). The phase 1 gate's record is in
+2026 (Phase 2 step 7 below). Phase 3 step 1 (hot path and benchmark) was
+done Oct 21, 2026. The phase 1 gate's record is in
 "Phase 1 (core gem): the gate" below. The first real-app run (original Gumroad on Pundit, Oct 16, 2026, not
 a gate app) is in "First run on original Gumroad" below. Gate runs so far:
 GitLab (DeclarativePolicy, Oct 17, 2026) and Forem (Pundit, Oct 18, 2026),
@@ -164,6 +165,14 @@ Built:
   names EventPolicy) when the record's class is unknown. Collectors keep
   `Ops.named` (`Mapping#op_for`), which knows no routes. `docs/PLAN.md`
   ("The shipped op inference").
+- Hot path (phase 3 step 1, Oct 21, 2026; `bench/hot_path.rb`, `rake
+  bench`): whether to stamp is decided before any fact is read, once per
+  request (`Collectors.within_entry_point`) and per decision outside one
+  (`Collectors.recording?`; `install!(sample_rate:)`); a request reads
+  each user's roles in a tenant once (`Request#roles`); `Facts` fills the
+  Stamp in place and caches what the mapping fixes; `StampStore.new(capacity:)`
+  drops and counts (`#dropped`) when full. Under 20 µs p99 per sampled
+  decision on the test shop. `docs/PLAN.md` ("The shipped hot path").
 - Ownership without membership and public actions (Oct 21, 2026):
   `resource ..., owner_outside_tenant: true | :read | :write` (catalog
   `ownsOutsideTenant`, field `Resource.ownerOutside`), and `public_action
@@ -188,7 +197,8 @@ explicit permission on one record, for Gumroad's collaborators).
 bundle install
 bin/hallmark install-alloy                 # Alloy 6.2.0 to ~/.cache/hallmark, SHA-256 verified; needs Java 17+
 bin/hallmark install-sidecar               # also builds the sidecar jar (javac + jar from a JDK 17+); no extra download
-bundle exec rake test                      # 335 tests; the 25 integration tests skip without the jar or sidecar
+bundle exec rake test                      # 345 tests; the 25 integration tests skip without the jar or sidecar
+bundle exec rake bench                     # what the collectors add per decision (p50, p99, objects); about 2 min
 bundle exec rubocop                        # lint
 bundle exec srb tc                         # type-check lib/ against rbi/; `rake` runs tests, rubocop, then this
 bin/hallmark check examples/medium_clone/hallmark.rb    # exits 1 (two counterexamples, expected)
@@ -502,7 +512,11 @@ phase, which stretches it to about 7 weeks. Steps, in order:
 1. Hot path and benchmark (`bench/hot_path.rb`, `rake bench`): baseline
    first, then sampling before any fact is read, a request-local memo of
    role reads, a bounded event buffer. Budget: Hallmark's own work under
-   20 µs p99 per sampled decision; mapping readers reported apart.
+   20 µs p99 per sampled decision; mapping readers reported apart. Done Oct
+   21, 2026: met on the test shop (about 3 µs at the median, at most 11 µs
+   at p99), 7 to 26 objects per call against 31 to 155 before; the bench
+   cycles off, not sampled and on each iteration, since a Rails request's
+   own tail is noisier than Hallmark's cost. Numbers in `docs/PLAN.md`.
 2. Runtime modes `shadow` and `sampled`, sinks (file, Redis stream over the
    app's client, a callable), run named by deploy revision, opt-in HMAC ids
    as a first-seen example outside the stamp's key.

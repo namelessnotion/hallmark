@@ -24,7 +24,7 @@ Naming/MethodParameterName:
 # best as one method each. These limits catch real growth without forcing splits.
 Metrics/AbcSize:
   Max: 32
-  Exclude: ["test/**/*"]
+  Exclude: ["test/**/*", "bench/**/*"]
 
 # ModelBuilder renders one model section per method and Finding one phrase
 # of the explanation per method; splitting either scatters one output over files.
@@ -48,9 +48,18 @@ Metrics/ClassLength:
 Metrics/CyclomaticComplexity:
   Max: 17
 
+# Collectors' module methods are what every hook shares (install, sampling,
+# observe, decision, the request in progress); they passed 100 lines with
+# sampling (phase 3 step 1, Oct 21, 2026). bench/ is one script that sets
+# up scenarios and prints a table; it is left out of the size limits like the
+# tests.
+Metrics/ModuleLength:
+  Max: 120
+  Exclude: ["bench/**/*"]
+
 Metrics/MethodLength:
   Max: 20
-  Exclude: ["test/**/*"]
+  Exclude: ["test/**/*", "bench/**/*"]
 
 Metrics/ParameterLists:
   CountKeywordArgs: false

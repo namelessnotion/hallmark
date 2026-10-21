@@ -12,10 +12,19 @@ module Hallmark
     sig { returns(String) }
     attr_reader :run
 
-    sig { params(dir: T.any(String, Pathname), run: T.any(String, Symbol)).void }
-    def initialize(dir, run: ENV.fetch("HALLMARK_RUN") { Time.now.utc.strftime("%Y%m%dT%H%M%S%LZ") })
+    sig { returns(T.nilable(Integer)) }
+    attr_reader :capacity
+
+    # Events `record` dropped because the queue was full.
+    sig { returns(Integer) }
+    attr_reader :dropped
+
+    sig { params(dir: T.any(String, Pathname), run: T.any(String, Symbol), capacity: T.nilable(Integer)).void }
+    def initialize(dir, run: ENV.fetch("HALLMARK_RUN") { Time.now.utc.strftime("%Y%m%dT%H%M%S%LZ") }, capacity: nil)
       @dir = T.let(T.unsafe(nil), String)
       @run = T.let(T.unsafe(nil), String)
+      @capacity = T.let(T.unsafe(nil), T.nilable(Integer))
+      @dropped = T.let(T.unsafe(nil), Integer)
       @lock = T.let(T.unsafe(nil), Thread::Mutex)
       @exit_hook = T.let(T.unsafe(nil), T::Boolean)
       @pid = T.let(T.unsafe(nil), Integer)
@@ -28,7 +37,7 @@ module Hallmark
     sig { returns(String) }
     def path; end
 
-    sig { params(event: T.any(Stamp, Unchecked, Route)).returns(Thread::Queue) }
+    sig { params(event: T.any(Stamp, Unchecked, Route)).void }
     def record(event); end
 
     sig { void }

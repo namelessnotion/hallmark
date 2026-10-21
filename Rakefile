@@ -40,6 +40,11 @@ namespace :fixtures do
   end
 end
 
+desc "Measure what the collectors add to one authorization decision (BENCH_N decisions, default 20000)"
+task :bench do
+  ruby "-Ilib", "-Itest", "bench/hot_path.rb"
+end
+
 RuboCop::RakeTask.new
 
 desc "Type-check lib/ against the signatures in rbi/"

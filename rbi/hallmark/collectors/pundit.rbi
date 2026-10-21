@@ -60,10 +60,10 @@ module Hallmark
         def within_rule(&block); end
 
         sig do
-          params(policy: T.untyped, query: String, record: T.untyped, allowed: T::Boolean,
-                 raised: T.nilable(String)).void
+          params(query: String, record: T.untyped, allowed: T::Boolean, raised: T.nilable(String),
+                 blk: T.proc.returns(T.untyped)).void
         end
-        def decide(policy, query, record, allowed:, raised: nil); end
+        def decide(query, record, allowed:, raised: nil, &blk); end
 
         private
 

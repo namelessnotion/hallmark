@@ -40,14 +40,15 @@ module Hallmark
             result = PunditHook.within_rule { super }
           rescue ::Pundit::NotAuthorizedError => e
             policy = e.policy unless e.policy.is_a?(Module)
-            PunditHook.decide(policy || hallmark_policy(record, policy_class), rule, record, allowed: false)
+            PunditHook.decide(rule, record, allowed: false) { policy || hallmark_policy(record, policy_class) }
             Kernel.raise
           rescue StandardError => e
-            policy = hallmark_policy(record, policy_class)
-            PunditHook.decide(policy, rule, record, allowed: false, raised: e.class.name)
+            PunditHook.decide(rule, record, allowed: false, raised: e.class.name) do
+              hallmark_policy(record, policy_class)
+            end
             Kernel.raise
           end
-          PunditHook.decide(hallmark_policy(record, policy_class), rule, record, allowed: true)
+          PunditHook.decide(rule, record, allowed: true) { hallmark_policy(record, policy_class) }
           result
         end
 
@@ -145,11 +146,12 @@ module Hallmark
         end
 
         # Stamps one `authorize` call under the current request's entry point,
-        # if any. Never raises: the caller is about to return the app's result
-        # or re-raise the app's exception.
-        def decide(policy, query, record, allowed:, raised: nil)
+        # if any, with the policy the block gives (built only when the
+        # decision is sampled). Never raises: the caller is about to return
+        # the app's result or re-raise the app's exception.
+        def decide(query, record, allowed:, raised: nil)
           Collectors.checked!
-          return unless policy
+          return unless Collectors.recording? && (policy = yield)
 
           model = record.is_a?(Array) ? record.last : record
           Collectors.decision(policy: policy, rule: query, record: model, allowed: allowed, raised: raised,

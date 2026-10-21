@@ -7,9 +7,10 @@ module Hallmark
     # inside it, and flags the entry point when it finishes without any
     # authorization call (threat 10). A request a filter halted (a redirect
     # to sign in) or that failed (status 400 or above, or an exception) is
-    # not flagged. A flagged request carries its status and HTTP verb, so
-    # Inference can excuse a GET the action body redirected before
-    # authorizing when other requests to the entry point did authorize.
+    # not flagged, and neither is one whose decisions are not sampled. A
+    # flagged request carries its status and HTTP verb, so Inference can
+    # excuse a GET the action body redirected before authorizing when other
+    # requests to the entry point did authorize.
     module ControllerHook
       # Included into ActionController::Base and ActionController::API.
       module Around
@@ -21,7 +22,7 @@ module Hallmark
           Collectors.within_entry_point("#{self.class.name}##{action_name}") do |current|
             yield
             status = response.status
-            unless current.checked || current.halted || status >= 400
+            unless current.checked || current.halted || !current.sampled || status >= 400
               Collectors.unchecked!(current.entry_point, status: status, verb: request.request_method)
             end
           end

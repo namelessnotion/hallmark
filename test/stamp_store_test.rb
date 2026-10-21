@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "minitest/mock"
 
 class StampStoreTest < Minitest::Test
   def stamp(rule = "update?")
@@ -146,5 +147,30 @@ class StampStoreTest < Minitest::Test
 
   def test_run_ids_cannot_contain_the_separator
     assert_raises(Hallmark::ConfigurationError) { Hallmark::StampStore.new("tmp", run: "2026-10-15") }
+  end
+
+  # In production modes the queue is bounded: a full queue drops and counts
+  # rather than make the request wait or the queue grow.
+  def test_a_store_with_a_capacity_drops_events_when_full
+    Dir.mktmpdir do |dir|
+      store = Hallmark::StampStore.new(dir, run: "r1", capacity: 2)
+      # No flusher, so nothing leaves the queue.
+      store.stub(:start, nil) { 3.times { |i| store.record(stamp("rule#{i}?")) } }
+
+      assert_equal 1, store.dropped
+    end
+  end
+
+  def test_without_a_capacity_nothing_is_dropped
+    Dir.mktmpdir do |dir|
+      store = Hallmark::StampStore.new(dir, run: "r1")
+      store.stub(:start, nil) { 3.times { |i| store.record(stamp("rule#{i}?")) } }
+
+      assert_equal 0, store.dropped
+    end
+  end
+
+  def test_a_capacity_is_a_positive_integer
+    assert_raises(Hallmark::ConfigurationError) { Hallmark::StampStore.new("tmp", run: "r1", capacity: 0) }
   end
 end
