@@ -143,6 +143,8 @@ module HotPath
       context = PunditShop::Context.new(member, seller)
       publisher = PunditShop::ProductPublisher.new(member, seller)
       session = Shop::Session.new(member, seller, link)
+      # Four links for the list scopes, which read the facts of three.
+      Shop.links.replace(Array.new(4) { Shop::Link.new(seller) })
       [
         Scenario.new("Pundit rule called directly", -> { PunditShop::LinkPolicy.new(context, link).edit? }, :seller),
         Scenario.new("Pundit authorize (no request)", -> { publisher.publish(link, :update?) }, :seller),
@@ -154,6 +156,15 @@ module HotPath
         }, -> { Shop.session&.seller }),
         Scenario.new("Pundit request (controller)", lambda {
           Shop.request(PunditShop::LinksController, :edit, user: member, seller: seller, link: link)
+        }, :seller),
+        # A list scope (phase 3 step 7): the call and three of the four
+        # records it lists, read when the action loads them.
+        Scenario.new("Pundit list in a request", lambda {
+          Shop.request(PunditShop::LinksController, :catalog, user: member, seller: seller)
+        }, :seller),
+        Scenario.new("Action Policy scope", lambda {
+          ApShop::LinkPolicy.new(nil, user: member, seller: seller)
+                            .apply_scope(Shop::Relation.new(Shop.links), type: :shop_relation).to_a
         }, :seller),
         # As a GitLab page makes many DeclarativePolicy checks per request;
         # the row is per request, so divide by 5 for one decision.

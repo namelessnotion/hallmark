@@ -109,6 +109,10 @@ module Hallmark
     sig { returns(String) }
     def message; end
 
+    # A list of a resource mapped `lists: :current_tenant` showing another tenant's record
+    sig { returns(T::Boolean) }
+    def list_across_tenants?; end
+
     sig { returns(T.nilable(String)) }
     def hint; end
 
@@ -133,6 +137,12 @@ module Hallmark
 
     sig { returns(T.nilable(String)) }
     def narrowing_hint; end
+
+    sig { returns(String) }
+    def listed_across_tenants; end
+
+    sig { returns(String) }
+    def list_tenant_hint; end
 
     sig { returns(String) }
     def reason; end

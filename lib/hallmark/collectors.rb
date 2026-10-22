@@ -174,7 +174,8 @@ module Hallmark
 
       # Stamps a decision when the collectors are on. Callers ask
       # `recording?` first; this does not sample again.
-      def decision(policy:, rule:, record:, allowed:, enforced:, raised: nil, entry_point: nil)
+      # `list` marks one record a list scope showed (collectors/lists.rb).
+      def decision(policy:, rule:, record:, allowed:, enforced:, raised: nil, entry_point: nil, list: false)
         checked!
         facts = @facts
         store = @store
@@ -182,7 +183,7 @@ module Hallmark
 
         stamp = facts.stamp(policy: policy, rule: rule_name(rule), record: record, allowed: allowed ? true : false,
                             raised: raised, enforced: enforced,
-                            entry_point: entry_point || current_request&.entry_point_name)
+                            entry_point: entry_point || current_request&.entry_point_name, list: list)
         record(store, stamp, facts, policy, record)
       rescue StandardError => e
         warn_once(e)
@@ -266,7 +267,8 @@ module Hallmark
 
       # Fills the stamp in place rather than merging Hashes of facts, so
       # the Stamp and its role lists are most of what a decision allocates.
-      def stamp(policy:, rule:, record:, allowed:, raised:, enforced:, entry_point:)
+      # A list's record (`list`) is read, whatever the scope's name says.
+      def stamp(policy:, rule:, record:, allowed:, raised:, enforced:, entry_point:, list: false)
         user = principal(policy)
         current = current_tenant(policy)
         request = Collectors.current_request
@@ -274,18 +276,39 @@ module Hallmark
         name = policy.is_a?(ContextPolicy) ? policy.name : policy.class.name.to_s
         outside = outside_roles(user, roles)
         stamp = new_stamp(entry_point: entry_point, policy: name, rule: rule, enforced: enforced, allowed: allowed,
-                          raised: raised, logged_in: !user.nil?, roles: outside)
+                          raised: raised, logged_in: !user.nil?, roles: outside, list: list)
         # Class-level: a class, a name or nothing stands in for the record.
         # `Symbol#name` gives the name itself ("dashboard", "global").
         if recordless?(record)
           stamp.resource = record&.name
           stamp.class_level = true
         else
-          record_facts(stamp, record, user, current, roles, op: op_for(name, rule), outside: outside)
+          record_facts(stamp, record, user, current, roles, op: op_for(name, rule, list: list), outside: outside)
           stamp.class_level = false
         end
         stamp.current_roles = current_roles(stamp, user, current, roles)
         stamp
+      end
+
+      # A list scope's call as a class-level list stamp: who listed, and
+      # the mapped resource of the records' class (its own name when none
+      # is mapped).
+      def list_call(policy:, rule:, model:, entry_point:)
+        stamp = stamp(policy: policy, rule: rule, record: model, allowed: true, raised: nil, enforced: false,
+                      entry_point: entry_point, list: true)
+        stamp.resource = class_resource(model)&.name || model.name
+        stamp
+      end
+
+      # A policy-like view of an object that keeps the user and current
+      # tenant in readers the mapping names, private ones included (a
+      # Pundit scope generated with `private attr_reader :user`), under
+      # the policy's name for stamps.
+      def context_of(name, object)
+        source = @mapping.current_tenant_source
+        readable = source && !(source.is_a?(Symbol) && !object.respond_to?(source, true))
+        tenant = @mapping.tenancy && readable ? read(source, object) : nil
+        ContextPolicy.new(name, read(@mapping.principal_source, object), tenant)
       end
 
       # The user, record and current tenant of a decision, as references
@@ -301,8 +324,9 @@ module Hallmark
 
       # The decision's own fields. Set one by one: `Stamp.new` with keywords
       # would build a Hash of them first.
-      def new_stamp(entry_point:, policy:, rule:, enforced:, allowed:, raised:, logged_in:, roles:)
+      def new_stamp(entry_point:, policy:, rule:, enforced:, allowed:, raised:, logged_in:, roles:, list:)
         stamp = Stamp.new
+        stamp.list = true if list
         stamp.entry_point = entry_point
         stamp.policy = policy
         stamp.rule = rule
@@ -331,13 +355,22 @@ module Hallmark
           @principal_classes[klass] = known
         end
         return user if known
-        if policy.is_a?(ContextPolicy)
+
+        wrong_user!(policy, user)
+      end
+
+      # A GraphQL context's user is set by `graphql current_user:`; a
+      # policy's (or a scope's) by `principal ..., from:`.
+      def wrong_user!(policy, user)
+        expected = @mapping.principal_name
+        name = policy.is_a?(ContextPolicy) ? policy.name.to_s : policy.class.name.to_s
+        if policy.is_a?(ContextPolicy) && !name.include?("Policy")
           raise ConfigurationError, "the GraphQL context gave a #{user.class.name} as its user, not a " \
-                                    "#{@mapping.principal_name}; set `graphql current_user:`"
+                                    "#{expected}; set `graphql current_user:`"
         end
 
-        raise ConfigurationError, "#{policy.class.name} gave a #{user.class.name} as its user, not a " \
-                                  "#{@mapping.principal_name}; set `principal \"#{@mapping.principal_name}\", from:`"
+        raise ConfigurationError, "#{name} gave a #{user.class.name} as its user, not a #{expected}; " \
+                                  "set `principal \"#{expected}\", from:`"
       end
 
       def current_tenant(policy)
@@ -404,8 +437,11 @@ module Hallmark
         stamp.current_roles || roles_in(user, current, roles)
       end
 
-      # A rule's op, by policy and rule name, as the mapping and the name give it.
-      def op_for(policy, rule)
+      # A rule's op, by policy and rule name, as the mapping and the name give
+      # it; a list's records are read.
+      def op_for(policy, rule, list: false)
+        return :read if list
+
         ops = @ops[policy] ||= {}
         ops.fetch(rule) { ops[rule] = @mapping.op_for(policy, rule) }
       end
@@ -432,13 +468,14 @@ module Hallmark
 
       # The mapped resource of the record's class or its nearest ancestor;
       # false in the cache for a class no resource maps.
-      def mapping_for(record)
-        klass = record.class
+      def mapping_for(record) = class_resource(record.class)
+
+      def class_resource(klass)
         cached = @resources[klass]
         return cached || nil unless cached.nil?
 
         resources = @mapping.resources
-        resource = klass.ancestors.lazy.filter_map { |ancestor| ancestor.name && resources[ancestor.name] }.first
+        resource = klass.ancestors.lazy.filter_map { |ancestor| (name = ancestor.name) && resources[name] }.first
         @resources[klass] = resource || false
         resource
       end
@@ -494,12 +531,13 @@ module Hallmark
         when nil then nil
         when Proc then call(source, object, with)
         else
-          unless object.respond_to?(source)
+          # Private readers count: Pundit's generated scopes keep `user` private.
+          unless object.respond_to?(source, true)
             raise ConfigurationError,
                   "#{object.class.name} has no `#{source}` for the mapping"
           end
 
-          with.nil? ? object.public_send(source) : object.public_send(source, with)
+          with.nil? ? object.__send__(source) : object.__send__(source, with)
         end
       end
 
@@ -511,3 +549,5 @@ module Hallmark
     end
   end
 end
+
+require_relative "collectors/lists"

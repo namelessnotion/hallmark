@@ -59,6 +59,43 @@ module Shop
     end
   end
 
+  # A lazy list of links, as an ActiveRecord relation is: nothing is read
+  # until `load` (or `records`, `to_a`, `each`), and a filter returns a new
+  # list. `loads` counts loads, so a test can tell Hallmark loaded nothing.
+  class Relation
+    include Enumerable
+
+    attr_reader :klass
+
+    class << self
+      attr_writer :loads
+
+      def loads = @loads ||= 0
+    end
+
+    def initialize(items, klass = Link)
+      @items = items
+      @klass = klass
+      @records = nil
+    end
+
+    def loaded? = !@records.nil?
+
+    def load
+      unless loaded?
+        Relation.loads += 1
+        @records = @items.dup
+      end
+      self
+    end
+
+    def records = load.instance_variable_get(:@records)
+    def each(&) = records.each(&)
+    def all = self
+    def of_seller(seller) = Relation.new(@items.select { |link| link.user == seller })
+    def of_sellers(sellers) = Relation.new(@items.select { |link| sellers.include?(link.user) })
+  end
+
   # The request a test controller serves: who is signed in, which seller
   # they act for, and which link the id names.
   Session = Struct.new(:user, :seller, :link)
@@ -67,6 +104,12 @@ module Shop
     attr_accessor :session, :denied_query
 
     def memberships = @memberships ||= {}
+
+    # Every link in the shop, for list scopes.
+    def links = @links ||= []
+
+    # The sellers a user works for: their own shop and every team they are on.
+    def sellers_of(user) = [user, *memberships.keys.select { |member, _| member == user }.map(&:last)].uniq
     def collaborations = @collaborations ||= []
   end
 
@@ -109,6 +152,12 @@ module ApShop
     def update? = team?("owner", "admin")
     # Raises for a non-member, like Gumroad's role_admin_for?
     def destroy? = raise(KeyError, "no membership")
+
+    # The current seller's links, and every seller's for the staff.
+    scope_matcher :shop_relation, Shop::Relation
+    scope_for :shop_relation do |links|
+      user&.staff? ? links.all : links.of_seller(seller)
+    end
 
     private
 
@@ -166,6 +215,12 @@ module ApShop
       head :ok
     end
 
+    # Lists the links, loading them as a view would.
+    def index
+      authorized_scope(Shop::Relation.new(Shop.links), with: LinkPolicy).to_a
+      head :ok
+    end
+
     private
 
     def current_user = Shop.session.user
@@ -188,6 +243,22 @@ module PunditShop
 
     def edit? = team?("owner", "admin", "marketing") && record.user == seller
     def update? = team?("owner", "admin")
+
+    # Every link of every seller the user works for, not only the current
+    # seller's (M5).
+    class Scope
+      def initialize(context, scope)
+        @user = context.user
+        @seller = context.seller
+        @scope = scope
+      end
+
+      def resolve = @user ? @scope.of_sellers(Shop.sellers_of(@user)) : @scope.of_sellers([])
+
+      private
+
+      attr_reader :user, :seller
+    end
 
     private
 
@@ -286,6 +357,18 @@ module PunditShop
     def index = head(:ok)
 
     def missing = head(:not_found)
+
+    # Lists the links through the policy's scope, loading them as a view would.
+    def catalog
+      policy_scope(Shop::Relation.new(Shop.links), policy_scope_class: LinkPolicy::Scope).to_a
+      head :ok
+    end
+
+    # Counts the links without loading them.
+    def tally
+      policy_scope(Shop::Relation.new(Shop.links), policy_scope_class: LinkPolicy::Scope)
+      head :ok
+    end
 
     private
 

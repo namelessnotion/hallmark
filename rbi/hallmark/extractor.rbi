@@ -65,6 +65,8 @@ module Hallmark
       @grape = T.let(T.unsafe(nil), T.nilable(GrapeEndpoints))
       @grape_read = T.let(T.unsafe(nil), T::Boolean)
       @routes = T.let(T.unsafe(nil), T.nilable(T::Array[Route]))
+      @lists = T.let(T.unsafe(nil), T.nilable(T::Array[Extracted]))
+      @list_cache = T.let(T.unsafe(nil), T::Hash[[String, String, T.nilable(String)], T.nilable(Extracted)])
     end
 
     sig { returns(T::Array[Route]) }
@@ -94,7 +96,38 @@ module Hallmark
     sig { params(policy: String, rule: String).returns(T.nilable(Extracted)) }
     def fetch(policy, rule); end
 
+    # Every list scope the code defines, sorted by key
+    sig { returns(T::Array[Extracted]) }
+    def lists; end
+
+    sig { params(policy: String, rule: String, resource: T.nilable(String)).returns(T.nilable(Extracted)) }
+    def list(policy, rule, resource); end
+
     private
+
+    # [policy, "Scope#resolve"] for each Pundit scope class with `resolve`
+    sig { returns(T::Array[[String, String]]) }
+    def pundit_scopes; end
+
+    sig { returns(T::Array[[String, String]]) }
+    def action_policy_scopes; end
+
+    sig { params(policy: String).returns(T::Hash[String, SourceIndex::Call]) }
+    def scope_declarations(policy); end
+
+    sig { params(call: SourceIndex::Call).returns(T.nilable(String)) }
+    def scope_rule(call); end
+
+    sig { params(policy: String, rule: String, resource: T.nilable(String)).returns(T.nilable(Extracted)) }
+    def read_list(policy, rule, resource); end
+
+    sig do
+      params(policy: String, rule: String, resource: T.nilable(String), call: SourceIndex::Call).returns(Extracted)
+    end
+    def action_policy_list(policy, rule, resource, call); end
+
+    sig { params(block: Prism::BlockNode).returns(T.nilable(String)) }
+    def block_parameter(block); end
 
     sig { params(policy: String, rule: String).returns(T.nilable(Extracted)) }
     def extract(policy, rule); end

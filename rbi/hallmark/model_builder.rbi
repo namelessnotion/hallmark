@@ -120,6 +120,9 @@ module Hallmark
     sig { params(exposure: AnyExposure, op: String).returns([String, String]) }
     def intended(exposure, op); end
 
+    sig { params(exposure: AnyExposure).returns(T::Boolean) }
+    def current_tenant_list?(exposure); end
+
     # The catalog's `allowed`, or that OR the public action, with its comment
     sig { params(exposure: AnyExposure, op: String).returns([String, String]) }
     def record_intended(exposure, op); end

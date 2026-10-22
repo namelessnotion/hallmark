@@ -24,6 +24,18 @@ module Hallmark
         def apply_r(rule) = ActionPolicyHook.observe(self, rule) { super }
       end
 
+      # Prepended on ActionPolicy::Base: every scope applied to a target
+      # (`authorized_scope`, `apply_scope` in a spec) stamps a list
+      # decision, named after its declaration (`ListScope`), unless it
+      # filters params.
+      module ScopeApply
+        def apply_scope(target, type:, **options)
+          result = super
+          ActionPolicyHook.scoped(self, target, result, type, options.fetch(:name, :default))
+          result
+        end
+      end
+
       # `authorized_scope` authorizes a list; it counts as a check.
       module Scoped
         def authorized_scope(*, **)
@@ -58,6 +70,7 @@ module Hallmark
 
           @installed = true
           ::ActionPolicy::Base.prepend(BaseApply)
+          ::ActionPolicy::Base.prepend(ScopeApply)
           ::ActionPolicy::Policy::Core.prepend(CoreApply)
           ::ActionPolicy::Behaviours::Scoping.prepend(Scoped)
           ::ActionPolicy::Controller.prepend(Skip) if defined?(::ActionPolicy::Controller)
@@ -67,6 +80,15 @@ module Hallmark
         end
 
         def authorizing = Thread.current[:hallmark_action_policy_authorizing] ||= []
+
+        # Stamps one applied scope. Never raises.
+        def scoped(policy, target, result, type, name)
+          return Collectors.checked! if ListScope::NOT_RECORDS.include?(type.to_s)
+
+          Collectors.list(policy: policy, rule: ListScope.action_policy_rule(type, name), result: result, model: target)
+        rescue StandardError => e
+          Collectors.warn_once(e)
+        end
 
         # Stamps one application. A policy seen by both hooks (a Base
         # policy) is observed once, by the outer one.

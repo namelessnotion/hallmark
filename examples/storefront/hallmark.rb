@@ -16,7 +16,7 @@ Hallmark.analyze "Storefront" do
     tenant "User", membership: "TeamMembership", member: :user, roles: :role, self: :owner
     current_tenant :seller   # the seller the request acts for, chosen in the session
     platform_role :staff     # the vendor's own staff (a flag on User)
-    resource "Link", tenant: :user
+    resource "Link", tenant: :user, lists: :current_tenant # a list shows the current seller's products only
 
     grant :owner, :read, "Link"
     grant :owner, :write, "Link"
@@ -28,6 +28,7 @@ Hallmark.analyze "Storefront" do
     term "user.role_owner_for?(seller)", role(:owner, tenant: :current)
     term "user.role_admin_for?(seller)", role(:admin, tenant: :current)
     term "user.role_marketing_for?(seller)", role(:marketing, tenant: :current)
+    term "scope.where(user: user.sellers)", member # the sellers whose teams the user is on
 
     # A product's revenue is for its seller's owner and admins, not marketing.
     field_policy "Link", :revenue, role(:owner, tenant: :record) | role(:admin, tenant: :record)
@@ -55,4 +56,8 @@ Hallmark.analyze "Storefront" do
 
   # The staff page shows the product with its buyers' emails (the restriction)
   reads "Admin::LinksController#show", "Link", field: :buyer_emails, guard: role(:staff)
+
+  # LinksController#index: the dashboard lists every product of every seller
+  # the user works for, whichever seller the request acts for (M5)
+  lists "LinksController#index", "Link", guard: member
 end

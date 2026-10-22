@@ -25,7 +25,11 @@ module Hallmark
     # solver gave no verdict; `reason` says why) or :not_observed (nothing to
     # check; `reason` says why). `exposure` is nil only when not observed.
     # `drift` is the rule's drift on that kind of record (nil for none).
-    Result = Struct.new(:policy, :rule, :exposure, :verdict, :finding, :reason, :drift, keyword_init: true) do
+    #
+    # `question` is, for a list scope, what coverage would ask about it
+    # (`ListScope.question`): it may show another tenant's records.
+    Result = Struct.new(:policy, :rule, :exposure, :verdict, :finding, :reason, :drift, :question,
+                        keyword_init: true) do
       def key = "#{policy}##{rule}"
       def counterexample? = verdict == :counterexample
       def none? = verdict == :none
@@ -34,7 +38,10 @@ module Hallmark
 
       # The rule as `hallmark check` would print it: its verdict, then its
       # drift.
-      def lines = verdict_lines + drifts.flat_map { |item| Report.drift_lines(item) }
+      def lines
+        asked = question
+        verdict_lines + (asked ? ["      #{asked}"] : []) + drifts.flat_map { |item| Report.drift_lines(item) }
+      end
 
       private
 
@@ -89,7 +96,8 @@ module Hallmark
 
         result.exposure = analysis.add_exposure(action: exposure.action, op: exposure.op, resource: exposure.resource,
                                                 guard: exposure.guard, basis: exposure.basis, rules: exposure.rules,
-                                                field: exposure.field)
+                                                field: exposure.field, locations: exposure.locations,
+                                                kind: exposure.kind)
       end
       analysis.validate!
     end
@@ -120,8 +128,13 @@ module Hallmark
 
       # The check name carries the resource, so a rule stamped on two kinds of
       # record becomes two checks without renaming the rule.
-      result.exposure = Exposure.new(action: unit.key, op: unit.op, resource: unit.resource, guard: guard,
-                                     basis: unit.basis, rules: [unit.key])
+      exposure = Exposure.new(action: unit.key, op: unit.op, resource: unit.resource, guard: guard,
+                              basis: unit.basis, rules: [unit.key], kind: unit.kind,
+                              locations: [unit.extracted&.location].compact)
+      result.exposure = exposure
+      if unit.list? && ListScope.across_tenants?(@mapping, unit.resource, guard)
+        result.question = ListScope.question(unit.resource)
+      end
       result
     end
 
@@ -139,6 +152,12 @@ module Hallmark
     end
 
     def unguarded(unit)
+      if unit.list?
+        return "no listed record was recorded and the mapping declares no guard for it" unless unit.extracted
+
+        return "no listed record was recorded, and its scope keeps records only through calls Hallmark could " \
+               "not read; declare a `term` for them"
+      end
       denies = unit.denies.size
       stamped = "no allow-stamp was recorded (#{denies} deny-stamp#{"s" unless denies == 1})"
       return "#{stamped} and the mapping declares no guard for it" unless unit.extracted

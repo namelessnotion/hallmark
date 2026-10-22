@@ -18,7 +18,7 @@ module Hallmark
     KINDS = %i[object profile].freeze
 
     Resource = Struct.new(:name, :owner, :kind, :public_if, :tenant, :tenant_optional, :permits, :flags,
-                          :public_when, :owner_outside, keyword_init: true) do
+                          :public_when, :owner_outside, :lists, keyword_init: true) do
       def alloy_sig = Naming.resource_sig(name, kind)
       # The ops the owner may perform without being a member of the record's
       # tenant (`owner_outside_tenant:`).
@@ -29,6 +29,8 @@ module Hallmark
       def tenanted? = !tenant.nil?
       def tenant_optional? = tenant_optional == true
       def permits? = !permits.nil?
+      # Its lists show only the current tenant's records (`lists:`).
+      def lists_current_tenant? = lists == :current_tenant
     end
 
     Grant = Struct.new(:role, :op, :resource, :condition, keyword_init: true) do
@@ -346,20 +348,25 @@ module Hallmark
     #            someone outside the organization: the catalog's ownership
     #            without membership pattern. Without it the owner must be a
     #            member.
+    # lists:     :current_tenant when every list of these records should
+    #            show only the current tenant's (and those outside tenants):
+    #            a list check then fails on a record of another tenant (M5).
+    #            Without it such a list is a question under coverage, since
+    #            a dashboard across tenants can be intended.
     def resource(name, owner: nil, kind: :object, public_if: nil, tenant: nil, tenant_optional: false, permits: nil,
-                 flags: [], public_when: nil, owner_outside_tenant: nil)
+                 flags: [], public_when: nil, owner_outside_tenant: nil, lists: nil)
       raise ConfigurationError, "unknown resource kind: #{kind}" unless KINDS.include?(kind)
 
       key = Naming.class_name(name)
       raise ConfigurationError, "resource #{key} is mapped twice" if @resources.key?(key)
-      raise ConfigurationError, "resource #{key} has `tenant_optional:` but no `tenant:`" if tenant_optional && !tenant
 
+      validate_tenant_options!(key, tenant, tenant_optional, lists)
       names = Array(flags).map(&:to_s)
       validate_public_when!(key, public_when, names)
       outside = owner_outside(key, owner_outside_tenant, owned: kind == :profile || !owner.nil?, tenanted: !tenant.nil?)
       @resources[key] = Resource.new(name: key, owner: owner, kind: kind, public_if: public_if, tenant: tenant,
                                      tenant_optional: tenant_optional ? true : false, permits: permits,
-                                     flags: names, public_when: public_when, owner_outside: outside)
+                                     flags: names, public_when: public_when, owner_outside: outside, lists: lists)
     end
 
     # Overrides one rule of a policy: its op, when the naming convention gets
@@ -482,6 +489,15 @@ module Hallmark
       end
 
       OPS & ops
+    end
+
+    # `tenant_optional:` and `lists:` need a `tenant:`; `lists:` takes
+    # only :current_tenant.
+    def validate_tenant_options!(key, tenant, tenant_optional, lists)
+      raise ConfigurationError, "resource #{key} has `tenant_optional:` but no `tenant:`" if tenant_optional && !tenant
+      return if lists.nil?
+      raise ConfigurationError, "resource #{key} `lists:` must be :current_tenant" unless lists == :current_tenant
+      raise ConfigurationError, "resource #{key} has `lists:` but no `tenant:`" unless tenant
     end
 
     # `public_when:` may read only the resource's own flags.

@@ -23,6 +23,7 @@ module Hallmark
   GraphqlCheck = Struct.new(:type, :graphql_name, :resource, :field, :field_graphql_name, :guard, :basis,
                             :locations, :rules, :graph, keyword_init: true) do
     def graphql? = true
+    def list? = false
     def op = :read
 
     def action = field ? "GraphQL #{graphql_name}.#{field_graphql_name}" : "GraphQL #{graphql_name}"
@@ -37,7 +38,10 @@ module Hallmark
     # What it reads: "Invoice", or "User.email" for a field.
     def target = field ? "#{resource}.#{field}" : resource
 
-    def to_s = "#{action} (read #{target}, guard: #{guard})"
+    # How reports name what it does, as `Exposure#doing`.
+    def doing = "read #{target}"
+
+    def to_s = "#{action} (#{doing}, guard: #{guard})"
 
     # The query a client would send to reach the witness (`GraphqlModel#path`).
     def path(instance) = graph.path(self, instance)

@@ -42,13 +42,29 @@ module Hallmark
       @installed = T.let(nil, T.nilable(T::Boolean))
       @tracer = T.let(nil, T.nilable(TracePoint))
       @wrappers = T.let(nil, T.nilable(T::Hash[T::Class[T.anything], T::Hash[Symbol, UnboundMethod]]))
+      @scopes = T.let(nil, T.nilable(T::Hash[T::Class[T.anything], UnboundMethod]))
 
       class << self
         sig { void }
         def install; end
 
         sig { params(klass: T.untyped).void }
+        def observe(klass); end
+
+        sig { params(klass: T.untyped).void }
         def observe_rules(klass); end
+
+        sig { params(klass: T.untyped).void }
+        def observe_scope(klass); end
+
+        sig { params(klass: T.untyped).returns(T::Boolean) }
+        def scope_class?(klass); end
+
+        sig { params(scope: T.untyped, blk: T.proc.returns(T.untyped)).returns(T.untyped) }
+        def resolve(scope, &blk); end
+
+        sig { params(scope: T.untyped, result: T.untyped).void }
+        def listed(scope, result); end
 
         sig { params(klass: T.untyped).returns(T::Boolean) }
         def policy_class?(klass); end
@@ -69,6 +85,9 @@ module Hallmark
 
         sig { params(klass: T::Class[T.anything], rule: Symbol, original: UnboundMethod).returns(UnboundMethod) }
         def wrap(klass, rule, original); end
+
+        sig { params(klass: T::Class[T.anything], original: UnboundMethod).returns(UnboundMethod) }
+        def wrap_scope(klass, original); end
 
         sig { params(klass: T::Class[T.anything], rule: Symbol).returns(T.nilable(UnboundMethod)) }
         def rule_here(klass, rule); end

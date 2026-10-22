@@ -65,6 +65,9 @@ module Hallmark
     sig { params(name: String).returns(T.nilable(T::Boolean)) }
     def current_role_fact(name); end
 
+    sig { returns(T.nilable(T::Boolean)) }
+    def member_fact; end
+
     sig { params(name: String).returns(T.nilable(T::Boolean)) }
     def record_role_fact(name); end
 

@@ -50,6 +50,8 @@ module Hallmark
       @translator = MethodTranslator.new(@index, @terms)
       @declarative = DeclarativeTranslator.new(@index, @terms, @translator)
       @cache = {}
+      @lists = nil
+      @list_cache = {}
       @graphql = nil
       @graphql_read = false
       @controllers = nil
@@ -117,6 +119,27 @@ module Hallmark
       end
     end
 
+    # Every list scope the code defines (phase 3 step 7), sorted by key:
+    # each Pundit `<Policy>::Scope#resolve`, each Action Policy scope
+    # declared in a policy or inherited from its ancestors, and each
+    # graphql-ruby type's `self.scope_items`. Each is checked on the
+    # resource its policy (or type) names; nil when none is mapped.
+    def lists
+      @lists ||= (pundit_scopes + action_policy_scopes).filter_map do |policy, rule|
+        list(policy, rule, resource_for(policy, rule))
+      end.concat(graphql&.lists || []).sort_by(&:key)
+    end
+
+    # One list scope read on records of `resource` (a stamp may show a
+    # scope a parent policy defines, ApplicationPolicy's, on a Link); nil
+    # when the code has no such scope.
+    def list(policy, rule, resource)
+      key = [policy, rule, resource]
+      return @list_cache[key] if @list_cache.key?(key)
+
+      @list_cache[key] = read_list(policy, rule, resource)
+    end
+
     # DeclarativePolicy hazards (D3, D4) found in the abilities read so far.
     def lints = @declarative.lints
 
@@ -143,6 +166,78 @@ module Hallmark
       method = @index.find_method(policy, rule)
       Extracted.new(policy: policy, rule: rule, resource: resource, guard: guard,
                     location: method&.location || "#{@index.scopes.fetch(policy).name} (default rule)")
+    end
+
+    # Pundit policies whose `Scope` class the code defines, with `resolve`.
+    def pundit_scopes
+      @index.scopes.keys.sort.filter_map do |name|
+        policy = ListScope.pundit_policy(name)
+        next unless policy && @index.policies.include?(policy) && !@index.action_policy?(policy)
+        next unless @index.find_method(name, "resolve")
+
+        [policy, ListScope::PUNDIT_RULE]
+      end
+    end
+
+    # Each Action Policy policy's scopes, its own and its ancestors'.
+    def action_policy_scopes
+      @index.policies.select { |policy| @index.action_policy?(policy) }.flat_map do |policy|
+        scope_declarations(policy).keys.map { |rule| [policy, rule] }
+      end
+    end
+
+    # A policy's scope declarations by rule name, the nearest first:
+    # `relation_scope(:name) { |relation| ... }` and `scope_for :type,
+    # :name do ... end`, leaving out those that filter params.
+    def scope_declarations(policy)
+      @index.calls(policy).each_with_object({}) do |call, found|
+        rule = scope_rule(call)
+        found[rule] ||= call if rule
+      end
+    end
+
+    def scope_rule(call)
+      args = call.arguments.grep(Prism::SymbolNode).map(&:unescaped)
+      case call.name
+      when :relation_scope then ListScope.action_policy_rule(ListScope::RELATION, args.first || "default")
+      when :scope_for
+        type = args.first
+        type && !ListScope::NOT_RECORDS.include?(type) ? ListScope.action_policy_rule(type, args[1] || "default") : nil
+      end
+    end
+
+    def read_list(policy, rule, resource)
+      if rule == ListScope::PUNDIT_RULE
+        scope = "#{policy}::Scope"
+        method = @index.find_method(scope, "resolve")
+        return nil unless method
+
+        guard = @translator.scope(method, scope, resource, roots: %w[scope @scope])
+        return Extracted.new(policy: policy, rule: rule, resource: resource, guard: guard, location: method.location)
+      end
+      return resource && graphql&.list(policy, resource) if rule == ListScope::GRAPHQL_RULE
+
+      call = @index.action_policy?(policy) ? scope_declarations(policy)[rule] : nil
+      call && action_policy_list(policy, rule, resource, call)
+    end
+
+    # The block's parameter is the relation; a scope declared with a
+    # method instead of a block is not read.
+    def action_policy_list(policy, rule, resource, call)
+      block = call.node.block
+      guard = if block.is_a?(Prism::BlockNode) && (param = block_parameter(block))
+                @translator.scope_block(block.body, call.file, policy, resource, roots: [param])
+              else
+                Guard.new(:opaque, call.node.slice.gsub(/\s+/, " "), call.location)
+              end
+      Extracted.new(policy: policy, rule: rule, resource: resource, guard: guard, location: call.location)
+    end
+
+    def block_parameter(block)
+      params = block.parameters
+      list = params.is_a?(Prism::BlockParametersNode) ? params.parameters : nil
+      first = list&.requireds&.first
+      first.is_a?(Prism::RequiredParameterNode) ? first.name.to_s : nil
     end
 
     # A DeclarativePolicy ability, located at its first enabling rule.
@@ -179,6 +274,7 @@ require_relative "extractor/source_index"
 require_relative "extractor/declarative_index"
 require_relative "extractor/terms"
 require_relative "extractor/method_translator"
+require_relative "extractor/scope_reader"
 require_relative "extractor/declarative_translator"
 require_relative "extractor/controllers"
 require_relative "extractor/grape_endpoints"

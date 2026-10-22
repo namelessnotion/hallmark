@@ -133,6 +133,10 @@ module Hallmark
       sig { params(name: T.any(String, Symbol), tenant: T.nilable(Symbol)).returns(Guard) }
       def role(name, tenant: nil); end
 
+      # Some role of any kind in the record's tenant
+      sig { returns(Guard) }
+      def member; end
+
       sig { returns(Guard) }
       def in_current_tenant; end
 

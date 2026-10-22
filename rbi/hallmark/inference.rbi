@@ -37,14 +37,27 @@ module Hallmark
       sig { returns(T.nilable(Extractor::Extracted)) }
       def extracted; end
 
+      # :list for a list scope; nil for a rule
+      sig { returns(T.nilable(Symbol)) }
+      def kind; end
+
+      # A list's calls whose records were not read (class-level list stamps)
+      sig { returns(T.nilable(T::Array[Stamp])) }
+      def calls; end
+
       sig do
         params(policy: String, rule: String, resource: String, op: Symbol, stamps: T::Array[Stamp],
-               guard: T.nilable(Guard), basis: T.nilable(String), extracted: T.nilable(Extractor::Extracted)).void
+               guard: T.nilable(Guard), basis: T.nilable(String), extracted: T.nilable(Extractor::Extracted),
+               kind: T.nilable(Symbol), calls: T.nilable(T::Array[Stamp])).void
       end
-      def initialize(policy:, rule:, resource:, op:, stamps:, guard: nil, basis: nil, extracted: nil); end
+      def initialize(policy:, rule:, resource:, op:, stamps:, guard: nil, basis: nil, extracted: nil, kind: nil,
+                     calls: nil); end
 
       sig { returns(String) }
       def key; end
+
+      sig { returns(T::Boolean) }
+      def list?; end
 
       sig { returns(T::Array[Stamp]) }
       def allows; end
@@ -95,6 +108,8 @@ module Hallmark
       @mapping = T.let(T.unsafe(nil), Mapping)
       @stamp_set = T.let(T.unsafe(nil), StampSet)
       @stamps = T.let(T.unsafe(nil), T::Array[Stamp])
+      @list_stamps = T.let(T.unsafe(nil), T::Array[Stamp])
+      @rule_stamps = T.let(T.unsafe(nil), T::Array[Stamp])
       @routes = T.let(T.unsafe(nil), T::Array[Route])
       @reached = T.let(T.unsafe(nil), T::Array[String])
       @extractor = T.let(T.unsafe(nil), T.nilable(Extractor))
@@ -108,6 +123,9 @@ module Hallmark
     end
 
     private
+
+    sig { returns(T::Array[Unit]) }
+    def all_units; end
 
     sig { returns(T::Array[GraphqlCheck]) }
     def graphql_checks; end

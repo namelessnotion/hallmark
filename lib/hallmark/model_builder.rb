@@ -306,7 +306,7 @@ module Hallmark
         end
       comment, intended = intended(exposure, op)
       <<~ALS.chomp
-        -- #{exposure.action}: #{exposure.op} #{exposure.target}, guard: #{exposure.guard}#{comment}
+        -- #{exposure.action}: #{exposure.doing}, guard: #{exposure.guard}#{comment}
         pred #{exposure.predicate_name}[#{params}] { #{exposure.guard.to_alloy(op)} }
         assert #{exposure.check_name} {
           all #{params} | #{exposure.predicate_name}[#{args}] implies #{intended}
@@ -320,10 +320,16 @@ module Hallmark
     # then, for a field, the field's policy, and the negation of each
     # restriction covering it:
     # `((allowed or publicAction) and fieldPolicy and not r1 and not r2)`.
+    # A list of a resource mapped `lists: :current_tenant` also asks that
+    # each record be in the current tenant, or outside tenants (M5).
     # Returns the comment lines naming each part, and the formula.
     def intended(exposure, op)
       comments, formula = record_intended(exposure, op)
       conjuncts = []
+      if current_tenant_list?(exposure)
+        comments += "\n-- lists only the current tenant's records (lists: :current_tenant)"
+        conjuncts << "r.tenant in cur"
+      end
       if (policy = mapping.field_policy_for(exposure.resource, exposure.field))
         comments += "\n-- field policy: #{policy.key} readable where #{policy.guard}"
         conjuncts << policy.guard.to_alloy("Read")
@@ -335,6 +341,10 @@ module Hallmark
       return [comments, formula] if conjuncts.empty?
 
       [comments, "(#{[formula, *conjuncts].join(" and ")})"]
+    end
+
+    def current_tenant_list?(exposure)
+      exposure.list? && !mapping.tenancy.nil? && mapping.fetch(exposure.resource).lists_current_tenant?
     end
 
     def record_intended(exposure, op)

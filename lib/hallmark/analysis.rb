@@ -45,17 +45,16 @@ module Hallmark
 
     # `field:` makes a read of one field of the record (fields exist only on
     # reads; a write of a field is mass assignment, threat 12, not built).
-    def add_exposure(action:, op:, resource:, guard:, basis: nil, locations: nil, rules: nil, field: nil)
+    # `kind: :list` makes a list (`lists`): `guard` says which records the
+    # list may hold, and each must be readable.
+    def add_exposure(action:, op:, resource:, guard:, basis: nil, locations: nil, rules: nil, field: nil, kind: nil)
       raise ConfigurationError, "guard for #{action} must be a Hallmark::Guard" unless guard.is_a?(Guard)
-      if field && op != :read
-        raise ConfigurationError,
-              "#{action} writes the field #{field}; fields exist only on reads (`reads ..., field:`)"
-      end
 
+      validate_field!(action, op, field, kind)
       exposure = Exposure.new(action: action.to_s, op: op, resource: Naming.class_name(resource), guard: guard,
-                              basis: basis, locations: locations, rules: rules, field: field&.to_s)
+                              basis: basis, locations: locations, rules: rules, field: field&.to_s, kind: kind)
       if @exposures.any? { |existing| existing.check_name == exposure.check_name }
-        raise ConfigurationError, "#{action} is declared twice for #{op} #{exposure.target}"
+        raise ConfigurationError, "#{action} is declared twice for #{exposure.doing}"
       end
 
       @exposures << exposure
@@ -111,7 +110,8 @@ module Hallmark
       return add_check(exposure) if exposure.is_a?(GraphqlCheck)
 
       add_exposure(action: exposure.action, op: exposure.op, resource: exposure.resource, guard: exposure.guard,
-                   basis: exposure.basis, locations: exposure.locations, rules: exposure.rules, field: exposure.field)
+                   basis: exposure.basis, locations: exposure.locations, rules: exposure.rules, field: exposure.field,
+                   kind: exposure.kind)
     end
 
     def validate!
@@ -153,6 +153,13 @@ module Hallmark
     end
 
     private
+
+    def validate_field!(action, op, field, kind)
+      return unless field && (op != :read || kind)
+
+      raise ConfigurationError,
+            "#{action} writes or lists the field #{field}; fields exist only on reads (`reads ..., field:`)"
+    end
 
     # Without a tenant, guards cannot read one. With a tenant, users hold
     # only platform roles outside tenants, so any other role checked there
@@ -264,6 +271,14 @@ module Hallmark
       # Fields exist only on reads, so `field:` here raises.
       def writes(action, resource, guard:, field: nil)
         @analysis.add_exposure(action: action, op: :write, resource: resource, guard: guard, field: field)
+      end
+
+      # A list an entry point shows (a Pundit `policy_scope`, an Action
+      # Policy `authorized_scope`): `guard` says which records it may
+      # hold, and each must be readable, and in the current tenant when
+      # the resource is mapped `lists: :current_tenant` (M5).
+      def lists(action, resource, guard:)
+        @analysis.add_exposure(action: action, op: :read, resource: resource, guard: guard, kind: :list)
       end
 
       # Infers exposures from the stamps a test run recorded; declare it

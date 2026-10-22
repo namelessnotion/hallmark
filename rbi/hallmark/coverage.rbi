@@ -118,6 +118,14 @@ module Hallmark
     sig { returns(T::Array[ContextMismatch]) }
     attr_reader :mismatches
 
+    # Lists that may show another tenant's records ("Action (Resource)")
+    sig { returns(T::Array[String]) }
+    attr_reader :cross_tenant_lists
+
+    # List scopes with no record observed and no scope read from code
+    sig { returns(T::Array[String]) }
+    attr_reader :lists_unobserved
+
     # Calls inside rules that the extractor could not read
     sig { returns(T::Array[Opaque]) }
     attr_reader :opaque
@@ -148,6 +156,8 @@ module Hallmark
       @opaque = T.let(T.unsafe(nil), T::Array[Opaque])
       @code_only = T.let(T.unsafe(nil), T::Array[String])
       @mismatches = T.let(T.unsafe(nil), T::Array[ContextMismatch])
+      @cross_tenant_lists = T.let(T.unsafe(nil), T::Array[String])
+      @lists_unobserved = T.let(T.unsafe(nil), T::Array[String])
     end
 
     sig { params(unit: Inference::Unit).void }
@@ -163,6 +173,9 @@ module Hallmark
     def observe_checks(entry_point, guards, certain:); end
 
     private
+
+    sig { void }
+    def start_lists; end
 
     sig { params(unit: Inference::Unit, extracted: Extractor::Extracted).void }
     def observe_extracted(unit, extracted); end

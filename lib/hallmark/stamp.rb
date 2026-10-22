@@ -15,6 +15,12 @@ module Hallmark
   # `outside_tenants` is nil in lines written before Oct 18, 2026; Inference
   # reads a record-level stamp of a `tenant_optional:` resource with no
   # `record_roles` as outside tenants.
+  #
+  # A list stamp (`list` true; phase 3 step 7) is one record a list scope
+  # put in front of the viewer, always an allow, or, class-level, the scope
+  # call alone (its records were not loaded, or not sampled). Its rule is
+  # the scope's (`ListScope`). It is never enforced and ties no rule to an
+  # entry point; it ties the list to one.
   Stamp = Struct.new(
     :entry_point,       # "LinksController#update", or nil outside a request (a policy spec, a service object)
     :policy,            # "LinkPolicy"
@@ -35,15 +41,18 @@ module Hallmark
     :roles,             # roles held outside any tenant
     :record_roles,      # roles held in the record's tenant
     :current_roles,     # roles held in the current tenant
+    :list,              # true for a list scope's record or call; nil otherwise (and in lines before Oct 21, 2026)
     keyword_init: true
   ) do
     def allow? = decision == "allow"
     def rule_key = "#{policy}##{rule}"
 
     # With `example`, the hashed ids it was first seen with, beside its
-    # fields (docs/adr/0004).
+    # fields (docs/adr/0004). `list` is written only when set, so other
+    # stamps' lines are as they were.
     def to_json_line(example = nil)
       data = { "type" => "stamp" }.merge(to_h.transform_keys(&:to_s))
+      data.delete("list") unless list
       data["example"] = example.to_json_object if example
       JSON.generate(data)
     end

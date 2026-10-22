@@ -47,10 +47,11 @@ module Hallmark
         basis: T.nilable(String),
         locations: T.nilable(T::Array[String]),
         rules: T.nilable(T::Array[String]),
-        field: T.nilable(T.any(String, Symbol))
+        field: T.nilable(T.any(String, Symbol)),
+        kind: T.nilable(Symbol)
       ).returns(Exposure)
     end
-    def add_exposure(action:, op:, resource:, guard:, basis: nil, locations: nil, rules: nil, field: nil); end
+    def add_exposure(action:, op:, resource:, guard:, basis: nil, locations: nil, rules: nil, field: nil, kind: nil); end
 
     sig { params(check: GraphqlCheck).returns(GraphqlCheck) }
     def add_check(check); end
@@ -76,6 +77,12 @@ module Hallmark
     def run(solver: nil); end
 
     private
+
+    sig do
+      params(action: T.any(String, Symbol), op: Symbol, field: T.nilable(T.any(String, Symbol)),
+             kind: T.nilable(Symbol)).void
+    end
+    def validate_field!(action, op, field, kind); end
 
     sig { params(exposure: AnyExposure).void }
     def validate_tenants!(exposure); end
@@ -123,6 +130,12 @@ module Hallmark
                field: T.nilable(T.any(String, Symbol))).returns(Exposure)
       end
       def writes(action, resource, guard:, field: nil); end
+
+      sig do
+        params(action: T.any(String, Symbol), resource: T.any(String, Symbol, T::Module[T.anything]), guard: Guard)
+          .returns(Exposure)
+      end
+      def lists(action, resource, guard:); end
 
       sig { params(source: T.any(StampSet, String, Pathname)).returns(Inference) }
       def stamps(source = Hallmark.configuration.stamps); end

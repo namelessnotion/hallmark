@@ -22,6 +22,7 @@ module Hallmark
       when :owner then finding.own_record?
       when :admin then finding.roles.include?("Admin")
       when :role then role_held?(leaf.operands[0].to_s, leaf.operands[1])
+      when :member then (finding.record_tenant&.roles || []).any?
       when :in_current_tenant then in_current_tenant
       when :outside_tenants then finding.record_tenant.nil?
       when :flag then finding.flags[leaf.operands[0].to_s]

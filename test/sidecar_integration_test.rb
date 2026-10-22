@@ -47,6 +47,18 @@ class SidecarIntegrationTest < Minitest::Test
     refute_predicate finding, :anonymous?
   end
 
+  # The dashboard's list spans sellers (M5); the fixed list keeps to the
+  # current seller.
+  def test_storefront_list_across_tenants_and_its_fix
+    solver = sidecar
+    buggy = load_example("storefront/hallmark.rb").run(solver: solver)
+    fixed = load_example("storefront/hallmark_fixed.rb").run(solver: solver)
+
+    assert_predicate buggy.findings.find { |finding| finding.exposure.list? }, :list_across_tenants?
+    assert_includes fixed.verified.map(&:check_name), "list_LinksController_index_Link"
+    assert_predicate fixed, :clean?
+  end
+
   # Ramsey R(4,4) over 60 vertices: translating it alone takes far longer
   # than a second.
   SLOW = <<~ALS

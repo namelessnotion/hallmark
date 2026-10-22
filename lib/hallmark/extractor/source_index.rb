@@ -515,12 +515,29 @@ module Hallmark
         superclass = scope.superclass
         return nil unless superclass
 
-        found = resolve(superclass, scope.namespace)
-        return found unless found == scope.name
+        namespace = scope.namespace
+        found = resolve(superclass, namespace)
+        return found if found && found != scope.name
 
-        outer = scope.namespace.take(scope.namespace.size - 1)
-        found = resolve(superclass, outer)
-        found == scope.name ? nil : found
+        if found && !namespace.empty?
+          found = resolve(superclass, namespace.take(namespace.size - 1))
+          return found if found && found != scope.name
+        end
+        inherited_constant(scope, superclass)
+      end
+
+      # A constant found through the enclosing class's ancestors, as Ruby
+      # finds Pundit's `class Scope < Scope` inside `class EventPolicy <
+      # ApplicationPolicy`: ApplicationPolicy::Scope.
+      def inherited_constant(scope, name)
+        enclosing = scope.namespace.join("::")
+        return nil if name.start_with?("::") || !@scopes.key?(enclosing)
+
+        ancestors(enclosing).drop(1).each do |ancestor|
+          candidate = "#{ancestor}::#{name}"
+          return candidate if candidate != scope.name && @scopes.key?(candidate)
+        end
+        nil
       end
 
       # The superclass of an indexed class when it lies outside the app.

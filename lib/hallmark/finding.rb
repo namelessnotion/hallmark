@@ -10,6 +10,9 @@ module Hallmark
     # to a permit on one record (`permits:`).
     ROLE_GRANT = "Explicit permission (a grant to a role)"
 
+    # What a list of a resource mapped `lists: :current_tenant` keeps to (M5).
+    LIST_TENANT = "Lists stay in the current tenant (lists: :current_tenant)"
+
     # A tenant in the witness, the user it is when tenants are users, and the
     # roles the principal holds in it.
     TenantRoles = Struct.new(:tenant, :user, :roles, keyword_init: true)
@@ -95,6 +98,7 @@ module Hallmark
     # SPACE classification of bugs by violated pattern: first the way the
     # witness got in, then what the guard and the mapping offer.
     def pattern
+      return LIST_TENANT if list_across_tenants?
       return "Authentication" if anonymous?
       return "User profiles" if @resource.kind == :profile
 
@@ -102,7 +106,16 @@ module Hallmark
     end
 
     def message
-      "#{who} can #{verb} #{what}#{reason}"
+      return "#{who} can #{verb} #{what}#{reason}" unless exposure.list?
+      return listed_across_tenants if list_across_tenants?
+
+      "#{who} lists #{what}, which they cannot read#{reason}"
+    end
+
+    # A list whose resource keeps to the current tenant shows a record of
+    # another (M5).
+    def list_across_tenants?
+      exposure.list? && cross_tenant? && @resource.lists_current_tenant?
     end
 
     # The covering restriction the witness breaks: it holds a denied role
@@ -165,9 +178,11 @@ module Hallmark
 
     def witness = @witness ||= WitnessFacts.new(self, @mapping.platform_roles)
 
-    # The next step when a restriction or the field's policy is what the
-    # witness breaks.
+    # The next step when a list's current tenant, a restriction or the
+    # field's policy is what the witness breaks.
     def narrowing_hint
+      return list_tenant_hint if list_across_tenants?
+
       if (broken = restriction)
         roles = broken.covering(exposure).select { |denial| witness.denied?(denial) }.map { |denial| ":#{denial.role}" }
         "exclude holders of #{roles.uniq.join(", ")} in the code, or narrow the restriction " \
@@ -235,6 +250,26 @@ module Hallmark
       ["public_action \"#{key.split("#").first}\", :authorized?#{", audience: :signed_in" unless anonymous?}"]
     end
 
+    # M5: "a signed-in User (User$2) lists a Project (Project$4) of another
+    # Organization (Organization$0), where they hold roles member, while
+    # acting for Organization$1, where they hold no roles".
+    def listed_across_tenants
+      target = record_tenant
+      current = current_tenant
+      return "#{who} lists #{what}" unless target && current
+
+      name = @mapping.tenancy&.name || "tenant"
+      viewer = anonymous? ? "an anonymous visitor" : "a signed-in #{@mapping.principal_name} (#{user_label(principal)})"
+      "#{viewer} lists #{a_resource} (#{Naming.atom(record)}) of another #{name} (#{tenant_label(target)}), " \
+        "where they hold #{held(target.roles)}, while acting for #{tenant_label(current)}, where they hold " \
+        "#{held(current.roles)}"
+    end
+
+    def list_tenant_hint
+      "the list's scope does not keep to the current tenant; filter it by the tenant the request acts for, " \
+        "or if lists across tenants are intended here, drop `lists: :current_tenant` from #{@resource.name}"
+    end
+
     def owner_hint
       "if its owner may #{verb} it without being a member of its tenant, declare it in the map block: " \
         "resource \"#{@resource.name}\", ..., owner_outside_tenant: :#{exposure.op}"
@@ -258,7 +293,8 @@ module Hallmark
     def public_declarations(rules, signed_in)
       rules.map do |key|
         policy, rule = key.split("#", 2)
-        "public_action \"#{policy}\", :#{rule}#{", audience: :signed_in" if signed_in}"
+        named = rule.to_s.match?(/\A\w+[?!]?\z/) ? ":#{rule}" : rule.to_s.inspect
+        "public_action \"#{policy}\", #{named}#{", audience: :signed_in" if signed_in}"
       end
     end
 

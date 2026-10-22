@@ -43,6 +43,28 @@ module Hallmark
         lookup("#{left} == #{right}", resource) || lookup("#{right} == #{left}", resource)
       end
 
+      # What it means for a record of `resource` to be held by `source`
+      # through an association (`user.links`): its owner or its tenant is
+      # that object. Nil when neither reader compares to it.
+      def holder(source, resource)
+        readers = (mapped = @mapping.resources[resource]) ? [mapped.owner, mapped.tenant].grep(Symbol) : []
+        readers.lazy.filter_map { |reader| compare("#{RECORD}.#{reader}", source, resource) }.first
+      end
+
+      # A list filtered on the record's tenant being one of the user's
+      # (`where(organization: user.organizations)`, `organization_id:
+      # user.organization_ids`): membership of the record's tenant, by the
+      # tenant class's name. Nil for any other pair.
+      def membership(key, source, resource)
+        tenancy = @mapping.tenancy
+        reader = resource && @mapping.resources[resource]&.tenant
+        return nil unless tenancy && reader.is_a?(Symbol) && [reader.to_s, "#{reader}_id"].include?(key)
+
+        user = @mapping.principal_source.is_a?(Symbol) ? @mapping.principal_source.to_s : "user"
+        lists = ["#{user}.#{Naming.plural(tenancy.name)}", "#{user}.#{Naming.underscore(tenancy.name)}_ids"]
+        lists.include?(source) ? member : nil
+      end
+
       # Normalized Ruby source: Prism's own reading of it, with spacing,
       # parentheses around a lone expression, `self.` and the `@` of
       # instance variables dropped, so `@record.user != seller` and
@@ -96,7 +118,8 @@ module Hallmark
     # the policy's names: an instance variable (`"@product" => "record"`), a
     # local no assignment explains, a receiverless reader with no arguments
     # (`"current_seller" => "seller"`), or a whole call as rendered
-    # (`"context[:current_user]" => "user"`, for graphql-ruby's checks).
+    # (`"context[:current_user]" => "user"`, for graphql-ruby's checks), or
+    # a constant (`"Link" => "scope"`, for list scopes).
     # `x[:key]` renders as written.
     class Canonical
       OPERATORS = %i[== != eql? equal? < > <= >= === =~].freeze
@@ -114,6 +137,8 @@ module Hallmark
         when Prism::ParenthesesNode then parentheses(node)
         when Prism::SymbolNode then ":#{node.unescaped}"
         when Prism::SelfNode then "self"
+        when Prism::ConstantReadNode, Prism::ConstantPathNode then @aliases.fetch(node.slice.delete_prefix("::"),
+                                                                                  node.slice)
         else node.slice.gsub(/\s+/, " ")
         end
       end

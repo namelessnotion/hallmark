@@ -178,6 +178,13 @@ module Hallmark
       sig { returns(T::Array[Lint]) }
       def lints; end
 
+      # Each mapped type's own `self.scope_items` as a list scope
+      sig { returns(T::Array[Extracted]) }
+      def lists; end
+
+      sig { params(name: String, resource: String).returns(T.nilable(Extracted)) }
+      def list(name, resource); end
+
       sig { params(name: String).returns(String) }
       def self.camelize(name); end
 
@@ -236,29 +243,8 @@ module Hallmark
       sig { params(name: String, resource: T.nilable(String)).returns(T.nilable(Guard)) }
       def scope_guard(name, resource); end
 
-      sig do
-        params(node: Prism::Node, method: SourceIndex::Method, klass: String, resource: T.nilable(String),
-               names: Names).returns(Guard)
-      end
-      def relation_guard(node, method, klass, resource, names); end
-
-      sig { params(node: Prism::CallNode, method: SourceIndex::Method, resource: T.nilable(String)).returns(Guard) }
-      def where_guard(node, method, resource); end
-
-      sig do
-        params(node: Prism::CallNode, method: SourceIndex::Method, klass: String, resource: T.nilable(String),
-               names: Names).returns(Guard)
-      end
-      def select_guard(node, method, klass, resource, names); end
-
-      sig { params(block: Prism::BlockNode).returns(T.nilable(String)) }
-      def block_param(block); end
-
       sig { params(name: String).returns(T::Boolean) }
       def reauthorize?(name); end
-
-      sig { params(node: Prism::Node, method: SourceIndex::Method).returns(Guard) }
-      def opaque_node(node, method); end
 
       sig { params(name: String).returns(T::Array[Field]) }
       def read_fields(name); end

@@ -10,6 +10,7 @@
 #                               rule, as GitLab's types do
 #   Query.seller(name:)         a seller (UserType, signed-in viewers only)
 #     links, linksConnection    the seller's links, as a list and a connection
+#     listedLinks               every link, filtered by ListedLinkType.scope_items
 #   Query.lazyLink(id:)         resolved lazily; the lazy block checks a rule
 #   LinkType.editable           a field whose resolver checks a rule
 #   Mutation.linkRename(id:)    checks a rule in its resolver
@@ -61,15 +62,27 @@ module GraphqlShop
     def id = GraphqlShop.links.key(object)
   end
 
+  # A link listed through its type's own `scope_items`, with no check of
+  # its own: the current seller's links only.
+  class ListedLinkType < GraphQL::Schema::Object
+    field :id, ID, null: false
+
+    def self.scope_items(items, context) = items.select { |link| link.user.equal?(context[:current_seller]) }
+
+    def id = GraphqlShop.links.key(object)
+  end
+
   class UserType < GraphQL::Schema::Object
     field :name, String, null: false
     field :links, [LinkType], null: false
     field :links_connection, LinkType.connection_type, null: false
+    field :listed_links, [ListedLinkType], null: false
 
     def self.authorized?(_user, context) = !context[:current_user].nil?
 
     def links = GraphqlShop.links.values.select { |link| link.user.equal?(object) }
     def links_connection = links
+    def listed_links = GraphqlShop.links.values
   end
 
   class QueryType < GraphQL::Schema::Object

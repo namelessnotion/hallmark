@@ -26,7 +26,9 @@ module Hallmark
     # the subject).
     class DeclarativeTranslator
       # One hazard: "D3" or "D4", where, and what.
-      Lint = Struct.new(:kind, :location, :message, keyword_init: true) do
+      # `subject` names what a lint is about when a later stage links it to
+      # a check (G5: the GraphQL type whose `scope_items` it concerns).
+      Lint = Struct.new(:kind, :location, :message, :subject, keyword_init: true) do
         def to_s = "#{kind} #{location}: #{message}"
       end
 

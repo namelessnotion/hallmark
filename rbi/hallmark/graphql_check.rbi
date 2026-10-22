@@ -51,6 +51,13 @@ module Hallmark
     sig { returns(T::Boolean) }
     def graphql?; end
 
+    sig { returns(T::Boolean) }
+    def list?; end
+
+    # "read Invoice", as `Exposure#doing`
+    sig { returns(String) }
+    def doing; end
+
     sig { returns(Symbol) }
     def op; end
 

@@ -43,6 +43,13 @@ the vendor's staff may change any product but must never see who bought it
 showing buyers' emails (`Link.buyer_emails`, a field with no field policy of
 its own, so the report lists it).
 
+The product dashboard (`LinksController#index`) lists products through
+`LinkPolicy::Scope`, whose `resolve` keeps every product of every seller the
+user works for (`scope.where(user: user.sellers)`, which the mapping names
+`member` with a `term`), whichever seller the request acts for. Products are
+mapped `lists: :current_tenant`, so a list showing another seller's product
+fails: a list spanning tenants, M5 in `docs/PLAN.md`.
+
 ```console
 $ bin/hallmark check examples/storefront/hallmark.rb
 Hallmark 0.0.1, Storefront, Alloy 6.2.0, scope 5
@@ -62,10 +69,15 @@ FAIL  Admin::LinksController#show (read Link.buyer_emails)
       a signed-in User (User$0) holding roles admin, marketing, owner in the current tenant User$0 (their own) and roles staff outside any tenant can read the buyer_emails of a Link (Link$4) in the current tenant, which the restriction "staff never see buyers" forbids
       intended pattern: Explicit permission (a grant to a role)
       exclude holders of :staff in the code, or narrow the restriction "staff never see buyers" if this is intended
+FAIL  LinksController#index (list Link)
+      guard: member
+      a signed-in User (User$1) lists a Link (Link$0) of another User (User$0), where they hold roles admin, while acting for User$1, where they hold roles admin, owner
+      intended pattern: Lists stay in the current tenant (lists: :current_tenant)
+      the list's scope does not keep to the current tenant; filter it by the tenant the request acts for, or if lists across tenants are intended here, drop `lists: :current_tenant` from Link
 ok    LinksController#edit (read Link)
 ok    Admin::LinksController#update (write Link)
 
-3 counterexamples in 5 checks.
+4 counterexamples in 6 checks.
 
 Fields with no field policy (checked as readable as their record; declare `field_policy` to narrow):
   Admin::LinksController#show (read Link.buyer_emails)
@@ -73,9 +85,13 @@ Fields with no field policy (checked as readable as their record; declare `field
 
 `hallmark_fixed.rb` adds `& in_current_tenant` to the update guard (the
 policy checks `record.user == seller`), shows revenue to the owner and
-admins only, and has the staff page read the product without its buyers,
-which the field-scoped restriction does not cover; every check then finds
-no counterexample within scope 5.
+admins only, has the staff page read the product without its buyers,
+which the field-scoped restriction does not cover, and lists only the
+current seller's products to its team (`fixed/app/policies` has the scope
+as code); every check then finds no counterexample within scope 5.
+`bin/hallmark extract examples/storefront/hallmark.rb` prints the scope as
+read from `app/policies` (`member`), and with
+`HALLMARK_ROOT=examples/storefront/fixed` the fixed one.
 
 The bug needs two tenants to show up. Hallmark never checks fewer: the scope
 is at least 2, and when tenants are users it raises the principal bound so

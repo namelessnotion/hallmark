@@ -52,6 +52,7 @@ module Hallmark
         @stack = T.let(T.unsafe(nil), T::Array[[String, String]])
         @resource = T.let(T.unsafe(nil), T.nilable(String))
         @aliases = T.let(T.unsafe(nil), T::Hash[String, String])
+        @relation = T.let(T.unsafe(nil), T.nilable(Relation))
       end
 
       sig { params(class_name: String, rule: String, resource: T.nilable(String)).returns(T.nilable(Guard)) }

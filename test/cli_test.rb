@@ -34,6 +34,7 @@ class CLITest < Minitest::Test
     assert_predicate status, :success?
     assert_includes output, "LinkPolicy#update? (app/policies/link_policy.rb:11; on Link)\n  " \
                             "(logged_in & (role(:owner, tenant: :current) | role(:admin, tenant: :current)))"
+    assert_includes output, "list LinkPolicy#Scope#resolve (app/policies/link_policy.rb:36; on Link)\n  member"
   end
 
   # config/hallmark.rb belongs to the app one directory up; unread calls

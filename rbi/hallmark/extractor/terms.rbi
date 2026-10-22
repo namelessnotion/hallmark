@@ -20,6 +20,14 @@ module Hallmark
       sig { params(left: String, right: String, resource: T.nilable(String)).returns(T.nilable(Guard)) }
       def compare(left, right, resource); end
 
+      # `user.links`: the record's owner or tenant is the object
+      sig { params(source: String, resource: String).returns(T.nilable(Guard)) }
+      def holder(source, resource); end
+
+      # `where(organization: user.organizations)`: membership of the record's tenant
+      sig { params(key: String, source: String, resource: T.nilable(String)).returns(T.nilable(Guard)) }
+      def membership(key, source, resource); end
+
       sig { params(source: T.any(String, Symbol)).returns(String) }
       def self.normalize(source); end
 

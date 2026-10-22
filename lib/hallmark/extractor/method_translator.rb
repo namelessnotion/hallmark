@@ -23,6 +23,10 @@ module Hallmark
     # order: a constructor's early exits (Gumroad's raises when no user is
     # signed in) and Action Policy's pre-checks.
     #
+    # `scope` and `scope_block` read a list scope the same way, with
+    # relation chains read as a guard on each record they hold
+    # (scope_reader.rb).
+    #
     # `expression` reads one condition in controller code the same way, with
     # the controller's names renamed to the policy's (`Canonical`).
     class MethodTranslator
@@ -44,6 +48,7 @@ module Hallmark
         @stack = []
         @resource = nil
         @aliases = {}
+        @relation = nil
       end
 
       # The guard for `class_name#rule` checked on a record of `resource`, or
@@ -180,7 +185,7 @@ module Hallmark
         then_list, else_list = branches(node)
         return sequence(tail, frame, rest) unless last || exits?(then_list) || exits?(else_list)
 
-        condition = value(node.predicate, frame)
+        condition = outside_relation { value(node.predicate, frame) }
         condition = Guard.negate(condition) if node.is_a?(Prism::UnlessNode)
         taken = sequence(then_list + tail, frame.dup.tap { |copy| copy.locals = frame.locals.dup }, rest)
         skipped = sequence(else_list + tail, frame.dup.tap { |copy| copy.locals = frame.locals.dup }, rest)
@@ -219,8 +224,12 @@ module Hallmark
         args.empty? ? never : value(args.fetch(0), frame)
       end
 
-      # The value of an expression.
+      # The value of an expression; in a list scope, a relation chain reads
+      # as the guard on its records (`relation_value`, scope_reader.rb).
       def value(node, frame)
+        listed = @relation && relation_value(node, frame)
+        return listed if listed
+
         case node
         when Prism::TrueNode then Guard.new(:none)
         when Prism::FalseNode, Prism::NilNode then never

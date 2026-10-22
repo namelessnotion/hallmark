@@ -38,10 +38,11 @@ Metrics/AbcSize:
 # (their structs and builder already live in restriction.rb), and 240 with
 # the GraphQL context's readers (phase 3 step 6, also Oct 21, 2026); both
 # passed 255 with `graphql_type` and the GraphQL checks' section (phase 3
-# step 5, the same day). The GraphQL schema reader is one reading of
-# graphql-ruby's DSL, left out like the other readers.
+# step 5, the same day), and 260 with `lists:` and the list checks' tenant
+# conjunct (phase 3 step 7, Oct 22, 2026). The GraphQL schema reader is one
+# reading of graphql-ruby's DSL, left out like the other readers.
 Metrics/ClassLength:
-  Max: 260
+  Max: 265
   Exclude: ["test/**/*", "lib/hallmark/extractor/source_index.rb", "lib/hallmark/extractor/method_translator.rb",
             "lib/hallmark/extractor/controllers.rb", "lib/hallmark/extractor/declarative_translator.rb",
             "lib/hallmark/extractor/routes_file.rb", "lib/hallmark/extractor/graphql_schema.rb"]
@@ -50,9 +51,9 @@ Metrics/ClassLength:
 # table would read better, but Sorbet's strict mode flakily rejects hash
 # constants even with a `T.let` in the RBI (seen Oct 15, 2026). The limit
 # grows by one with each guard kind (`outside_tenants`, Oct 18, 2026; `never`
-# and `opaque`, Oct 19, 2026; `flag`, Oct 19, 2026).
+# and `opaque`, Oct 19, 2026; `flag`, Oct 19, 2026; `member`, Oct 22, 2026).
 Metrics/CyclomaticComplexity:
-  Max: 17
+  Max: 18
 
 # Collectors' module methods are what every hook shares (install, sampling,
 # observe, decision, the request in progress); they passed 100 lines with
@@ -63,6 +64,12 @@ Metrics/CyclomaticComplexity:
 Metrics/ModuleLength:
   Max: 145
   Exclude: ["bench/**/*"]
+
+# An analysis block (`Hallmark.analyze`) is a mapping and its exposures,
+# read top to bottom like a config file; Storefront's passed 25 lines with
+# its list (phase 3 step 7, Oct 22, 2026).
+Metrics/BlockLength:
+  AllowedMethods: [analyze]
 
 Metrics/MethodLength:
   Max: 20

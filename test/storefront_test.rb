@@ -10,7 +10,7 @@ class StorefrontTest < Minitest::Test
     solver = require_solver!
     report = load_example("storefront/hallmark.rb").run(solver: solver)
 
-    assert_equal(%w[LinksController#update LinksController#edit Admin::LinksController#show],
+    assert_equal(%w[LinksController#update LinksController#edit Admin::LinksController#show LinksController#index],
                  report.findings.map { |finding| finding.exposure.action })
     assert_equal ["LinksController#edit", "Admin::LinksController#update"], report.verified.map(&:action)
 
@@ -25,7 +25,7 @@ class StorefrontTest < Minitest::Test
     report = load_example("storefront/hallmark_fixed.rb").run(solver: solver)
 
     assert_predicate report, :clean?
-    assert_equal 5, report.verified.size
+    assert_equal 6, report.verified.size
     refute_includes report.to_s, "Fields with no field policy"
   end
 
@@ -44,6 +44,20 @@ class StorefrontTest < Minitest::Test
     buyers = findings.fetch("Link.buyer_emails")
     assert_equal "staff never see buyers", buyers.restriction&.name
     assert_includes buyers.roles, "staff"
+  end
+
+  # The dashboard's list spans every seller the user works for, and Link
+  # is mapped `lists: :current_tenant` (M5).
+  def test_a_list_spanning_tenants
+    solver = require_solver!
+    report = load_example("storefront/hallmark.rb").run(solver: solver)
+    finding = report.findings.find { |found| found.exposure.list? }
+
+    assert_equal "list_LinksController_index_Link", finding.exposure.check_name
+    assert_predicate finding, :list_across_tenants?
+    refute_empty finding.record_tenant.roles
+    assert_match(/lists a Link \(Link\$\d\) of another User \(User\$\d\), where they hold roles .+, while acting for/,
+                 finding.message)
   end
 
   # Scope 2 still finds M2: the builder raises Principal to 3 so that two

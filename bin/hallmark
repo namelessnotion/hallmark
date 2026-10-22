@@ -34,12 +34,13 @@ USAGE = <<~TEXT.freeze
                               SIGINT or SIGTERM
     hallmark model FILE       print the Alloy model generated for FILE
     hallmark extract FILE     print the guard read from each policy rule's code under the app root
-                              (FILE's directory, or its parent when FILE is in config/)
+                              (FILE's directory, or its parent when FILE is in config/), then each
+                              list scope's guard on the records it lists
     hallmark rules FILE [POLICY...]
-                              check each rule of the policies (default: every policy read from code)
-                              on its own, as the RSpec matchers do, from its code and any recorded
-                              stamps; exit 1 on any counterexample or policy-DSL hazard, else 2 on
-                              any unknown, else 0
+                              check each rule and list scope of the policies (default: every
+                              policy read from code) on its own, as the RSpec matchers do, from
+                              its code and any recorded stamps; exit 1 on any counterexample or
+                              policy-DSL hazard, else 2 on any unknown, else 0
     hallmark install-alloy    download Alloy #{Hallmark::ALLOY_VERSION} and verify its checksum
     hallmark install-sidecar  build the solver sidecar (needs a JDK 17+; installs Alloy first)
     hallmark version
@@ -175,11 +176,12 @@ def print_extracted(files)
   abort "No policy code under #{root} (looked in #{Hallmark::Extractor::DIRS.join(", ")})" unless extractor
 
   extractor.rules.each { |rule| puts extracted_lines(rule) }
+  extractor.lists.each { |list| puts extracted_lines(list, "list ") }
 end
 
-def extracted_lines(rule)
+def extracted_lines(rule, kind = "")
   checked = rule.resource ? "on #{rule.resource}" : "no mapped resource"
-  head = "#{rule.key} (#{rule.location}; #{checked})"
+  head = "#{kind}#{rule.key} (#{rule.location}; #{checked})"
   return [head, "  #{rule.guard}"] if rule.exact?
 
   [head, "  lower: #{rule.lower}", "  upper: #{rule.upper}",
@@ -214,7 +216,7 @@ end
 def policies_read(extractor)
   return [] unless extractor
 
-  extractor.rules.select(&:resource).map(&:policy).uniq
+  (extractor.rules + extractor.lists).select(&:resource).map(&:policy).uniq
 end
 
 def stamps_if_any

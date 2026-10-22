@@ -35,15 +35,31 @@ module Hallmark
   #
   # When the app has `app/graphql`, the reachability checks of its schema
   # (`GraphqlModel#checks`) follow the entry points' exposures.
+  #
+  # List scopes (phase 3 step 7, inference_lists.rb) are units too, of kind
+  # :list: a scope's guard is its code's lower bound OR the facts of the
+  # records its list stamps showed, and each entry point that listed it
+  # gets a list exposure.
   class Inference
     include Guard::DSL
 
-    # One rule as checked against one kind of record.
-    Unit = Struct.new(:policy, :rule, :resource, :op, :stamps, :guard, :basis, :extracted, keyword_init: true) do
+    # One rule as checked against one kind of record, or with `kind` :list
+    # one list scope: `stamps` then are the records it listed, and `calls`
+    # the calls whose records were not read (class-level list stamps).
+    Unit = Struct.new(:policy, :rule, :resource, :op, :stamps, :guard, :basis, :extracted, :kind, :calls,
+                      keyword_init: true) do
       def key = "#{policy}##{rule}"
+      def list? = kind == :list
       def allows = stamps.select(&:allow?)
       def denies = stamps.reject(&:allow?)
-      def entry_points = stamps.select(&:enforced).filter_map(&:entry_point).uniq
+
+      # A rule's entry points are those that enforced it; a list's, those
+      # that listed it.
+      def entry_points
+        return (stamps + (calls || [])).filter_map(&:entry_point).uniq if list?
+
+        stamps.select(&:enforced).filter_map(&:entry_point).uniq
+      end
     end
 
     attr_reader :units, :exposures, :coverage, :unchecked, :drift, :extractor, :ops, :stamp_set, :graphql
@@ -52,20 +68,28 @@ module Hallmark
       @mapping = mapping
       @stamp_set = stamp_set
       @stamps = stamp_set.stamps
+      @list_stamps, @rule_stamps = @stamps.partition(&:list)
       @routes = stamp_set.routes
       @reached = (@stamps.filter_map(&:entry_point) + stamp_set.unchecked.map(&:entry_point)).uniq
       @extractor = extractor
-      @ops = Ops.new(mapping, stamps: @stamps, routes: @routes.empty? ? extractor&.routes || [] : @routes,
+      @ops = Ops.new(mapping, stamps: @rule_stamps, routes: @routes.empty? ? extractor&.routes || [] : @routes,
                               controllers: extractor&.controllers)
       @coverage = Coverage.new(mapping, @stamps, mismatches: stamp_set.mismatches)
-      stamped = build_units
-      @units = (stamped + code_units(stamped.map(&:key))).sort_by { |unit| [unit.policy, unit.rule, unit.resource] }
+      @units = all_units
       @exposures = build_exposures
       @drift = Drift.find(mapping, @units)
       @unchecked = UncheckedRequests.new(mapping, @stamps, extractor, @coverage).failing(stamp_set.unchecked)
     end
 
     private
+
+    # Rules from stamps, rules read from code that no stamp shows, and
+    # list scopes (inference_lists.rb), in key order.
+    def all_units
+      stamped = build_units
+      units = stamped + code_units(stamped.map(&:key)) + list_units
+      units.sort_by { |unit| [unit.policy, unit.rule, unit.resource] }
+    end
 
     # The checks of the app's GraphQL model, which this sets (`graphql`).
     def graphql_checks
@@ -74,9 +98,9 @@ module Hallmark
     end
 
     def build_units
-      record_level = @stamps.reject(&:class_level)
+      record_level = @rule_stamps.reject(&:class_level)
       mapped, unmapped = record_level.partition { |stamp| @mapping.resources.key?(stamp.resource.to_s) }
-      @coverage.class_level.concat(@stamps.select(&:class_level).map(&:rule_key).uniq.sort)
+      @coverage.class_level.concat(@rule_stamps.select(&:class_level).map(&:rule_key).uniq.sort)
       @coverage.unmapped.concat(unmapped.map { |stamp| stamp.resource.to_s }.uniq.sort)
       groups = mapped.group_by { |stamp| [stamp.policy.to_s, stamp.rule.to_s, stamp.resource.to_s] }
       groups.sort.filter_map { |(policy, rule, resource), stamps| unit_for(policy, rule, resource, stamps) }
@@ -140,7 +164,7 @@ module Hallmark
       return if parts.empty?
 
       unit.guard = parts.map(&:first).reduce { |left, right| Guard.disjoin(left, right) }
-      unit.basis = [*parts.map(&:last), @ops.basis(unit.policy, unit.rule)].compact.join("; ")
+      unit.basis = [*parts.map(&:last), (@ops.basis(unit.policy, unit.rule) unless unit.list?)].compact.join("; ")
     end
 
     # The extracted guard's lower bound, unless it allows nothing for sure.
@@ -161,8 +185,9 @@ module Hallmark
       @coverage.stale << unit.key if allows.size < unit.allows.size
       return nil if allows.empty?
 
+      stamps = unit.list? ? "listed record" : "allow-stamp"
       [inferred_guard(allows, resource),
-       "inferred from #{allows.size} allow-stamp#{"s" unless allows.size == 1} of #{unit.key}"]
+       "inferred from #{allows.size} #{stamps}#{"s" unless allows.size == 1} of #{unit.key}"]
     end
 
     # A stamp recorded before its resource's facts were mapped (no owner
@@ -194,7 +219,8 @@ module Hallmark
 
     def build_exposures
       links = Hash.new { |hash, key| hash[key] = [] }
-      @units.each do |unit|
+      lists, rules = @units.partition(&:list?)
+      rules.each do |unit|
         unit.entry_points.each { |entry_point| links[entry_point] << unit }
         if unit.stamps.empty?
           @coverage.code_only << unit.key
@@ -203,7 +229,7 @@ module Hallmark
         end
       end
       exposures = links.keys.sort.flat_map { |entry_point| exposures_of(entry_point, links.fetch(entry_point)) }
-      exposures + route_exposures + graphql_checks
+      exposures + list_exposures(lists) + route_exposures + graphql_checks
     end
 
     def exposures_of(entry_point, units)

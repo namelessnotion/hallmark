@@ -12,11 +12,11 @@ module Hallmark
   # such a guard is checked through `#bounds` (docs/adr/0003).
   #
   # Guards over tenants read the current tenant `cur` and the record's tenant
-  # `r.tenant`; see `Guard::DSL#role`, `#in_current_tenant` and
+  # `r.tenant`; see `Guard::DSL#role`, `#member`, `#in_current_tenant` and
   # `#outside_tenants`.
   class Guard
-    KINDS = %i[none never logged_in owner admin role public in_current_tenant outside_tenants permitted flag opaque
-               and or not].freeze
+    KINDS = %i[none never logged_in owner admin role member public in_current_tenant outside_tenants permitted flag
+               opaque and or not].freeze
 
     # Where a role check looks: outside any tenant (nil), in the current
     # tenant, in the record's tenant, or in any tenant at all.
@@ -47,6 +47,7 @@ module Hallmark
       when :owner then "r.owner = p"
       when :admin then "isAdmin[p]"
       when :role then "#{Naming.role_sig(operands[0])} in #{role_set(operands[1])}"
+      when :member then "(some rolesIn[p, r.tenant])"
       when :public then "r in Public"
       when :in_current_tenant then "r.tenant = cur"
       when :outside_tenants then "no r.tenant"
@@ -76,7 +77,7 @@ module Hallmark
         case leaf.kind
         when :role then [leaf.operands[1]].compact
         when :in_current_tenant then [:current]
-        when :outside_tenants then [:record]
+        when :member, :outside_tenants then [:record]
         else []
         end
       end.uniq
@@ -110,6 +111,7 @@ module Hallmark
       when :owner then "owner"
       when :admin then "admin"
       when :role then operands[1] ? "role(:#{operands[0]}, tenant: :#{operands[1]})" : "role(:#{operands[0]})"
+      when :member then "member"
       when :public then "public_record"
       when :in_current_tenant then "in_current_tenant"
       when :outside_tenants then "outside_tenants"
@@ -255,6 +257,11 @@ module Hallmark
 
         Guard.new(:role, name.to_s, tenant)
       end
+
+      # The user holds some role, of any kind, in the record's tenant: a list
+      # scope over the user's tenants (`where(organization:
+      # user.organizations)`). False for a record outside tenants.
+      def member = Guard.new(:member)
 
       # The record belongs to the current tenant (Gumroad: `record.user == seller`).
       def in_current_tenant = Guard.new(:in_current_tenant)

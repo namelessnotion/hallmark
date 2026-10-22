@@ -22,6 +22,14 @@ module Hallmark
     sig { params(name: T.any(String, Symbol)).returns(String) }
     def flag_sig(name); end
 
+    # Shop::TeamMember -> "team_member"
+    sig { params(class_name: String).returns(String) }
+    def underscore(class_name); end
+
+    # Link -> "links", Category -> "categories"
+    sig { params(class_name: String).returns(String) }
+    def plural(class_name); end
+
     sig { params(name: T.nilable(String)).returns(String) }
     def atom(name); end
   end

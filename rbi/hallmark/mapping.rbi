@@ -43,6 +43,10 @@ module Hallmark
       sig { returns(T.nilable(T::Array[Symbol])) }
       def owner_outside; end
 
+      # :current_tenant when its lists keep to the current tenant
+      sig { returns(T.nilable(Symbol)) }
+      def lists; end
+
       sig do
         params(
           name: String,
@@ -54,11 +58,12 @@ module Hallmark
           permits: Collectors::Source,
           flags: T::Array[String],
           public_when: T.nilable(Guard),
-          owner_outside: T.nilable(T::Array[Symbol])
+          owner_outside: T.nilable(T::Array[Symbol]),
+          lists: T.nilable(Symbol)
         ).void
       end
       def initialize(name:, owner:, kind:, public_if:, tenant:, tenant_optional: nil, permits: nil, flags: [],
-                     public_when: nil, owner_outside: nil); end
+                     public_when: nil, owner_outside: nil, lists: nil); end
 
       sig { returns(String) }
       def alloy_sig; end
@@ -83,6 +88,9 @@ module Hallmark
 
       sig { returns(T::Boolean) }
       def permits?; end
+
+      sig { returns(T::Boolean) }
+      def lists_current_tenant?; end
     end
 
     class Grant
@@ -426,11 +434,12 @@ module Hallmark
         permits: Collectors::Source,
         flags: T::Array[T.any(String, Symbol)],
         public_when: T.nilable(Guard),
-        owner_outside_tenant: T.nilable(T.any(T::Boolean, Symbol, T::Array[Symbol]))
+        owner_outside_tenant: T.nilable(T.any(T::Boolean, Symbol, T::Array[Symbol])),
+        lists: T.nilable(Symbol)
       ).returns(Resource)
     end
     def resource(name, owner: nil, kind: :object, public_if: nil, tenant: nil, tenant_optional: false, permits: nil,
-                 flags: [], public_when: nil, owner_outside_tenant: nil); end
+                 flags: [], public_when: nil, owner_outside_tenant: nil, lists: nil); end
 
     sig do
       params(
@@ -472,6 +481,11 @@ module Hallmark
 
     sig { params(key: String, guard: T.nilable(Object), flags: T::Array[String]).void }
     def validate_public_when!(key, guard, flags); end
+
+    sig do
+      params(key: String, tenant: T.nilable(Symbol), tenant_optional: T.nilable(T::Boolean), lists: T.nilable(Symbol)).void
+    end
+    def validate_tenant_options!(key, tenant, tenant_optional, lists); end
 
 
     sig do

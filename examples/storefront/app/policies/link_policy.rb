@@ -21,4 +21,20 @@ class LinkPolicy < ApplicationPolicy
   def seller_admin?
     user.role_owner_for?(seller) || user.role_admin_for?(seller)
   end
+
+  # The product dashboard's list: every product of every seller the user
+  # works for, not only the seller the request acts for (M5).
+  class Scope
+    attr_reader :user, :seller, :scope
+
+    def initialize(context, scope)
+      @user = context.user
+      @seller = context.seller
+      @scope = scope
+    end
+
+    def resolve
+      scope.where(user: user.sellers)
+    end
+  end
 end

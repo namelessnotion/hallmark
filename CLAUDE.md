@@ -30,7 +30,8 @@ two false-positive sources (op errors, two catalog gaps) were fixed Oct 21,
 2026 (Phase 2 step 7 below). Phase 3 steps 1 (hot path and benchmark),
 2 (live modes, sinks, hashed ids), 3 (baseline and `hallmark watch`),
 4 (field policies and restrictions), 6 (GraphQL runtime tracing, ahead
-of step 5) and 5 (GraphQL schema walk) were done Oct 21, 2026. The phase 1 gate's record is in
+of step 5) and 5 (GraphQL schema walk) were done Oct 21, 2026, and step 7 (list scopes)
+on Oct 22, 2026. The phase 1 gate's record is in
 "Phase 1 (core gem): the gate" below. The first real-app run (original Gumroad on Pundit, Oct 16, 2026, not
 a gate app) is in "First run on original Gumroad" below. Gate runs so far:
 GitLab (DeclarativePolicy, Oct 17, 2026) and Forem (Pundit, Oct 18, 2026),
@@ -264,10 +265,34 @@ Built:
   `graphql_schema ROOT` in an analyze block. `Witness` rebuilds the query
   from the instance (`Finding#path`). Lints G4, G5 ("GraphQL hazard").
   `docs/PLAN.md` ("The shipped GraphQL schema walk").
+- List scopes (phase 3 step 7, Oct 22, 2026; `list_scope.rb`,
+  `extractor/scope_reader.rb`, `collectors/lists.rb`, `inference_lists.rb`):
+  `ListScope` names a scope the same in stamps and code (Pundit
+  `"LinkPolicy", "Scope#resolve"`; Action Policy `relation_scope(:own)`,
+  `scope_for(:data)`; graphql-ruby `scope_items`). `MethodTranslator#scope`
+  and `#scope_block` read a scope's body as a rule's, with relation chains
+  (`where` pairs through terms, `where.not`, `or`, `merge`, `select`,
+  `none`, `user.links` via `Terms#holder`, the user's tenants as the new
+  guard term `member`, `some rolesIn[p, r.tenant]`) read as a guard on one
+  listed record; `term "scope.x", guard` names a chain or a step; the
+  rest is opaque. `Extractor#lists`/`#list`; `GraphqlSchema#scope_guard`
+  shares the reader. Collectors: Pundit scope classes' `resolve` wrapped,
+  Action Policy `apply_scope` and graphql-ruby `ScopeExtension#after_resolve`
+  prepended; a sampled call stamps a class-level list stamp (`Stamp#list`)
+  and the facts of at most 3 records the app loads (`ListProbe`, extended
+  onto a lazy result); `Facts#read` accepts private readers. Inference:
+  list units (`Unit#kind`, `#calls`), one list exposure per entry point and
+  resource (`Exposure#kind` :list, `list_<Action>_<Resource>`, `#doing`),
+  drift, and coverage's question for lists that may span tenants unless
+  `resource ..., lists: :current_tenant`, which adds `r.tenant in cur` to
+  the check (M5). `lists ACTION, RES, guard:` in an analyze block; `hallmark
+  rules` and `extract` include scopes; G5 lints name the type's list
+  checks. Storefront's dashboard list is M5. `docs/PLAN.md` ("The shipped
+  list scopes").
 
 Not built yet, but designed and validated as hand-written models in
 `research/models` (see its README for each check's expected result):
-tenancy flaws M4 to M6 (invitations, list scopes, Rolify grants),
+tenancy flaws M4 and M6 (invitations, Rolify grants),
 stale access after revocation, role-configuration checks.
 
 Parts of the `docs/PLAN.md` "Ruby API sketch" are still design only:
@@ -282,7 +307,7 @@ built, Oct 21, 2026).
 bundle install
 bin/hallmark install-alloy                 # Alloy 6.2.0 to ~/.cache/hallmark, SHA-256 verified; needs Java 17+
 bin/hallmark install-sidecar               # also builds the sidecar jar (javac + jar from a JDK 17+); no extra download
-bundle exec rake test                      # 474 tests; the 34 integration tests skip without the jar or sidecar
+bundle exec rake test                      # 507 tests; the 36 integration tests skip without the jar or sidecar
 bundle exec rake bench                     # what the collectors add per decision (p50, p99, objects); about 2 min
 bundle exec rubocop                        # lint
 bundle exec srb tc                         # type-check lib/ against rbi/; `rake` runs tests, rubocop, then this
@@ -341,6 +366,7 @@ Hallmark.analyze block (`stamps` loads a StampSet: Inference builds the exposure
   -> StampFacts reads each stamp as guard leaves: Inference's literals, Drift's evaluation   stamp_facts.rb, drift.rb
   + Ops: each rule's op from the mapping, its name, the routes' verbs   ops.rb, extractor/routes_file.rb
   + GraphqlSchema (app/graphql) -> GraphqlModel -> GraphqlChecks   extractor/graphql_schema.rb, graphql_model*.rb, graphql_check.rb
+  + list scopes: scope bodies read (scope_reader.rb), list stamps -> list units -> list exposures   inference_lists.rb
   -> Analysis (Mapping + Exposures, each with a Guard)       lib/hallmark/analysis.rb, mapping.rb, guard.rb
      (field policies and restrictions in the mapping)          restriction.rb
   -> ModelBuilder: Alloy source, one assert + check per exposure   model_builder.rb
@@ -646,7 +672,11 @@ phase, which stretches it to about 7 weeks. Steps, in order:
 6. GraphQL runtime: tracer naming field-path entry points; G6. Done Oct
    21, 2026, before step 5 (which reuses its naming); the GitLab rerun is
    recorded in the private log `gitlab.md` ("Phase 3 step 6").
-7. List scopes (M5, G5): scope calls stamped, `Scope#resolve` read.
+7. List scopes (M5, G5): scope calls stamped, `Scope#resolve` read. Done
+   Oct 22, 2026: Storefront's M5 found and cleared on both backends; HCB's
+   and Forem's scope classes read exactly from code (`hallmark rules` on
+   copies of the gate mappings, `~/Repos/hallmark-findings/{hcb,forem}/step7/`,
+   private logs "Phase 3 step 7"), no real bug. Bench rows added.
 8. REST serializer fields (Grape::Entity, ActiveModel::Serializer).
 9. Revocation, narrow: cached role reads lint; `after_revocation` stamps.
 10. Gate (proposed, Anthony decides): budget met on the shop and Gumroad;

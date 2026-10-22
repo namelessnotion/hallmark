@@ -37,7 +37,10 @@ module Hallmark
   # tell. `checks_unread` are entry points whose controller makes a check
   # in its own code that leaves nothing certain. `mismatches` are GraphQL
   # requests whose context named a current tenant other than the
-  # controller's (G6).
+  # controller's (G6). Of list scopes (phase 3 step 7): `lists_unobserved`
+  # showed no record and have no scope read from code, so there is nothing
+  # to check, and `cross_tenant_lists` are lists that may show another
+  # tenant's records on a resource not mapped `lists: :current_tenant`.
   class Coverage
     # One fact a stamp records, as a dimension of the fact space: a boolean,
     # or the set of roles held in one place (`roles` is true).
@@ -57,7 +60,7 @@ module Hallmark
 
     attr_reader :gaps, :never_allowed, :unreached, :class_level, :without_op, :unmapped, :redirected, :opaque,
                 :code_only, :exempt, :routes_unread, :routes_unchecked, :routes_unresolved, :checks_unread, :stale,
-                :mismatches
+                :mismatches, :cross_tenant_lists, :lists_unobserved
 
     def initialize(mapping, stamps, mismatches: [])
       @mapping = mapping
@@ -73,13 +76,20 @@ module Hallmark
       @redirected = []
       @exempt = []
       @stale = []
-      @routes_unread = []
-      @routes_unchecked = []
-      @routes_unresolved = []
       @checks_unread = []
       @opaque = []
       @code_only = []
       @mismatches = mismatches.dup
+      start_lists
+    end
+
+    # Routes no test reached and list scopes, by what they lack.
+    def start_lists
+      @routes_unread = []
+      @routes_unchecked = []
+      @routes_unresolved = []
+      @cross_tenant_lists = []
+      @lists_unobserved = []
     end
 
     def observe(unit)
@@ -89,7 +99,7 @@ module Hallmark
         # A rule no stamp shows is listed under `code_only` instead.
         return if extracted.exact? || unit.stamps.empty?
       elsif unit.allows.empty?
-        @never_allowed << unit.key
+        (unit.list? ? @lists_unobserved : @never_allowed) << unit.key
       end
       combinations = not_observed(unit.stamps, @mapping.fetch(unit.resource))
       return if combinations.empty?
@@ -101,7 +111,8 @@ module Hallmark
     def empty?
       [@gaps, @never_allowed, @unreached, @class_level, @without_op, @unmapped, @redirected, @opaque,
        @code_only, @exempt, @stale, @routes_unread, @routes_unchecked, @routes_unresolved,
-       @checks_unread, @mismatches].all?(&:empty?)
+       @checks_unread, @mismatches, @cross_tenant_lists,
+       @lists_unobserved].all?(&:empty?)
     end
 
     # Fact combinations, as conjunctions, that none of `stamps` covers.
@@ -126,7 +137,8 @@ module Hallmark
     private
 
     def observe_extracted(unit, extracted)
-      @never_allowed << unit.key if unit.guard.nil? && unit.stamps.any?
+      seen = unit.stamps.any? || (unit.calls || []).any?
+      (unit.list? ? @lists_unobserved : @never_allowed) << unit.key if unit.guard.nil? && seen
       observe_opaque(unit.key, extracted.guard)
     end
 

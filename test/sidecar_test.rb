@@ -48,7 +48,7 @@ class SidecarTest < Minitest::Test
     assert_equal 1, solver.starts
     assert_equal 2, requests("load").size
     assert_equal 2, requests("unload").size
-    assert_equal 11, requests("check").size
+    assert_equal 12, requests("check").size
   end
 
   def test_checks_carry_the_per_check_timeout

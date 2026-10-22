@@ -161,6 +161,15 @@ module Hallmark
         def self.entry_point(host); end
       end
 
+      # Prepended on graphql-ruby's ScopeExtension, which provides `field`
+      module ScopeItems
+        sig { params(kwargs: T.untyped).returns(T.untyped) }
+        def after_resolve(**kwargs); end
+
+        sig { returns(T.untyped) }
+        def field; end
+      end
+
       @installed = T.let(nil, T.nilable(T::Boolean))
       @custom = T.let(nil, T.nilable(T::Hash[T.untyped, T::Boolean]))
       @tracer = T.let(nil, T.nilable(TracePoint))
@@ -204,7 +213,16 @@ module Hallmark
         sig { params(type: T.untyped).returns(T::Boolean) }
         def custom?(type); end
 
+        sig { params(field: T.untyped, value: T.untyped, result: T.untyped, context: T.untyped).void }
+        def scoped(field, value, result, context); end
+
         private
+
+        sig { params(field: T.untyped).returns(T.untyped) }
+        def listed_type(field); end
+
+        sig { params(type: T.untyped).returns(T::Boolean) }
+        def own_scope_items?(type); end
 
         sig { params(check: TypeCheck, allowed: T.untyped, raised: T.nilable(String)).void }
         def stamp_type(check, allowed, raised); end

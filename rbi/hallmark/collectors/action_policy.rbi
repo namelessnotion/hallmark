@@ -15,6 +15,11 @@ module Hallmark
         def apply_r(rule); end
       end
 
+      module ScopeApply
+        sig { params(target: T.untyped, type: T.any(String, Symbol), options: T.untyped).returns(T.untyped) }
+        def apply_scope(target, type:, **options); end
+      end
+
       module Scoped
         sig { params(args: T.untyped, kwargs: T.untyped).returns(T.untyped) }
         def authorized_scope(*args, **kwargs); end
@@ -45,6 +50,12 @@ module Hallmark
 
         sig { params(policy: T.untyped, rule: T.any(String, Symbol), blk: T.proc.returns(T.untyped)).returns(T.untyped) }
         def observe(policy, rule, &blk); end
+
+        sig do
+          params(policy: T.untyped, target: T.untyped, result: T.untyped, type: T.any(String, Symbol),
+                 name: T.any(String, Symbol)).void
+        end
+        def scoped(policy, target, result, type, name); end
       end
     end
   end

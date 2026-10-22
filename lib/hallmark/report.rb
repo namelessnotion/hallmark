@@ -76,7 +76,7 @@ module Hallmark
     # same lines.
     def self.finding_lines(finding)
       exposure = finding.exposure
-      lines = ["FAIL  #{exposure.action} (#{exposure.op} #{exposure.target})", "      guard: #{exposure.guard}"]
+      lines = ["FAIL  #{exposure.action} (#{exposure.doing})", "      guard: #{exposure.guard}"]
       lines << "      #{exposure.basis}" if exposure.basis
       lines << "      #{finding.message}"
       lines << "      path: #{finding.path}" if finding.path
@@ -88,15 +88,31 @@ module Hallmark
     end
 
     def self.unknown_line(exposure, reason)
-      "??    #{exposure.action} (#{exposure.op} #{exposure.target}): unknown, #{reason}"
+      "??    #{exposure.action} (#{exposure.doing}): unknown, #{reason}"
     end
 
-    def self.ok_line(exposure) = "ok    #{exposure.action} (#{exposure.op} #{exposure.target})"
+    def self.ok_line(exposure) = "ok    #{exposure.action} (#{exposure.doing})"
 
     # DeclarativePolicy hazards (D3, D4) in the abilities read from code,
     # and GraphQL's (G4, G5).
+    # A G5 lint names the list checks of its type's `scope_items` (phase 3
+    # step 7), which check at run time what the lint suspects.
     def self.lints_of(analysis)
-      (analysis.inference&.extractor&.lints || []) + (analysis.graphql&.lints || [])
+      lints = (analysis.inference&.extractor&.lints || []) + (analysis.graphql&.lints || [])
+      lints.map { |lint| Report.linked(lint, analysis) }
+    end
+
+    def self.linked(lint, analysis)
+      subject = lint.subject
+      return lint unless lint.kind == "G5" && subject
+
+      rule = "#{subject}##{ListScope::GRAPHQL_RULE}"
+      checks = analysis.exposures.select { |exposure| exposure.list? && (exposure.rules || []).include?(rule) }
+      return lint if checks.empty?
+
+      lint.class.new(kind: lint.kind, location: lint.location, subject: subject,
+                     message: "#{lint.message}; where it runs, its lists are checked: " \
+                              "#{checks.map(&:check_name).join(", ")}")
     end
 
     # What kind of hazard a lint is: DeclarativePolicy's D3 and D4, or
@@ -220,7 +236,10 @@ module Hallmark
         "Rules with allow-stamps recorded before their resource's facts were mapped, not read into the guard " \
         "(run the suite again)" => coverage.stale.uniq,
         "Entry points not checked: their controller's own check depends on calls Hallmark could not read" =>
-          coverage.checks_unread
+          coverage.checks_unread,
+        "Lists with no record observed and no scope read from code (nothing to check)" => coverage.lists_unobserved,
+        "Lists that may show other tenants' records (declare `lists: :current_tenant` on the resource if they " \
+        "should not)" => coverage.cross_tenant_lists
       }
     end
 
@@ -270,7 +289,7 @@ module Hallmark
       return [] if open.empty?
 
       ["", "Fields with no field policy (checked as readable as their record; declare `field_policy` to narrow):",
-       *open.map { |exposure| "  #{exposure.action} (#{exposure.op} #{exposure.target})" }]
+       *open.map { |exposure| "  #{exposure.action} (#{exposure.doing})" }]
     end
 
     private

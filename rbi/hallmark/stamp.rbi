@@ -60,6 +60,10 @@ module Hallmark
     sig { returns(T.nilable(T::Array[String])) }
     def current_roles; end
 
+    # True for a list scope's record or call
+    sig { returns(T.nilable(T::Boolean)) }
+    def list; end
+
     sig do
       params(
         entry_point: T.nilable(String),
@@ -80,13 +84,15 @@ module Hallmark
         permitted: T.nilable(T::Boolean),
         roles: T.nilable(T::Array[String]),
         record_roles: T.nilable(T::Array[String]),
-        current_roles: T.nilable(T::Array[String])
+        current_roles: T.nilable(T::Array[String]),
+        list: T.nilable(T::Boolean)
       ).void
     end
     def initialize(
       entry_point: nil, policy: nil, rule: nil, resource: nil, class_level: nil, enforced: nil, decision: nil,
       raised: nil, logged_in: nil, owner: nil, public_record: nil, member: nil, in_current_tenant: nil,
-      outside_tenants: nil, granted: nil, permitted: nil, roles: nil, record_roles: nil, current_roles: nil
+      outside_tenants: nil, granted: nil, permitted: nil, roles: nil, record_roles: nil, current_roles: nil,
+      list: nil
     ); end
 
     sig { returns(T::Boolean) }

@@ -144,6 +144,17 @@ module Hallmark
       held.nil? ? nil : names(held).include?(name)
     end
 
+    # Some role in the record's tenant: what `member` records.
+    def member_fact
+      return false if stamp.logged_in == false
+
+      outside = outside_tenants_fact
+      return false if outside
+      return nil if outside.nil? || stamp.record_roles.nil?
+
+      record_roles.any?
+    end
+
     def record_role_fact(name)
       outside = outside_tenants_fact
       return false if outside

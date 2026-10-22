@@ -42,11 +42,20 @@ module Hallmark
       sig { returns(T::Array[Drift]) }
       def drifts; end
 
+      # For a list scope: it may show another tenant's records
+      sig { returns(T.nilable(String)) }
+      def question; end
+
+      sig { params(question: String).returns(String) }
+      def question=(question); end
+
       sig do
         params(policy: String, rule: String, exposure: T.nilable(Exposure), verdict: T.nilable(Symbol),
-               finding: T.nilable(Finding), reason: T.nilable(String), drift: T.nilable(T::Array[Drift])).void
+               finding: T.nilable(Finding), reason: T.nilable(String), drift: T.nilable(T::Array[Drift]),
+               question: T.nilable(String)).void
       end
-      def initialize(policy:, rule:, exposure: nil, verdict: nil, finding: nil, reason: nil, drift: nil); end
+      def initialize(policy:, rule:, exposure: nil, verdict: nil, finding: nil, reason: nil, drift: nil,
+                     question: nil); end
 
       sig { returns(String) }
       def key; end

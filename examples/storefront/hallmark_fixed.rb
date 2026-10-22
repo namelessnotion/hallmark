@@ -13,7 +13,7 @@ Hallmark.analyze "Storefront (fixed)" do
     tenant "User", membership: "TeamMembership", member: :user, roles: :role, self: :owner
     current_tenant :seller
     platform_role :staff
-    resource "Link", tenant: :user
+    resource "Link", tenant: :user, lists: :current_tenant
 
     grant :owner, :read, "Link"
     grant :owner, :write, "Link"
@@ -35,4 +35,7 @@ Hallmark.analyze "Storefront (fixed)" do
   reads  "LinksController#edit", "Link", field: :revenue, guard: seller_team & in_current_tenant
   # The whole record, not its buyers: the restriction covers only the field.
   reads  "Admin::LinksController#show", "Link", guard: role(:staff)
+  # The dashboard lists the current seller's products, for its team.
+  lists  "LinksController#index", "Link",
+         guard: (seller_team | role(:marketing, tenant: :current)) & in_current_tenant
 end

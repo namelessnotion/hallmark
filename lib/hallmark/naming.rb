@@ -47,6 +47,22 @@ module Hallmark
       "RecordFlags.#{flag_field(name)}"
     end
 
+    # A class's last name as Rails underscores it: Shop::TeamMember ->
+    # "team_member".
+    def underscore(class_name)
+      class_name.split("::").last.to_s.gsub(/([a-z\d])([A-Z])/, '\1_\2').downcase
+    end
+
+    # Its table name for the simple cases Rails pluralizes: Link -> links,
+    # Category -> categories, Address -> addresses.
+    def plural(class_name)
+      word = underscore(class_name)
+      return "#{word.delete_suffix("y")}ies" if word.match?(/[^aeiou]y\z/)
+      return "#{word}es" if word.match?(/(s|x|z|ch|sh)\z/)
+
+      "#{word}s"
+    end
+
     # "catalog/User$0" -> "User$0"
     def atom(name)
       name.to_s.split("/").last.to_s

@@ -95,6 +95,22 @@ class WatchTest < Minitest::Test
     assert_includes text, "1 new stamp; 1 check run: 1 new counterexample."
   end
 
+  # A list exposure (phase 3 step 7) is re-checked when a live record
+  # widens its inferred guard.
+  def test_a_list_whose_guard_widens_is_checked_again
+    list = "list_LinksController_index_Link"
+    listed = lambda do |**facts|
+      stamp(rule: "Scope#resolve", entry_point: "LinksController#index", enforced: false, list: true, **facts)
+    end
+    solver = FixtureSolver.new(list => :none)
+    watch = watch(*baseline(owner_stamps + [listed.call]), solver)
+    write(listed.call(in_current_tenant: false, record_roles: ["admin"]).to_json_line)
+    watch.poll
+
+    assert_equal [list], solver.checks
+    assert_includes @out.string, "1 check run"
+  end
+
   def test_a_poll_with_no_new_lines_sends_nothing
     solver = FixtureSolver.new(UPDATE => :counterexample)
     watch = watch(*baseline, solver)

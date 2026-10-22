@@ -385,6 +385,9 @@ module Hallmark
       sig { params(scope: Scope).returns(T.nilable(String)) }
       def parent_of(scope); end
 
+      sig { params(scope: Scope, name: String).returns(T.nilable(String)) }
+      def inherited_constant(scope, name); end
+
       sig { params(name: String).returns(T.nilable(String)) }
       def external_superclass(name); end
     end

@@ -90,6 +90,13 @@ module Hallmark
     sig { params(analysis: Analysis).returns(T::Array[Extractor::DeclarativeTranslator::Lint]) }
     def self.lints_of(analysis); end
 
+    # A G5 lint with the list checks of its type's scope_items named
+    sig do
+      params(lint: Extractor::DeclarativeTranslator::Lint, analysis: Analysis)
+        .returns(Extractor::DeclarativeTranslator::Lint)
+    end
+    def self.linked(lint, analysis); end
+
     sig { params(finding: Finding).returns(T::Array[String]) }
     def finding_lines(finding); end
 

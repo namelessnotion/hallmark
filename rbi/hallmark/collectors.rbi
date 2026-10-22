@@ -134,9 +134,16 @@ module Hallmark
 
       sig do
         params(policy: T.untyped, rule: T.any(String, Symbol), record: T.untyped, allowed: T.untyped,
-               enforced: T::Boolean, raised: T.nilable(String), entry_point: T.nilable(String)).void
+               enforced: T::Boolean, raised: T.nilable(String), entry_point: T.nilable(String), list: T::Boolean).void
       end
-      def decision(policy:, rule:, record:, allowed:, enforced:, raised: nil, entry_point: nil); end
+      def decision(policy:, rule:, record:, allowed:, enforced:, raised: nil, entry_point: nil, list: false); end
+
+      # collectors/lists.rb: the list call, then its loaded records
+      sig { params(policy: T.untyped, rule: String, result: T.untyped, model: T.untyped).void }
+      def list(policy:, rule:, result:, model: nil); end
+
+      sig { params(origin: ListProbe::Origin, records: T::Array[T.untyped]).void }
+      def list_records(origin, records); end
 
       sig { params(rule: T.untyped).returns(String) }
       def rule_name(rule); end
@@ -174,9 +181,20 @@ module Hallmark
       # `policy` and `record` are the app's objects.
       sig do
         params(policy: T.untyped, rule: String, record: T.untyped, allowed: T::Boolean, raised: T.nilable(String),
-               enforced: T::Boolean, entry_point: T.nilable(String)).returns(Stamp)
+               enforced: T::Boolean, entry_point: T.nilable(String), list: T::Boolean).returns(Stamp)
       end
-      def stamp(policy:, rule:, record:, allowed:, raised:, enforced:, entry_point:); end
+      def stamp(policy:, rule:, record:, allowed:, raised:, enforced:, entry_point:, list: false); end
+
+      # A list scope's call, class-level, on the records' class
+      sig do
+        params(policy: T.untyped, rule: String, model: T::Module[T.anything], entry_point: T.nilable(String))
+          .returns(Stamp)
+      end
+      def list_call(policy:, rule:, model:, entry_point:); end
+
+      # A Pundit scope (or any object) read as a policy, private readers included
+      sig { params(name: String, object: T.untyped).returns(ContextPolicy) }
+      def context_of(name, object); end
 
       sig { params(policy: T.untyped, record: T.untyped).returns(Example) }
       def example(policy, record); end
@@ -185,15 +203,19 @@ module Hallmark
 
       sig do
         params(entry_point: T.nilable(String), policy: String, rule: String, enforced: T::Boolean, allowed: T::Boolean,
-               raised: T.nilable(String), logged_in: T::Boolean, roles: T::Array[String]).returns(Stamp)
+               raised: T.nilable(String), logged_in: T::Boolean, roles: T::Array[String], list: T::Boolean)
+          .returns(Stamp)
       end
-      def new_stamp(entry_point:, policy:, rule:, enforced:, allowed:, raised:, logged_in:, roles:); end
+      def new_stamp(entry_point:, policy:, rule:, enforced:, allowed:, raised:, logged_in:, roles:, list:); end
 
       sig { params(record: T.untyped).returns(T::Boolean) }
       def recordless?(record); end
 
       sig { params(policy: T.untyped).returns(T.untyped) }
       def principal(policy); end
+
+      sig { params(policy: T.untyped, user: T.untyped).returns(T.noreturn) }
+      def wrong_user!(policy, user); end
 
       sig { params(policy: T.untyped).returns(T.untyped) }
       def current_tenant(policy); end
@@ -219,8 +241,8 @@ module Hallmark
       end
       def current_roles(stamp, user, current, roles); end
 
-      sig { params(policy: String, rule: String).returns(T.nilable(Symbol)) }
-      def op_for(policy, rule); end
+      sig { params(policy: String, rule: String, list: T::Boolean).returns(T.nilable(Symbol)) }
+      def op_for(policy, rule, list: false); end
 
       sig { params(resource: Mapping::Resource, op: T.nilable(Symbol), counting: T::Array[String]).returns(T::Boolean) }
       def granted?(resource, op, counting); end
@@ -233,6 +255,9 @@ module Hallmark
 
       sig { params(record: T.untyped).returns(T.nilable(Mapping::Resource)) }
       def mapping_for(record); end
+
+      sig { params(klass: T::Module[T.anything]).returns(T.nilable(Mapping::Resource)) }
+      def class_resource(klass); end
 
       sig { params(resource: Mapping::Resource, record: T.untyped, user: T.untyped).returns(T::Boolean) }
       def owned_by?(resource, record, user); end

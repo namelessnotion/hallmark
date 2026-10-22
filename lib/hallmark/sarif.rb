@@ -98,7 +98,7 @@ module Hallmark
       hint = finding.hint
       intended = finding.intended
       path = finding.path
-      text = "#{exposure.action} (#{exposure.op} #{exposure.target}): #{finding.message}." \
+      text = "#{exposure.action} (#{exposure.doing}): #{finding.message}." \
              "#{" Path: #{path}." if path} " \
              "Intended pattern: #{finding.pattern}.#{" Intended: #{intended}." if intended}" \
              "#{" #{hint[0].to_s.upcase}#{hint[1..]}." if hint}"

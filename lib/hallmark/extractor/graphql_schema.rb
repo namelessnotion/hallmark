@@ -123,6 +123,25 @@ module Hallmark
       # not at all, and scopes switched off.
       def lints = @lints ||= (mutation_lints + scope_lints).uniq
 
+      # Each mapped type's own `self.scope_items` as a list scope
+      # (`Extractor#lists`), named `<Type>#scope_items`.
+      def lists
+        @index.scopes.keys.sort.filter_map do |name|
+          resource = resource_for(name)
+          resource && @index.scopes.fetch(name).defs.key?("self.scope_items") ? list(name, resource) : nil
+        end
+      end
+
+      # A type's `scope_items` on records of `resource`; nil without one.
+      def list(name, resource)
+        method = @index.find_method(name, "self.scope_items")
+        guard = method && scope_guard(name, resource)
+        return nil unless method && guard
+
+        Extracted.new(policy: name, rule: ListScope::GRAPHQL_RULE, resource: resource, guard: guard,
+                      location: method.location)
+      end
+
       # GraphQL's camelization of a Ruby name, as graphql-ruby does it.
       def self.camelize(name)
         return name unless name.include?("_")
@@ -269,77 +288,26 @@ module Hallmark
         node.is_a?(Prism::RequiredParameterNode) ? node.name.to_s : nil
       end
 
-      # `self.scope_items(items, context)` as a guard on each member: the
-      # items themselves (no filter), `where(attr: value)` through the
+      # `self.scope_items(items, context)` as a guard on each member, read
+      # as any list scope is (`MethodTranslator#scope`, scope_reader.rb):
+      # the items themselves (no filter), `where(attr: value)` through the
       # term table, `select { |item| ... }` through the translator, `none`.
       def scope_guard(name, resource)
         method = @index.find_method(name, "self.scope_items")
         return nil unless method
 
-        body = method.node.body
-        last = body.is_a?(Prism::StatementsNode) ? body.body.last : nil
         params = method.node.parameters&.requireds || []
-        names = { items: param_name(params[0]), context: param_name(params[1]) }
-        last ? relation_guard(last, method, name, resource, names) : Guard.new(:never)
-      end
-
-      def relation_guard(node, method, klass, resource, names)
-        return Guard.new(:none) if node.is_a?(Prism::LocalVariableReadNode) && node.name.to_s == names[:items]
-        return opaque_node(node, method) unless node.is_a?(Prism::CallNode) && node.receiver
-
-        receiver = node.receiver || raise(ArgumentError, "a relation call needs a receiver")
-        case node.name
-        when :all then relation_guard(receiver, method, klass, resource, names)
-        when :none then Guard.new(:never)
-        when :where
-          Guard.conjoin(relation_guard(receiver, method, klass, resource, names), where_guard(node, method, resource))
-        when :select, :filter
-          Guard.conjoin(relation_guard(receiver, method, klass, resource, names),
-                        select_guard(node, method, klass, resource, names))
-        else opaque_node(node, method)
-        end
-      end
-
-      # `where(organization: context[:current_organization])`: each pair
-      # as the term for `record.attr == value`.
-      def where_guard(node, method, resource)
-        hash = node.arguments&.arguments&.first
-        return opaque_node(node, method) unless hash.is_a?(Prism::KeywordHashNode)
-
-        canonical = Canonical.new({}, context_aliases)
-        hash.elements.reduce(Guard.new(:none)) do |all, pair|
-          key = pair.is_a?(Prism::AssocNode) ? symbol(pair.key) : nil
-          found = key && @terms.compare("record.#{key}", canonical.render(pair.value), resource)
-          Guard.conjoin(all, found || opaque_node(pair, method))
-        end
-      end
-
-      def select_guard(node, method, klass, resource, names)
-        block = node.block
-        param = block.is_a?(Prism::BlockNode) ? block_param(block) : nil
-        body = block.is_a?(Prism::BlockNode) ? block.body : nil
-        return opaque_node(node, method) unless param && body
-
-        aliases = context_aliases.merge(param => "record")
-        context = names[:context]
+        items = param_name(params[0])
+        context = param_name(params[1])
+        aliases = context_aliases
         aliases[context] = "context" if context
-        without_super(@translator.expression(body, method, klass, resource, aliases: aliases))
-      end
-
-      def block_param(block)
-        params = block.parameters
-        list = params.is_a?(Prism::BlockParametersNode) ? params.parameters : nil
-        param_name(list&.requireds&.first)
+        without_super(@translator.scope(method, name, resource, roots: [items].compact, aliases: aliases))
       end
 
       def reauthorize?(name)
         @index.calls(name).none? do |call|
           call.name == :reauthorize_scoped_objects && call.arguments.first.is_a?(Prism::FalseNode)
         end
-      end
-
-      def opaque_node(node, method)
-        Guard.new(:opaque, node.slice.gsub(/\s+/, " "), "#{method.file}:#{node.location.start_line}")
       end
 
       # Fields declared on the type, its app ancestors and the interfaces
@@ -768,7 +736,7 @@ module Hallmark
         @index.scopes.keys.sort.flat_map do |name|
           unscoped = @index.scopes.fetch(name).calls.select { |call| call.name == :field && unscoped_list?(call) }
           lints = unscoped.map do |call|
-            Lint.new(kind: "G5", location: call.location,
+            Lint.new(kind: "G5", location: call.location, subject: field_target(call, resolver_of(call))&.name,
                      message: "the list field #{symbol(call.arguments.first)} on #{name} sets `scope: false`, so its " \
                               "type's `scope_items` never filters it")
           end
@@ -790,7 +758,7 @@ module Hallmark
 
         return [] if scope_guard(name, resource_for(name))&.tenants&.any?
 
-        [Lint.new(kind: "G5", location: call.location,
+        [Lint.new(kind: "G5", location: call.location, subject: name,
                   message: "#{name} turns off `reauthorize_scoped_objects`, and its `scope_items` reads no tenant " \
                            "Hallmark can see, so list members are never checked against the current tenant")]
       end

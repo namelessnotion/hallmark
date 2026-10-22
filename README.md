@@ -61,6 +61,11 @@ Pundit, Action Policy and DeclarativePolicy code:
   must not be readable where its policy says no; findings print the query
   that reaches the witness, and mutations checked late or not at all (G4)
   and switched-off scopes (G5) fail the check
+- list scopes: Pundit's `Scope#resolve`, Action Policy's `relation_scope`
+  and graphql-ruby's `scope_items`, read from code and stamped at run time,
+  are list checks: every record a list may hold must be readable, and in
+  the current tenant when the resource is mapped `lists: :current_tenant`
+  (Storefront's dashboard lists every seller's products a user works for)
 - the GraphQL shop example, a graphql-ruby schema reproducing a field leak,
   a nested path that skips a check and a `node(id:)` lookup with none, and
   its fixed schema
@@ -71,9 +76,8 @@ passed on Oct 19, 2026. Phase 2 (the extractor) passed its gate on five
 apps on Oct 21, 2026.
 
 Not built yet (phase 3): field reads read from REST serializers (field
-exposures outside GraphQL are declared by hand for now); list scopes beyond
-graphql-ruby's `scope_items`; and stale access after revocation. The models
-for those live in `research/models`.
+exposures outside GraphQL are declared by hand for now), and stale access
+after revocation. The models for those live in `research/models`.
 
 ## Requirements
 
@@ -607,6 +611,49 @@ way (an authorize call it cannot resolve, no authorization call it can
 see, a controller outside `app/controllers`) are listed under coverage, not
 failed.
 
+### List scopes
+
+A list scope says which records a page may show. Hallmark reads Pundit's
+`<Policy>::Scope#resolve`, Action Policy's `relation_scope` (and
+`scope_for`, except params filters) and graphql-ruby's `scope_items` as a
+guard on one listed record, through the same translator and terms:
+
+| Code | Guard |
+| --- | --- |
+| `scope`, `scope.all`, `relation` | every record (`none` checks nothing) |
+| `scope.none` | no record |
+| `scope.where(user: user)`, `where(user_id: user.id)`, `user.links` | `owner` |
+| `scope.where(organization: current_organization)`, `current_seller.links` | `in_current_tenant` |
+| `scope.where(organization: user.organizations)`, `organization_id: user.organization_ids` | `member` |
+| `scope.where(published: true)` (with `public_if: :published?`) | `public_record` |
+| `a.or(b)`, `a.merge(b)`, `where.not(...)`, `select { \|r\| ... }` | OR, AND, NOT, the block read as a rule |
+
+Ordering, eager loading and pagination keep every record; joins, SQL
+strings and the app's own scopes are unread calls, bounded as for rules,
+unless a `term` names them with the root written `scope`:
+`term "scope.published", public_record`.
+
+At run time the collectors stamp each scope call, and the facts of at most
+three of the records the app loads from its result (never a record the app
+did not load). Each entry point that listed records gets a list check,
+`list_<Action>_<Resource>`: every record the scope may hold must be
+readable by the catalog. With `resource ..., lists: :current_tenant` it
+must also be in the current tenant (or in none), and a list that is not
+fails as M5:
+
+```text
+FAIL  LinksController#index (list Link)
+      guard: member
+      a signed-in User (User$1) lists a Link (Link$0) of another User (User$0), where they hold roles admin, while acting for User$1, where they hold roles admin, owner
+      intended pattern: Lists stay in the current tenant (lists: :current_tenant)
+```
+
+Without the option, a list that may show another tenant's records is a
+question under coverage, not a failure: a dashboard across tenants can be
+intended. `hallmark rules` checks each scope on its own, `hallmark extract`
+prints what it read, and lists are declared by hand with `lists "Action",
+"Link", guard: ...` in an analysis block.
+
 ### DeclarativePolicy and Grape
 
 DeclarativePolicy policies (and GitLab's EE modules, which
@@ -696,7 +743,9 @@ Two static hazards fail the check like D3 and D4: G4, a mutation with no
 it executed, or overrides a `load_*` method without `super`); and G5,
 `scope: false` on a list field, or `reauthorize_scoped_objects(false)` with
 a `scope_items` that reads no tenant. `examples/graphql_shop` has all of
-them, and a fixed schema with none.
+them, and a fixed schema with none. A type's `scope_items` is also a list
+scope (see "List scopes"): where it ran, its lists are checked, and a G5
+message names those checks.
 
 ### SARIF
 

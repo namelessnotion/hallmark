@@ -14,8 +14,12 @@ module Hallmark
         sig { returns(String) }
         def message; end
 
-        sig { params(kind: String, location: String, message: String).void }
-        def initialize(kind:, location:, message:); end
+        # The GraphQL type a G5 lint concerns; nil otherwise
+        sig { returns(T.nilable(String)) }
+        def subject; end
+
+        sig { params(kind: String, location: String, message: String, subject: T.nilable(String)).void }
+        def initialize(kind:, location:, message:, subject: nil); end
 
         sig { returns(String) }
         def to_s; end

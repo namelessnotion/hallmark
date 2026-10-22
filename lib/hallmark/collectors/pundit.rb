@@ -21,6 +21,12 @@ module Hallmark
     # Forem's specs. A direct call is stamped as a query:
     # it feeds the rule's guard and ties the rule to no entry point. Calls
     # made inside `authorize`, or from another rule, are not stamped again.
+    #
+    # Scope classes (`LinkPolicy::Scope`) get their `resolve` wrapped the
+    # same way, so `policy_scope`, `Pundit.policy_scope!` and specs calling
+    # `Scope.new(user, Link).resolve` all stamp a list decision (rule
+    # "Scope#resolve" of the policy the class is nested in; collectors/
+    # lists.rb). A `resolve` calling `super` stamps once.
     module PunditHook
       # Prepended on Pundit::Authorization.
       module Authorize
@@ -52,7 +58,8 @@ module Hallmark
           result
         end
 
-        # A list scope, or an explicit skip, counts as a check.
+        # A list scope, or an explicit skip, counts as a check; the scope's
+        # `resolve` stamps the list.
         def policy_scope(*, **)
           Collectors.checked!
           super
@@ -88,9 +95,15 @@ module Hallmark
           # Policies loaded so far (Rails eager loads them before the Railtie
           # installs the collectors), then each class body Ruby finishes from
           # now on (autoloaded policies, and reopened ones).
-          ObjectSpace.each_object(Class) { |klass| observe_rules(klass) }
-          @tracer = TracePoint.new(:end) { |trace| observe_rules(trace.self) }
+          ObjectSpace.each_object(Class) { |klass| observe(klass) }
+          @tracer = TracePoint.new(:end) { |trace| observe(trace.self) }
           @tracer.enable
+        end
+
+        # A policy's rules, or a scope's `resolve`.
+        def observe(klass)
+          observe_rules(klass)
+          observe_scope(klass)
         end
 
         # Wraps the rules of a Pundit policy class. Never raises: it runs
@@ -108,6 +121,57 @@ module Hallmark
 
             wrapped[rule] = wrap(klass, rule, current) unless wrapped[rule] == current
           end
+        rescue StandardError => e
+          Collectors.warn_once(e)
+        end
+
+        # Wraps `resolve` on a Pundit scope class (`<Policy>::Scope`).
+        # Never raises.
+        def observe_scope(klass)
+          return unless scope_class?(klass)
+
+          current = klass.instance_method(:resolve)
+          return unless current.owner == klass || !current.owner.is_a?(Class)
+
+          wrapped = (@scopes ||= {}.compare_by_identity)
+          wrapped[klass] = wrap_scope(klass, current) unless wrapped[klass] == current
+        rescue StandardError => e
+          Collectors.warn_once(e)
+        end
+
+        # A class named `<Something>Policy::Scope` that Pundit could build
+        # with `new(user, scope)` and that answers `resolve`.
+        def scope_class?(klass)
+          return false unless klass.is_a?(Class) && !klass.singleton_class? && klass < Object
+          return false unless ListScope.pundit_policy(module_name(klass))&.end_with?("Policy")
+          return false unless klass.public_method_defined?(:resolve)
+
+          takes_user_and_record?(klass.instance_method(:initialize))
+        end
+
+        # Runs one `resolve`, and stamps its list unless it runs inside
+        # another (`super`).
+        def resolve(scope)
+          return yield if !Collectors.active? || Thread.current[:hallmark_pundit_scope]
+
+          begin
+            Thread.current[:hallmark_pundit_scope] = true
+            result = yield
+          ensure
+            Thread.current[:hallmark_pundit_scope] = nil
+          end
+          listed(scope, result)
+          result
+        end
+
+        # Stamps a resolved list. Never raises.
+        def listed(scope, result)
+          policy = ListScope.pundit_policy(module_name(scope.class)).to_s
+          context = Collectors.recording? ? Collectors.facts&.context_of(policy, scope) : nil
+          return Collectors.checked! unless context
+
+          Collectors.list(policy: context, rule: ListScope::PUNDIT_RULE, result: result,
+                          model: scope.instance_variable_get(:@scope))
         rescue StandardError => e
           Collectors.warn_once(e)
         end
@@ -174,6 +238,18 @@ module Hallmark
             PunditHook.query(self, rule) { original.bind(self).call(*args, **kwargs, &block) }
           end
           klass.instance_method(rule)
+        ensure
+          $VERBOSE = verbose
+        end
+
+        # Replaces `resolve` on a scope class, as `wrap` does a rule.
+        def wrap_scope(klass, original)
+          verbose = $VERBOSE
+          $VERBOSE = nil
+          klass.define_method(:resolve) do |*args, **kwargs, &block|
+            PunditHook.resolve(self) { original.bind(self).call(*args, **kwargs, &block) }
+          end
+          klass.instance_method(:resolve)
         ensure
           $VERBOSE = verbose
         end

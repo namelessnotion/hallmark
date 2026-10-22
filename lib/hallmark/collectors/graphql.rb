@@ -247,11 +247,26 @@ module Hallmark
         end
       end
 
+      # Prepended on graphql-ruby's ScopeExtension, which runs a list
+      # field's return type's `scope_items`: an app's own `scope_items`
+      # stamps a list decision under the field's entry point (collectors/
+      # lists.rb), as rule `scope_items` of the type.
+      module ScopeItems
+        def after_resolve(**kwargs)
+          result = super
+          GraphqlHook.scoped(field, kwargs[:value], result, kwargs[:context])
+          result
+        end
+      end
+
       class << self
         def install
           return if @installed
 
           @installed = true
+          if defined?(::GraphQL::Schema::Field::ScopeExtension)
+            ::GraphQL::Schema::Field::ScopeExtension.prepend(ScopeItems)
+          end
           @custom = {}.compare_by_identity
           ObjectSpace.each_object(Class) { |klass| attach(klass) }
           @tracer = TracePoint.new(:end) { |trace| attach(trace.self) }
@@ -358,7 +373,39 @@ module Hallmark
           custom[type] = !owner&.start_with?("GraphQL::")
         end
 
+        # Stamps the list a type's own `scope_items` returned. Never raises.
+        def scoped(field, value, result, context)
+          return if value.nil? || !Collectors.active?
+
+          type = listed_type(field)
+          return unless own_scope_items?(type)
+
+          policy = Collectors.recording? ? context_policy(type, context) : nil
+          return Collectors.checked! unless policy
+
+          Collectors.list(policy: policy, rule: ListScope::GRAPHQL_RULE, result: result, model: value)
+        rescue StandardError => e
+          Collectors.warn_once(e)
+        end
+
         private
+
+        # What a list field lists: its type, or a connection's node type, to
+        # which the connection's `scope_items` hands its items.
+        def listed_type(field)
+          type = field.type.unwrap
+          type.respond_to?(:node_type) && type.node_type ? type.node_type : type
+        end
+
+        # Whether the type's `scope_items` is the app's, not graphql-ruby's
+        # pass-through.
+        def own_scope_items?(type)
+          return false unless type.respond_to?(:scope_items)
+
+          owner = type.method(:scope_items).owner
+          name = owner.singleton_class? ? owner.attached_object.inspect : owner.name.to_s
+          !name.start_with?("GraphQL::")
+        end
 
         # Stamps one type check, read as a rule `authorized?` of the type's
         # class on the object.

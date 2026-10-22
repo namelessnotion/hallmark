@@ -82,6 +82,19 @@ class GraphqlCollectorTest < Minitest::Test
                  entry_points(set)
   end
 
+  # A type's own scope_items stamps a list under the field's entry point,
+  # with the records it kept.
+  def test_stamps_a_types_scope_items_as_a_list
+    set = collect_graphql do
+      query_as('{ seller(name: "ann") { listedLinks { id } } }', user: @ada, seller: @ann)
+    end
+
+    lists = set.stamps.select(&:list)
+    assert_equal [["Query.seller.listedLinks", "GraphqlShop::ListedLinkType", "scope_items"]],
+                 lists.map { |stamp| [stamp.entry_point, stamp.policy, stamp.rule] }.uniq
+    assert_equal [true], lists.reject(&:class_level).map(&:in_current_tenant)
+  end
+
   def test_stamps_a_type_check_with_the_context_facts
     set = collect_graphql do
       assert_equal({ "data" => { "link" => { "id" => "1" } } },
