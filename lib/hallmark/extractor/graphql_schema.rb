@@ -17,7 +17,9 @@ module Hallmark
     #   `authorization.ok?`), on a field (`authorize:`) or on a resolver
     #   (`authorizes_object!`, or `authorized_find!` in `resolve`), as the
     #   DeclarativePolicy ability on the object it checks;
-    # - a field's own `def authorized?(obj, args, ctx)` in its block;
+    # - a field's own `def authorized?(obj, args, ctx)` in its block, and
+    #   the `authorized?` of a field class the type declares
+    #   (`GraphqlFieldClasses`);
     # - Action Policy's `authorize:` and `preauthorize:` field options, as
     #   the policy rule on each object the field returns;
     # - `self.scope_items` (`items.where(attr: value)`, `items.select { }`)
@@ -90,6 +92,8 @@ module Hallmark
         @implementer_table = nil
         @lints = nil
         @model = nil
+        tidy = ->(guard) { without_super(guard) }
+        @field_classes = GraphqlFieldClasses.new(index, translator, policies, aliases: context_aliases, cleanup: tidy)
       end
 
       # The class inheriting from GraphQL::Schema, first by name; nil when
@@ -478,8 +482,10 @@ module Hallmark
       end
 
       # Checks on the parent object: the field's own `def authorized?` in
-      # its block, GitLab's `authorize:` abilities, and a resolver that
-      # authorizes the object it is resolved on (`authorizes_object!`).
+      # its block, GitLab's `authorize:` abilities, a resolver that
+      # authorizes the object it is resolved on (`authorizes_object!`), and
+      # the `authorized?` of a field class the type declares
+      # (`GraphqlFieldClasses`; not for an interface's fields).
       def field_guard(call, owner, resolver)
         resource = type(owner).resource
         guard = block_guard(call, owner, resource)
@@ -488,7 +494,9 @@ module Hallmark
         if resolver && authorizes_object?(resolver)
           guard = Guard.conjoin(guard, ability_guard(resolver_abilities(resolver), resource, call.location))
         end
-        guard
+        classed = @index.ancestors(owner).include?(call.owner) &&
+                  @field_classes.guard(call, symbol(call.arguments[0]).to_s, resource)
+        classed ? Guard.conjoin(guard, classed) : guard
       end
 
       def block_guard(call, owner, resource)

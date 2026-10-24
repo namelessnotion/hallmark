@@ -277,6 +277,9 @@ module Hallmark
       sig { params(class_name: String, node: T.nilable(Prism::Node)).returns(T.nilable(T::Array[String])) }
       def names_in(class_name, node); end
 
+      sig { params(class_name: String, name: String).returns(T.nilable(Prism::Node)) }
+      def constant(class_name, name); end
+
       private
 
       sig { params(path: String).void }
@@ -325,9 +328,6 @@ module Hallmark
 
       sig { params(scope: Scope, name: Symbol, args: T::Array[Prism::Node]).void }
       def callback(scope, name, args); end
-
-      sig { params(class_name: String, name: String).returns(T.nilable(Prism::Node)) }
-      def constant(class_name, name); end
 
       sig { params(scope: Scope, node: T.nilable(Prism::Node), file: String).void }
       def singleton_body(scope, node, file); end

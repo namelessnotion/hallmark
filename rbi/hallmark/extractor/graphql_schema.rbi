@@ -155,6 +155,7 @@ module Hallmark
         @implementer_table = T.let(T.unsafe(nil), T.nilable(T::Hash[String, T::Array[String]]))
         @lints = T.let(T.unsafe(nil), T.nilable(T::Array[Lint]))
         @model = T.let(T.unsafe(nil), T.nilable(GraphqlModel))
+        @field_classes = T.let(T.unsafe(nil), GraphqlFieldClasses)
       end
 
       sig { returns(T.nilable(String)) }

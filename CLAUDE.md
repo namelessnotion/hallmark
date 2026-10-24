@@ -32,7 +32,8 @@ two false-positive sources (op errors, two catalog gaps) were fixed Oct 21,
 4 (field policies and restrictions), 6 (GraphQL runtime tracing, ahead
 of step 5) and 5 (GraphQL schema walk) were done Oct 21, 2026, steps 7 (list scopes)
 and 8 (REST serializer fields) on Oct 22, 2026, and step 9 (revocation, narrow) on
-Oct 24, 2026. The phase 1 gate's record is in
+Oct 24, 2026. The phase 3 gate (step 10) ran Oct 23 to 24, 2026 and met
+every proposed item (`docs/PLAN.md`, "Phase 3 gate run"); Anthony decides. The phase 1 gate's record is in
 "Phase 1 (core gem): the gate" below. The first real-app run (original Gumroad on Pundit, Oct 16, 2026, not
 a gate app) is in "First run on original Gumroad" below. Gate runs so far:
 GitLab (DeclarativePolicy, Oct 17, 2026) and Forem (Pundit, Oct 18, 2026),
@@ -265,7 +266,10 @@ Built:
   added by `Inference` (so `check`, baselines and watch include them) or
   `graphql_schema ROOT` in an analyze block. `Witness` rebuilds the query
   from the instance (`Finding#path`). Lints G4, G5 ("GraphQL hazard").
-  `docs/PLAN.md` ("The shipped GraphQL schema walk").
+  A type's own `field_class` `authorized?` (`graphql_field_classes.rb`,
+  added Oct 24, 2026 for the phase 3 gate) is ANDed into each field's
+  guard, with context values resolvers assign read as every value they
+  may hold. `docs/PLAN.md` ("The shipped GraphQL schema walk").
 - List scopes (phase 3 step 7, Oct 22, 2026; `list_scope.rb`,
   `extractor/scope_reader.rb`, `collectors/lists.rb`, `inference_lists.rb`):
   `ListScope` names a scope the same in stamps and code (Pundit
@@ -365,8 +369,9 @@ built, Oct 21, 2026).
 bundle install
 bin/hallmark install-alloy                 # Alloy 6.2.0 to ~/.cache/hallmark, SHA-256 verified; needs Java 17+
 bin/hallmark install-sidecar               # also builds the sidecar jar (javac + jar from a JDK 17+); no extra download
-bundle exec rake test                      # 611 tests; the 41 integration tests skip without the jar or sidecar
+bundle exec rake test                      # 617 tests; the 42 integration tests skip without the jar or sidecar
 bundle exec rake bench                     # what the collectors add per decision (p50, p99, objects); about 2 min
+BENCH_SCENARIOS=FILE bin/rails runner bench/app.rb   # the same inside a booted app (run from the app; BENCH_N, BENCH_WARMUP)
 bundle exec rubocop                        # lint
 bundle exec srb tc                         # type-check lib/ against rbi/; `rake` runs tests, rubocop, then this
 bin/hallmark check examples/medium_clone/hallmark.rb    # exits 1 (two counterexamples, expected)
@@ -772,7 +777,19 @@ phase, which stretches it to about 7 weeks. Steps, in order:
     F9 from live traffic in shadow mode at upstream `f3ef06a69`, gone on
     the fix branch; a GitLab historical GraphQL fix found and cleared; one
     field-level or list-scope finding triaged; every check under 10 s with
-    no unknown.
+    no unknown. Run Oct 23 to 24, 2026, every item met: Gumroad's own work
+    per sampled decision at most 13.3 µs p99 (`bench/app.rb`, development,
+    real readers); F9 reported by `hallmark watch` from shadow-mode traffic
+    (runtime evidence only, `HALLMARK_EXTRACT=off`, decided Oct 24, 2026)
+    and gone on `efcbc8e7d`; gitlab-org/gitlab!129831 (picked by Anthony
+    Oct 24, 2026) found at `108368d6c18` and gone at `8fdfce022dd`, which
+    needed the field-class reader; every check under 1 s, no unknown.
+    Private: `~/Repos/hallmark-findings/phase3-gate.md`, logs "Phase 3
+    gate" in `gumroad.md` and `gitlab.md`; Gumroad worktree
+    `~/Repos/gumroad-f3ef06a` (detached at `f3ef06a69`, local setup
+    uncommitted). The first Gumroad bench runs logged 612 GB in
+    development and filled the disk: run `bench/app.rb` with the app's
+    logger at errors and watch the log.
 
 ## Phase 1 (core gem): the gate
 

@@ -222,6 +222,15 @@ module Hallmark
         end
       end
 
+      # A constant's value node, from the class or its nearest app ancestor.
+      def constant(class_name, name)
+        ancestors(class_name).each do |ancestor|
+          found = @scopes.fetch(ancestor).constants[name]
+          return found if found
+        end
+        nil
+      end
+
       private
 
       def index_file(path)
@@ -384,15 +393,6 @@ module Hallmark
 
         scope.callbacks << Callback.new(kind: kind, names: names, only: keyword_node(args, :only),
                                         except: keyword_node(args, :except), prepend: prepend, owner: scope.name)
-      end
-
-      # A constant's value node, from the class or its nearest app ancestor.
-      def constant(class_name, name)
-        ancestors(class_name).each do |ancestor|
-          found = @scopes.fetch(ancestor).constants[name]
-          return found if found
-        end
-        nil
       end
 
       def singleton_body(scope, node, file)

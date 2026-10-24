@@ -13,7 +13,8 @@ is found, the report says "no counterexample within scope N", never "safe".
 
 ## Status
 
-Phase 3 in progress. It works end to end, on hand-written guards, on
+Phase 3 is built, and its gate ran on Oct 24, 2026 (the maintainer
+decides whether it passes). It works end to end, on hand-written guards, on
 guards inferred from what the app's test suite did, and on guards read from
 Pundit, Action Policy and DeclarativePolicy code:
 
@@ -457,7 +458,13 @@ stamps every request, `HALLMARK_MODE=sampled` a share of them (1% unless
 request is stamped is decided before any fact is read, so a request that is
 not costs well under a microsecond per decision; one that is costs a few
 microseconds of Hallmark's own work plus the mapping's readers (`rake
-bench`). Requests only queue events: a flusher thread dedupes them, and a
+bench`). To measure your own app's requests, give `bench/app.rb` a file of
+scenarios (`HotPath.scenario "name" do ... end`, each a request through
+`Rails.application.call` or a policy call) and run it inside the app:
+`BENCH_SCENARIOS=scenarios.rb bin/rails runner path/to/hallmark/bench/app.rb`.
+It prints the same table per scenario, plus the decisions each call makes,
+Hallmark's own time per decision, and the cost at a 1% sample rate.
+Requests only queue events: a flusher thread dedupes them, and a
 full queue drops events rather than slow a request. The solver never runs
 in the app.
 
@@ -988,6 +995,7 @@ research/models/            hand-written models for memberships, GraphQL,
                             DeclarativePolicy, revocation and role config
 test/                       unit tests (no Java) and integration tests
 bench/hot_path.rb           what the collectors add per decision (`rake bench`)
+bench/app.rb                the same, measured inside a booted app (`bin/rails runner`)
 docs/PLAN.md                the design plan and roadmap
 CLAUDE.md                   working notes for contributors and coding agents
 ```
