@@ -33,7 +33,8 @@ two false-positive sources (op errors, two catalog gaps) were fixed Oct 21,
 of step 5) and 5 (GraphQL schema walk) were done Oct 21, 2026, steps 7 (list scopes)
 and 8 (REST serializer fields) on Oct 22, 2026, and step 9 (revocation, narrow) on
 Oct 24, 2026. The phase 3 gate (step 10) ran Oct 23 to 24, 2026 and met
-every proposed item (`docs/PLAN.md`, "Phase 3 gate run"); Anthony decides. The phase 1 gate's record is in
+every proposed item (`docs/PLAN.md`, "Phase 3 gate run"); passed, decided
+by Anthony Oct 24, 2026, so phase 3 is done. The phase 1 gate's record is in
 "Phase 1 (core gem): the gate" below. The first real-app run (original Gumroad on Pundit, Oct 16, 2026, not
 a gate app) is in "First run on original Gumroad" below. Gate runs so far:
 GitLab (DeclarativePolicy, Oct 17, 2026) and Forem (Pundit, Oct 18, 2026),
@@ -784,6 +785,7 @@ phase, which stretches it to about 7 weeks. Steps, in order:
     and gone on `efcbc8e7d`; gitlab-org/gitlab!129831 (picked by Anthony
     Oct 24, 2026) found at `108368d6c18` and gone at `8fdfce022dd`, which
     needed the field-class reader; every check under 1 s, no unknown.
+    Passed, decided by Anthony Oct 24, 2026.
     Private: `~/Repos/hallmark-findings/phase3-gate.md`, logs "Phase 3
     gate" in `gumroad.md` and `gitlab.md`; Gumroad worktree
     `~/Repos/gumroad-f3ef06a` (detached at `f3ef06a69`, local setup

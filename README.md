@@ -13,8 +13,8 @@ is found, the report says "no counterexample within scope N", never "safe".
 
 ## Status
 
-Phase 3 is built, and its gate ran on Oct 24, 2026 (the maintainer
-decides whether it passes). It works end to end, on hand-written guards, on
+Phase 3 is done: built, and its gate passed on Oct 24, 2026. It works end
+to end, on hand-written guards, on
 guards inferred from what the app's test suite did, and on guards read from
 Pundit, Action Policy and DeclarativePolicy code:
 
