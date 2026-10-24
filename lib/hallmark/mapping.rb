@@ -79,6 +79,10 @@ module Hallmark
     # live in another tenant than the record they are read from.
     GraphqlType = Struct.new(:name, :resource, :crosses_tenants, keyword_init: true)
 
+    # The resource a REST serializer or Grape entity shows, when its class
+    # name does not say (`serializer`).
+    Serializer = Struct.new(:name, :resource, keyword_init: true)
+
     # A per-rule override: the rule's op, a hand-written guard, or both, and
     # the resource it checks when no stamp shows it.
     Rule = Struct.new(:policy, :name, :op, :guard, :resource, keyword_init: true) do
@@ -90,7 +94,7 @@ module Hallmark
     attr_reader :principal_name, :principal_source, :principal_roles, :resources, :grants, :tenancy,
                 :current_tenant_source, :current_tenant_controller, :principal_controller, :platform_roles, :rules,
                 :unchecked_allowed, :terms, :public_actions, :field_policies, :restrictions, :graphql_context,
-                :graphql_types
+                :graphql_types, :serializers
 
     def initialize
       @principal_name = "User"
@@ -111,6 +115,7 @@ module Hallmark
       @restrictions = {}
       @graphql_context = nil
       @graphql_types = {}
+      @serializers = {}
     end
 
     # An intended permission: every holder of `role` may `op` every record of
@@ -312,6 +317,21 @@ module Hallmark
                                             crosses_tenants: crosses_tenants ? true : false)
     end
 
+    # What a REST serializer or Grape entity shows, for the serializer
+    # reader (phase 3 step 8): `resource:` when its class name minus
+    # `Serializer` or `Entity`, with leading namespaces dropped, is not
+    # the resource (API::Entities::UserBasic shows a User). A serializer
+    # rendered for an authorized record shows that record's resource
+    # whatever this says.
+    #
+    #   serializer "API::Entities::UserBasic", resource: "User"
+    def serializer(name, resource:)
+      key = Naming.class_name(name)
+      raise ConfigurationError, "serializer #{key} is mapped twice" if @serializers.key?(key)
+
+      @serializers[key] = Serializer.new(name: key, resource: Naming.class_name(resource))
+    end
+
     # Roles that intentionally grant access across tenants, such as the
     # vendor's support staff. Holders may do anything in any tenant.
     def platform_role(*names)
@@ -473,6 +493,7 @@ module Hallmark
       @field_policies = @field_policies.dup
       @restrictions = @restrictions.dup
       @graphql_types = @graphql_types.dup
+      @serializers = @serializers.dup
     end
 
     # `owner_outside_tenant:` as the ops it names; it needs an owner and a
@@ -521,6 +542,7 @@ module Hallmark
         name = type.resource
         fetch(name) if name
       end
+      @serializers.each_value { |serializer| fetch(serializer.resource) }
     end
 
     # A rule's declared resource must be mapped.

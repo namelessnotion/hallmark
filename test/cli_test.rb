@@ -37,6 +37,20 @@ class CLITest < Minitest::Test
     assert_includes output, "list LinkPolicy#Scope#resolve (app/policies/link_policy.rb:36; on Link)\n  member"
   end
 
+  # The REST serializers, their policed fields and what each entry point
+  # renders (phase 3 step 8).
+  def test_extract_prints_serializers_and_renderings
+    output, _error, status = hallmark("extract", File.join(ROOT, "examples", "rest_shop", "hallmark.rb"))
+
+    assert_predicate status, :success?
+    assert_includes output, "Serializers:\nAdmin::LinkSerializer (active_model; on Link)\n  buyer_emails " \
+                            "(app/serializers/admin/link_serializer.rb:6) restricted: \"staff never see buyers\""
+    assert_includes output, "    if ((role(:owner, tenant: :record) | role(:admin, tenant: :record)) | " \
+                            "role(:marketing, tenant: :record))"
+    assert_includes output, "LinksController#show\n  @link with LinkSerializer " \
+                            "(app/controllers/links_controller.rb:8; authorized by LinkPolicy#show?)"
+  end
+
   # config/hallmark.rb belongs to the app one directory up; unread calls
   # print with both bounds.
   def test_extract_reads_the_app_a_config_file_belongs_to

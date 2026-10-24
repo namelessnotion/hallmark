@@ -126,6 +126,10 @@ module Hallmark
       end
     end
 
+    # A serializer field's condition (phase 3 step 8): the calls in it the
+    # extractor could not read, under `name` ("EP Serializer#field").
+    def observe_field(name, guard) = observe_opaque(name, guard)
+
     # The checks an entry point's controller makes in its own code: the
     # calls in them the extractor could not read, and the entry point when
     # they leave nothing `certain`.

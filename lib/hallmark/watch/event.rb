@@ -54,6 +54,7 @@ module Hallmark
         data = { "check" => exposure.check_name, "action" => exposure.action, "op" => exposure.op.to_s,
                  "resource" => exposure.resource }
         data["kind"] = "list" if exposure.list?
+        data["shown_by"] = exposure.shown_by if exposure.shown_by
         (field = exposure.field) ? data.merge("field" => field) : data
       end
 

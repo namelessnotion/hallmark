@@ -69,15 +69,25 @@ Pundit, Action Policy and DeclarativePolicy code:
 - the GraphQL shop example, a graphql-ruby schema reproducing a field leak,
   a nested path that skips a check and a `node(id:)` lookup with none, and
   its fixed schema
+- REST serializer fields: Grape entities and ActiveModel serializers, read
+  from source with the `present ..., with:` and `render json:` calls that
+  show them, so each field a response shows that has a field policy (or
+  that a restriction names) is checked against it, under the entry point's
+  own guard and the field's condition; `from_code` checks an app from its
+  code alone, with entry points from `config/routes.rb`
+- the REST shop example, Storefront's domain as a JSON API with Pundit and
+  ActiveModel::Serializer, whose revenue field and staff page are found
+  from code alone and cleared by its fixed version
 
 Phase 1 is done: its deliverables are built, and its gate (Hallmark run on
 one real app per authorization library, each with a confirmed real bug)
 passed on Oct 19, 2026. Phase 2 (the extractor) passed its gate on five
 apps on Oct 21, 2026.
 
-Not built yet (phase 3): field reads read from REST serializers (field
-exposures outside GraphQL are declared by hand for now), and stale access
-after revocation. The models for those live in `research/models`.
+Not built yet (phase 3): stale access after revocation, whose model lives
+in `research/models`. Jbuilder views, `render json:` with no serializer,
+and records nested through a serializer's associations are not read yet
+(they are counted or listed under coverage).
 
 ## Requirements
 
@@ -654,6 +664,61 @@ intended. `hallmark rules` checks each scope on its own, `hallmark extract`
 prints what it read, and lists are declared by hand with `lists "Action",
 "Link", guard: ...` in an analysis block.
 
+### REST serializers
+
+What a JSON response shows is read field by field, never loaded, from two
+serializer dialects: Grape::Entity (`expose :a, :b`, `as:`, `if:` and
+`unless:` given a lambda, a Symbol or a Hash of options, `with_options`,
+nesting blocks, `using:`, `unexpose`, `override: true`, EE `prepended do`
+blocks) under `lib/api`, `app/api` and GitLab's `ee/lib`, and
+ActiveModel::Serializer (`attributes`, `attribute ..., key:, if:,
+unless:`, `has_many`, `has_one`, `belongs_to`) under `app/serializers`. An
+entry point's renderings come from Grape's `present x, with: E, ...`
+(followed one level into a helper that forwards to it) and Rails'
+`render json: x, serializer: S` (`each_serializer:`, `render_to_body`, or
+the model's own `<Model>Serializer`), each with the branch it sits in.
+
+A field becomes a check when the mapping protects it, with a field policy
+or a restriction's `fields:` (step 4's field checks), and the rendered
+record is one the entry point authorizes (or a list it shows):
+
+```ruby
+field_policy "Link", :revenue, role(:owner, tenant: :record) | role(:admin, tenant: :record)
+```
+
+Its guard is the entry point's own AND the field's condition, read for the
+options that rendering passes: `options[:current_user]` or
+`instance_options[:k]` holding the signed-in user, an ability on the
+record (`Ability.allowed?(options[:user], :a, object)`, `can?`,
+`policy(object).rule?`), a parameter the client chooses (true), a literal,
+or an option not passed (nil). A Symbol `if:` on an ActiveModel serializer
+reads its method in place, with `scope` and `current_user` as the
+signed-in user when the controller's reader has that name. Anything else
+is an unread call, bounded as for rules, which a `term` can name. A
+finding names the field that showed it:
+
+```text
+FAIL  LinksController#show (read Link.revenue, shown by LinkSerializer#revenue (app/serializers/link_serializer.rb:7))
+      a signed-in User (User$1) holding roles marketing in the current tenant User$0 can read the revenue of a Link (Link$0) in the current tenant, which its field policy allows only where (role(:owner, tenant: :record) | role(:admin, tenant: :record))
+      narrow the condition on revenue in LinkSerializer#revenue (app/serializers/link_serializer.rb:7), or widen its field policy in the map block if this is intended
+```
+
+A serializer's resource is the rendered record's, else `serializer
+"API::Entities::UserBasic", resource: "User"` in the map block, else its
+name without `Serializer` or `Entity`. Under "REST serializers (coverage,
+not findings)" the report lists what it did not check: renderings whose
+serializer it cannot tell, records an entry point renders without
+authorizing them, records of other resources shown through associations,
+fields whose condition it could not read, conditional fields that read the
+viewer and have no field policy (where one is worth writing), and the
+Jbuilder views it does not read.
+
+`from_code` in an analysis block infers exposures from code alone, with no
+test run: Rails routes from `config/routes.rb` and Grape endpoints become
+entry points, as routes no test reached do. `hallmark extract` prints each
+serializer's conditional and protected fields and every entry point's
+renderings. `examples/rest_shop` is the worked example.
+
 ### DeclarativePolicy and Grape
 
 DeclarativePolicy policies (and GitLab's EE modules, which
@@ -813,7 +878,8 @@ lib/hallmark/collectors/    runtime hooks for each authorization library and con
 lib/hallmark/sinks.rb       where stamps go: files, a Redis stream, a callable
 lib/hallmark/baseline.rb    what CI knows, written by `hallmark check --baseline`
 lib/hallmark/watch.rb       `hallmark watch`, with its file and Redis tails in watch/
-lib/hallmark/extractor/     reads policies, controllers, config/routes.rb and app/graphql with Prism
+lib/hallmark/extractor/     reads policies, controllers, config/routes.rb, app/graphql and REST
+                            serializers (serializers/, grape_presents.rb) with Prism
 lib/hallmark/graphql_model* the GraphQL reachability model, its Alloy and its witness paths
 lib/hallmark/rspec.rb       the RSpec matchers (`require "hallmark/rspec"`)
 rbi/                        Sorbet signatures for lib/ (no sorbet-runtime needed)
@@ -825,6 +891,8 @@ examples/storefront/        a Gumroad-shaped store with per-seller roles, buggy 
                             RSpec spec using the matchers
 examples/graphql_shop/      a graphql-ruby schema (app/graphql, fixed/app/graphql) with
                             G1 to G4, buggy and fixed
+examples/rest_shop/         a JSON API (Pundit, ActiveModel::Serializer, config/routes.rb)
+                            checked from code alone, buggy and fixed (fixed/)
 research/models/            hand-written models for memberships, GraphQL,
                             DeclarativePolicy, revocation and role config
 test/                       unit tests (no Java) and integration tests

@@ -188,9 +188,19 @@ module Hallmark
         "exclude holders of #{roles.uniq.join(", ")} in the code, or narrow the restriction " \
           "#{broken.name.inspect} if this is intended"
       elsif field_policy_broken?
+        shown = exposure.shown_by
+        return serializer_hint(shown) if shown
+
         "check the code that decides whether #{exposure.target} is shown, or widen its field policy " \
           "in the map block if this is intended"
       end
+    end
+
+    # A field a REST serializer shows (phase 3 step 8): its condition is
+    # where the fix goes.
+    def serializer_hint(shown)
+      "narrow the condition on #{exposure.field} in #{shown}, or widen its field policy in the map block " \
+        "if this is intended"
     end
 
     # Why the check fails beyond the catalog, for the message.

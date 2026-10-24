@@ -65,6 +65,8 @@ module Hallmark
       @grape = T.let(T.unsafe(nil), T.nilable(GrapeEndpoints))
       @grape_read = T.let(T.unsafe(nil), T::Boolean)
       @routes = T.let(T.unsafe(nil), T.nilable(T::Array[Route]))
+      @serializers = T.let(T.unsafe(nil), T.nilable(Serializers))
+      @serializers_read = T.let(T.unsafe(nil), T::Boolean)
       @lists = T.let(T.unsafe(nil), T.nilable(T::Array[Extracted]))
       @list_cache = T.let(T.unsafe(nil), T::Hash[[String, String, T.nilable(String)], T.nilable(Extracted)])
     end
@@ -80,6 +82,13 @@ module Hallmark
 
     sig { returns(T.nilable(GraphqlSchema)) }
     def graphql; end
+
+    # The app's REST serializers; nil without their directories
+    sig { returns(T.nilable(Serializers)) }
+    def serializers; end
+
+    sig { params(policy: String, rule: String).returns(T.nilable(String)) }
+    def policy_resource(policy, rule); end
 
     sig { params(resource: String, ability: String).returns(T.nilable(Guard)) }
     def ability_guard(resource, ability); end

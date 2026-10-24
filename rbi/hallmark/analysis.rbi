@@ -48,10 +48,12 @@ module Hallmark
         locations: T.nilable(T::Array[String]),
         rules: T.nilable(T::Array[String]),
         field: T.nilable(T.any(String, Symbol)),
-        kind: T.nilable(Symbol)
+        kind: T.nilable(Symbol),
+        shown_by: T.nilable(String)
       ).returns(Exposure)
     end
-    def add_exposure(action:, op:, resource:, guard:, basis: nil, locations: nil, rules: nil, field: nil, kind: nil); end
+    def add_exposure(action:, op:, resource:, guard:, basis: nil, locations: nil, rules: nil, field: nil, kind: nil,
+                     shown_by: nil); end
 
     sig { params(check: GraphqlCheck).returns(GraphqlCheck) }
     def add_check(check); end
@@ -61,6 +63,10 @@ module Hallmark
 
     sig { params(source: T.any(StampSet, String, Pathname)).returns(Inference) }
     def add_stamps(source); end
+
+    # Inference from code alone: routes from config/routes.rb, no stamps
+    sig { params(root: T.nilable(String)).returns(Inference) }
+    def add_code(root = Hallmark.configuration.root); end
 
     sig { params(exposure: AnyExposure).returns(AnyExposure) }
     def add(exposure); end
@@ -77,6 +83,9 @@ module Hallmark
     def run(solver: nil); end
 
     private
+
+    sig { params(set: StampSet, extractor: T.nilable(Extractor)).returns(Inference) }
+    def infer(set, extractor); end
 
     sig do
       params(action: T.any(String, Symbol), op: Symbol, field: T.nilable(T.any(String, Symbol)),
@@ -139,6 +148,9 @@ module Hallmark
 
       sig { params(source: T.any(StampSet, String, Pathname)).returns(Inference) }
       def stamps(source = Hallmark.configuration.stamps); end
+
+      sig { params(root: T.nilable(String)).returns(Inference) }
+      def from_code(root = Hallmark.configuration.root); end
 
       sig { params(root: T.nilable(String)).returns(GraphqlModel) }
       def graphql_schema(root = Hallmark.configuration.root); end

@@ -24,6 +24,7 @@ module Hallmark
                             :locations, :rules, :graph, keyword_init: true) do
     def graphql? = true
     def list? = false
+    def shown_by = nil
     def op = :read
 
     def action = field ? "GraphQL #{graphql_name}.#{field_graphql_name}" : "GraphQL #{graphql_name}"

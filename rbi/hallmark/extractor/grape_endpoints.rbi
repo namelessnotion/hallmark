@@ -8,6 +8,20 @@ module Hallmark
       SCOPES = T.let(T.unsafe(nil), T::Array[Symbol])
       DEPTH = T.let(T.unsafe(nil), Integer)
 
+      class Api
+        sig { returns(String) }
+        def name; end
+
+        sig { returns(T::Array[String]) }
+        def namespace; end
+
+        sig { returns(String) }
+        def file; end
+
+        sig { params(name: String, namespace: T::Array[String], file: String).void }
+        def initialize(name:, namespace:, file:); end
+      end
+
       class Endpoint
         sig { returns(String) }
         def name; end
@@ -18,8 +32,14 @@ module Hallmark
         sig { returns(T::Array[Controllers::Authorization]) }
         def authorizations; end
 
-        sig { params(name: String, location: String, authorizations: T::Array[Controllers::Authorization]).void }
-        def initialize(name:, location:, authorizations:); end
+        sig { returns(T::Array[Serializers::Rendering]) }
+        def renderings; end
+
+        sig do
+          params(name: String, location: String, authorizations: T::Array[Controllers::Authorization],
+                 renderings: T::Array[Serializers::Rendering]).void
+        end
+        def initialize(name:, location:, authorizations:, renderings: []); end
 
         sig { returns(T::Boolean) }
         def checked?; end
@@ -28,30 +48,47 @@ module Hallmark
       # [ability, subject reader, line]
       Check = T.type_alias { [String, T.nilable(String), Integer] }
 
+      # A check, and the helper the endpoint block called that made it
+      Found = T.type_alias { [String, T.nilable(String), Integer, T.nilable(String)] }
+
       sig { returns(T::Array[Endpoint]) }
       attr_reader :endpoints
 
       sig { params(name: String).returns(T.nilable(String)) }
       def location_of(name); end
 
+      sig { params(name: String).returns(T.nilable(Endpoint)) }
+      def endpoint_named(name); end
+
+      sig { params(name: String, helpers: T::Hash[String, Prism::DefNode]).returns(T.nilable(Prism::DefNode)) }
+      def helper(name, helpers); end
+
+      sig { params(name: String).returns(T.nilable(String)) }
+      def helper_file(name); end
+
       sig { params(mapping: Mapping, root: String).void }
       def initialize(mapping, root)
         @resources = T.let(T.unsafe(nil), T::Array[String])
         @root = T.let(T.unsafe(nil), String)
         @global = T.let(T.unsafe(nil), T::Hash[String, Prism::DefNode])
+        @global_files = T.let(T.unsafe(nil), T::Hash[String, String])
+        @api = T.let(T.unsafe(nil), Api)
         @endpoints = T.let(T.unsafe(nil), T::Array[Endpoint])
       end
 
       private
 
-      sig { params(node: T.nilable(Prism::Node), inside: T::Boolean).void }
-      def collect_global_helpers(node, inside); end
+      sig { params(node: T.nilable(Prism::Node), inside: T::Boolean, file: String).void }
+      def collect_global_helpers(node, inside, file); end
 
-      sig { params(node: T.nilable(Prism::Node), file: String).void }
-      def read_classes(node, file); end
+      sig { params(node: Prism::DefNode, file: String).void }
+      def global_helper(node, file); end
 
-      sig { params(node: Prism::ClassNode, file: String).void }
-      def read_api(node, file); end
+      sig { params(node: T.nilable(Prism::Node), file: String, namespace: T::Array[String]).void }
+      def read_classes(node, file, namespace = []); end
+
+      sig { params(node: Prism::ClassNode, file: String, namespace: T::Array[String]).void }
+      def read_api(node, file, namespace); end
 
       sig { params(node: T.nilable(Prism::Node), helpers: T::Hash[String, Prism::DefNode]).void }
       def collect_helpers(node, helpers); end
@@ -73,7 +110,7 @@ module Hallmark
 
       sig do
         params(node: T.nilable(Prism::Node), helpers: T::Hash[String, Prism::DefNode], depth: Integer,
-               seen: T::Array[String]).returns(T::Array[Check])
+               seen: T::Array[String]).returns(T::Array[Found])
       end
       def checks(node, helpers, depth, seen); end
 
@@ -82,7 +119,7 @@ module Hallmark
 
       sig do
         params(call: Prism::CallNode, helpers: T::Hash[String, Prism::DefNode], depth: Integer,
-               seen: T::Array[String]).returns(T::Array[Check])
+               seen: T::Array[String]).returns(T::Array[Found])
       end
       def helper_checks(call, helpers, depth, seen); end
 

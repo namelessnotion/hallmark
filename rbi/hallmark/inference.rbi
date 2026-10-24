@@ -118,6 +118,7 @@ module Hallmark
       @units = T.let(T.unsafe(nil), T::Array[Unit])
       @exposures = T.let(T.unsafe(nil), T::Array[AnyExposure])
       @graphql = T.let(T.unsafe(nil), T.nilable(GraphqlModel))
+      @serializer_notes = T.let(T.unsafe(nil), T.nilable(SerializerNotes))
       @unchecked = T.let(T.unsafe(nil), T::Array[String])
       @drift = T.let(T.unsafe(nil), T::Array[Drift])
     end
@@ -168,6 +169,9 @@ module Hallmark
 
     sig { returns(T::Array[AnyExposure]) }
     def build_exposures; end
+
+    sig { params(rules: T::Array[Unit]).returns(T::Hash[String, T::Array[Unit]]) }
+    def rule_links(rules); end
 
 
 

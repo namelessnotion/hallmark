@@ -23,6 +23,10 @@ module Hallmark
   # Or from a graphql-ruby schema read from source (`graphql_schema`, also
   # added by `stamps` when the app has `app/graphql`): one reachability
   # check per mapped type and per field with a field policy (`GraphqlCheck`).
+  #
+  # Or from code alone (`from_code`): inference with no stamps, whose
+  # entry points are the Rails routes `config/routes.rb` declares and the
+  # Grape endpoints `lib/api` defines.
   class Analysis
     attr_reader :name, :mapping, :exposures, :inference, :graphql
 
@@ -46,13 +50,16 @@ module Hallmark
     # `field:` makes a read of one field of the record (fields exist only on
     # reads; a write of a field is mass assignment, threat 12, not built).
     # `kind: :list` makes a list (`lists`): `guard` says which records the
-    # list may hold, and each must be readable.
-    def add_exposure(action:, op:, resource:, guard:, basis: nil, locations: nil, rules: nil, field: nil, kind: nil)
+    # list may hold, and each must be readable. `shown_by` names the
+    # serializer field a field exposure read from a REST serializer is.
+    def add_exposure(action:, op:, resource:, guard:, basis: nil, locations: nil, rules: nil, field: nil, kind: nil,
+                     shown_by: nil)
       raise ConfigurationError, "guard for #{action} must be a Hallmark::Guard" unless guard.is_a?(Guard)
 
       validate_field!(action, op, field, kind)
       exposure = Exposure.new(action: action.to_s, op: op, resource: Naming.class_name(resource), guard: guard,
-                              basis: basis, locations: locations, rules: rules, field: field&.to_s, kind: kind)
+                              basis: basis, locations: locations, rules: rules, field: field&.to_s, kind: kind,
+                              shown_by: shown_by)
       if @exposures.any? { |existing| existing.check_name == exposure.check_name }
         raise ConfigurationError, "#{action} is declared twice for #{exposure.doing}"
       end
@@ -97,11 +104,21 @@ module Hallmark
 
       set = source.is_a?(StampSet) ? source : StampSet.load(source.to_s, run: Hallmark.configuration.run)
       @mapping.validate!
-      inference = Inference.new(@mapping, set, extractor: Extractor.load(@mapping))
-      @inference = inference
-      @graphql ||= inference.graphql
-      inference.exposures.each { |exposure| add(exposure) }
-      inference
+      infer(set, Extractor.load(@mapping))
+    end
+
+    # Adds the exposures inferred from code alone, with no stamps: the
+    # Rails routes `config/routes.rb` declares under `root` (the app root
+    # by default) become entry points as routes no test reached do, and
+    # Grape endpoints come from `lib/api` as always.
+    def add_code(root = Hallmark.configuration.root)
+      raise ConfigurationError, "exposures are inferred twice in #{name} (`stamps`, `from_code`)" if @inference
+
+      @mapping.validate!
+      extractor = Extractor.load(@mapping, root)
+      raise ConfigurationError, "no policy, controller or API code under #{root}" unless extractor
+
+      infer(StampSet.new([], [], extractor.routes), extractor)
     end
 
     # An exposure or a GraphQL check copied into this analysis, as watch
@@ -111,7 +128,7 @@ module Hallmark
 
       add_exposure(action: exposure.action, op: exposure.op, resource: exposure.resource, guard: exposure.guard,
                    basis: exposure.basis, locations: exposure.locations, rules: exposure.rules, field: exposure.field,
-                   kind: exposure.kind)
+                   kind: exposure.kind, shown_by: exposure.shown_by)
     end
 
     def validate!
@@ -153,6 +170,14 @@ module Hallmark
     end
 
     private
+
+    def infer(set, extractor)
+      inference = Inference.new(@mapping, set, extractor: extractor)
+      @inference = inference
+      @graphql ||= inference.graphql
+      inference.exposures.each { |exposure| add(exposure) }
+      inference
+    end
 
     def validate_field!(action, op, field, kind)
       return unless field && (op != :read || kind)
@@ -285,6 +310,15 @@ module Hallmark
       # after the map block.
       def stamps(source = Hallmark.configuration.stamps)
         @analysis.add_stamps(source)
+      end
+
+      # Infers exposures from code alone, with no stamps: entry points are
+      # the routes `config/routes.rb` declares and the Grape endpoints in
+      # `lib/api` under `root` (the app root by default), each checked as
+      # a route no test reached is. Declare it after the map block, in
+      # place of `stamps`.
+      def from_code(root = Hallmark.configuration.root)
+        @analysis.add_code(root)
       end
 
       # Adds the reachability checks of the graphql-ruby schema in

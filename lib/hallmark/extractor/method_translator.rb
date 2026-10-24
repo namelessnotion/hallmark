@@ -28,7 +28,8 @@ module Hallmark
     # (scope_reader.rb).
     #
     # `expression` reads one condition in controller code the same way, with
-    # the controller's names renamed to the policy's (`Canonical`).
+    # the controller's names renamed to the policy's (`Canonical`), and,
+    # through a `resolver`, conditions in serializers (phase 3 step 8).
     class MethodTranslator
       # Where translation is: the method being read (nil inside a
       # DeclarativePolicy `condition` block), its file, its class (for calls
@@ -49,6 +50,7 @@ module Hallmark
         @resource = nil
         @aliases = {}
         @relation = nil
+        @resolver = nil
       end
 
       # The guard for `class_name#rule` checked on a record of `resource`, or
@@ -69,13 +71,25 @@ module Hallmark
 
       # The guard for a condition written in `method` of `class_name`, on a
       # record of `resource`, with `locals` in force and `aliases` renaming
-      # the controller's names (`"@product" => "record"`).
-      def expression(node, method, class_name, resource, locals: {}, aliases: {})
+      # the controller's names (`"@product" => "record"`). `resolver` is
+      # asked first about every call, with the call and a way to render a
+      # node as the translator does, and answers a guard or nil (a
+      # serializer's `Ability.allowed?(options[:user], :a, object)`). With
+      # no `method` (a lambda's body, a Grape endpoint), `file` says where
+      # the node is.
+      def expression(node, method, class_name, resource, locals: {}, aliases: {}, resolver: nil, file: nil)
         @resource = resource
         @aliases = aliases
+        @resolver = resolver
+        unless method
+          return value(node, Frame.new(definition: nil, file: file.to_s, klass: class_name, locals: locals.dup,
+                                       block: nil))
+        end
+
         enter(method, class_name, locals, nil) { |frame| value(node, frame) }
       ensure
         @aliases = {}
+        @resolver = nil
       end
 
       # The guard for a DeclarativePolicy condition's block body, written in
@@ -257,6 +271,9 @@ module Hallmark
       end
 
       def call(node, frame)
+        resolved = @resolver&.call(node, ->(each) { render(each, frame) })
+        return resolved if resolved
+
         special = operator(node, frame)
         return special if special
 

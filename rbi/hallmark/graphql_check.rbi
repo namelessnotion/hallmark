@@ -54,6 +54,10 @@ module Hallmark
     sig { returns(T::Boolean) }
     def list?; end
 
+    # Never a REST serializer field
+    sig { returns(NilClass) }
+    def shown_by; end
+
     # "read Invoice", as `Exposure#doing`
     sig { returns(String) }
     def doing; end

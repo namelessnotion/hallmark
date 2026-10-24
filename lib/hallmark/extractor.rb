@@ -34,7 +34,7 @@ module Hallmark
     def self.load(mapping, root = Hallmark.configuration.root)
       return nil unless Hallmark.configuration.extract && root
 
-      dirs = DIRS + Controllers::DIRS + GraphqlSchema::DIRS
+      dirs = DIRS + Controllers::DIRS + GraphqlSchema::DIRS + Serializers::DIRS
       return nil unless dirs.any? { |dir| File.directory?(File.join(root, dir)) }
 
       new(mapping, root)
@@ -58,6 +58,8 @@ module Hallmark
       @grape = nil
       @grape_read = false
       @routes = nil
+      @serializers = nil
+      @serializers_read = false
     end
 
     # The app's controllers, read on first use (`Controllers`).
@@ -89,6 +91,22 @@ module Hallmark
       @graphql = GraphqlSchema.new(index, @mapping, terms: @terms, translator: MethodTranslator.new(index, @terms),
                                                     policies: self)
     end
+
+    # The app's REST serializers (Grape entities, ActiveModel serializers),
+    # read on first use (`Serializers`); nil when it has none of their
+    # directories.
+    def serializers
+      return @serializers if @serializers_read
+
+      @serializers_read = true
+      dirs = Serializers::DIRS.select { |dir| File.directory?(File.join(@root, dir)) }
+      @serializers = dirs.empty? ? nil : Serializers.new(@mapping, @root, dirs, terms: @terms, policies: self)
+    end
+
+    # The resource the rule an authorize call checks is read on (the
+    # mapping's `rule ..., resource:`, else the policy's name); nil when
+    # none is mapped.
+    def policy_resource(policy, rule) = resource_for(policy, rule)
 
     # A DeclarativePolicy ability on a record of `resource`, through the
     # resource's policy (Ci::PipelineSchedule's is Ci::PipelineSchedulePolicy);
@@ -278,5 +296,7 @@ require_relative "extractor/scope_reader"
 require_relative "extractor/declarative_translator"
 require_relative "extractor/controllers"
 require_relative "extractor/grape_endpoints"
+require_relative "extractor/grape_presents"
 require_relative "extractor/routes_file"
 require_relative "extractor/graphql_schema"
+require_relative "extractor/serializers"

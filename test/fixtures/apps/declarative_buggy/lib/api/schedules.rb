@@ -6,12 +6,12 @@ module API
     resource :projects do
       get ":id/schedules" do
         authorize! :read_schedule, project
-        present project.schedules
+        present paginate(project.schedules), with: Entities::Schedule
       end
 
       route_param :id do
         get "schedules/:schedule_id" do
-          present schedule
+          present schedule, with: Entities::ScheduleDetails, user: current_user
         end
 
         post "schedules" do

@@ -84,6 +84,10 @@ module Hallmark
     sig { params(exposure: AnyExposure).returns(String) }
     def self.ok_line(exposure); end
 
+    # What a failing exposure does, with the serializer field that shows it
+    sig { params(exposure: AnyExposure).returns(String) }
+    def self.doing(exposure); end
+
     sig { params(lint: Extractor::DeclarativeTranslator::Lint).returns(String) }
     def self.hazard(lint); end
 
@@ -120,6 +124,9 @@ module Hallmark
 
     sig { returns(T::Array[String]) }
     def graphql_lines; end
+
+    sig { returns(T::Array[String]) }
+    def serializer_lines; end
 
     sig { params(title: String, items: T::Array[String]).returns(T::Array[String]) }
     def note_lines(title, items); end

@@ -76,7 +76,7 @@ module Hallmark
     # same lines.
     def self.finding_lines(finding)
       exposure = finding.exposure
-      lines = ["FAIL  #{exposure.action} (#{exposure.doing})", "      guard: #{exposure.guard}"]
+      lines = ["FAIL  #{exposure.action} (#{Report.doing(exposure)})", "      guard: #{exposure.guard}"]
       lines << "      #{exposure.basis}" if exposure.basis
       lines << "      #{finding.message}"
       lines << "      path: #{finding.path}" if finding.path
@@ -92,6 +92,13 @@ module Hallmark
     end
 
     def self.ok_line(exposure) = "ok    #{exposure.action} (#{exposure.doing})"
+
+    # What a failing exposure does, and the serializer field that shows it
+    # when it was read from one (phase 3 step 8).
+    def self.doing(exposure)
+      shown = exposure.shown_by
+      shown ? "#{exposure.doing}, shown by #{shown}" : exposure.doing
+    end
 
     # DeclarativePolicy hazards (D3, D4) in the abilities read from code,
     # and GraphQL's (G4, G5).
@@ -255,9 +262,22 @@ module Hallmark
       }
     end
 
-    # What follows the summary: coverage, the GraphQL walk's notes and the
-    # fields with no policy.
-    def trailer_lines = coverage_lines + graphql_lines + field_lines
+    # What follows the summary: coverage, the GraphQL walk's notes, the
+    # REST serializers' notes and the fields with no policy.
+    def trailer_lines = coverage_lines + graphql_lines + serializer_lines + field_lines
+
+    # What the REST serializer reader did not check (phase 3 step 8,
+    # `Inference::SerializerNotes`). Never findings.
+    def serializer_lines
+      notes = analysis.inference&.serializer_notes
+      return [] if notes.nil? || notes.empty?
+
+      lines = ["", "REST serializers (coverage, not findings):"]
+      notes.lists.each { |title, items| lines.concat(note_lines(title, items)) unless items.empty? }
+      lines << "  Serializers no entry point renders: #{notes.unrendered}" if notes.unrendered.positive?
+      lines << "  Jbuilder views (not read): #{notes.jbuilder}" if notes.jbuilder.positive?
+      lines
+    end
 
     # What the GraphQL schema walk could not model (`GraphqlModel#notes`).
     # Never findings.

@@ -23,6 +23,10 @@ module Hallmark
     #   guarded by a condition (`e404 unless product.user == current_seller`,
     #   `head :forbidden unless ...`, `redirect_to ... and return if ...`),
     #   read as a guard by the policies' `MethodTranslator` (`#checks`).
+    # - what it renders (phase 3 step 8): `render json: x, serializer: S`
+    #   (or `each_serializer:`, or no serializer, the model's own), and
+    #   `render_to_body json: ...`, with the branches each sits in and
+    #   whether `x` is a record it authorizes (`Serializers::Rendering`).
     #
     # The action body and the `before_action` callbacks that run for it are
     # read, with the controller's own argument-less helpers a few levels
@@ -43,6 +47,13 @@ module Hallmark
       # How far helpers that load a record are followed.
       DEPTH = 4
       LOCAL_WRITES = [Prism::LocalVariableWriteNode, Prism::LocalVariableOrWriteNode].freeze
+      RENDERS = %i[render render_to_body].freeze
+      # `render`'s own keywords; the rest are the serializer's options.
+      RENDER_KEYS = %w[json serializer each_serializer status adapter root include fields meta location content_type
+                       layout scope scope_name].freeze
+      # Relation and Array methods whose value is a list of records.
+      LISTS = %i[where all order reorder limit offset includes preload eager_load joins page per paginate
+                 to_a map select reject filter_map not or merge first_page].freeze
       IVAR_WRITES = [Prism::InstanceVariableWriteNode, Prism::InstanceVariableOrWriteNode].freeze
 
       # `loading` is :scoped, :unscoped or :unknown (nil when the entry point
@@ -51,9 +62,10 @@ module Hallmark
       # `verify_authorized`), `authorizations` each record-level authorize
       # call, `checked` whether any check call (`CHECKS`) runs, `records`
       # the variables holding the records it authorizes (`@product`,
-      # `link`), and `exits` the guarded ways out of the request.
+      # `link`), `exits` the guarded ways out of the request, and
+      # `renderings` what it renders as JSON.
       EntryPoint = Struct.new(:name, :loading, :location, :verify, :authorizations, :checked, :records, :exits,
-                              keyword_init: true) do
+                              :renderings, keyword_init: true) do
         def scoped? = loading == :scoped
       end
 
@@ -71,10 +83,17 @@ module Hallmark
       # `named_policy` is the policy the record's variable names by Pundit's
       # convention (`authorize @event` names EventPolicy), a guess only
       # `Ops` reads.
-      Authorization = Struct.new(:policy, :rule, :location, :named_policy, keyword_init: true)
+      # `subject` is the reader or variable whose record is checked
+      # (Grape's `user_project`), and `via` the helper the endpoint called
+      # that made the check, which returns that record.
+      Authorization = Struct.new(:policy, :rule, :location, :named_policy, :subject, :via, keyword_init: true)
 
       # How a value was loaded, and its model class when known.
       Load = Struct.new(:kind, :model, keyword_init: true)
+
+      # One method's walk for render calls: what it found, as [call,
+      # branches, locals].
+      RenderWalk = Struct.new(:definition, :controller, :found, keyword_init: true)
 
       def initialize(mapping, root)
         @index = SourceIndex.new(File.expand_path(root), DIRS)
@@ -84,6 +103,8 @@ module Hallmark
         @tenant_keys = mapping.resources.values.select { |resource| resource.tenant.is_a?(Symbol) }
                               .to_h { |resource| [resource.name, resource.tenant.to_s] }
         @translator = MethodTranslator.new(@index, Terms.new(mapping))
+        @user_reader = mapping.principal_controller.to_s
+        @lists = @resources.map { |name| Naming.plural(name) }
         @aliases = aliases(mapping)
         @cache = {}
         @checks = {}
@@ -119,6 +140,18 @@ module Hallmark
         return @checks.fetch(key) if @checks.key?(key)
 
         @checks[key] = read_checks(entry_point, resource)
+      end
+
+      # A rendering's branch, read on a record of `resource` as a check is,
+      # with the entry point's authorized records read as `record`.
+      def branch_guard(entry_point, branch, resource)
+        read = fetch(entry_point)
+        controller = entry_point.split("#", 2).fetch(0)
+        aliases = @aliases.merge((read&.records || []).to_h { |name| [name, Terms::RECORD] })
+        locals = branch.locals.reject { |name, _| aliases.key?(name) }
+        guard = @translator.expression(branch.node, branch.definition, controller, resource, locals: locals,
+                                                                                             aliases: aliases)
+        branch.negated ? Guard.negate(guard) : guard
       end
 
       private
@@ -173,10 +206,13 @@ module Hallmark
         reach = reachable(controller, methods)
         records = records_in(reach)
         loads = records.map { |record, method, _| classify(controller, record, method, reach, 0) }
+        authorizations = authorizations(action, records, loads)
+        authorized = records.each_with_index.map { |record, at| [record, authorizations.fetch(at)] }
         EntryPoint.new(name: entry_point, loading: loads.empty? ? nil : combine(loads).kind,
                        location: first_location(records), verify: verify(controller, action),
-                       authorizations: authorizations(action, records, loads), checked: checked?(reach),
-                       records: record_names(records), exits: exits(controller, methods, action))
+                       authorizations: authorizations, checked: checked?(reach),
+                       records: record_names(records), exits: exits(controller, methods, action),
+                       renderings: renderings(controller, reach, authorized))
       end
 
       # The variables an entry point's authorize calls pass: "@product" or a
@@ -626,6 +662,145 @@ module Hallmark
       end
 
       def constant?(node) = node.is_a?(Prism::ConstantReadNode) || node.is_a?(Prism::ConstantPathNode)
+
+      # What the methods that run render as JSON (phase 3 step 8): each
+      # `render json:` or `render_to_body json:` with the branches it sits
+      # in within its method, and the authorize call whose record it
+      # renders, when it is one (`authorized` pairs each authorize call's
+      # record with its Authorization).
+      def renderings(controller, reach, authorized)
+        scope = serialization_scope(controller)
+        reach.flat_map do |method|
+          walk = RenderWalk.new(definition: method, controller: controller, found: [])
+          render_walk(method.node.body, walk, [], {})
+          walk.found.filter_map do |call, branches, locals|
+            rendering(walk, call, branches, locals, scope: scope, authorized: authorized, reach: reach)
+          end
+        end
+      end
+
+      # Render calls under a node, statement by statement, with the
+      # branches around each and the locals assigned before it.
+      def render_walk(node, walk, branches, locals)
+        case node
+        when Prism::StatementsNode, Prism::BeginNode
+          body_statements(node).each do |statement|
+            render_walk(statement, walk, branches, locals)
+            remember(statement, locals)
+          end
+        when Prism::IfNode, Prism::UnlessNode then render_branches(node, walk, branches, locals)
+        when Prism::ElseNode then render_walk(node.statements, walk, branches, locals)
+        when Prism::Node
+          walk.found << [node, branches, locals.dup] if node.is_a?(Prism::CallNode) && render_call?(node)
+          node.compact_child_nodes.each { |child| render_walk(child, walk, branches, locals) }
+        end
+      end
+
+      def render_branches(node, walk, branches, locals)
+        render_walk(node.predicate, walk, branches, locals)
+        negated = node.is_a?(Prism::UnlessNode)
+        [[node.statements, negated], [node.is_a?(Prism::IfNode) ? node.subsequent : node.else_clause, !negated]]
+          .each do |body, polarity|
+            method = walk.definition
+            branch = Serializers::Branch.new(node: node.predicate, negated: polarity, definition: method,
+                                             klass: walk.controller, file: method.file, locals: locals.dup)
+            render_walk(body, walk, branches + [branch], locals.dup)
+          end
+      end
+
+      def render_call?(node)
+        RENDERS.include?(node.name) && node.receiver.nil? && !keyword(node.arguments&.arguments || [], :json).nil?
+      end
+
+      def rendering(walk, call, branches, locals, scope:, authorized:, reach:)
+        args = call.arguments&.arguments || []
+        json = keyword(args, :json)
+        return nil unless json && !payload?(json, locals)
+
+        each = keyword(args, :each_serializer)
+        serializer = keyword(args, :serializer) || each
+        written = written_serializer(serializer)
+        collection = collection?(each, json)
+        Serializers::Rendering.new(
+          kind: :rails, serializer: written, default: serializer.nil?, namespace: walk.controller.split("::"),
+          expression: json, source: Canonical.new(locals).render(json), collection: collection,
+          options: Serializers.keywords(call).reject { |key, _| render_key?(key) }, locals: locals, branches: branches,
+          location: location(walk.definition, call), scope: scope_reader(args, scope), user_reader: @user_reader,
+          model: rendered_model(walk, json, reach), candidates: [], unknown: unknown_serializer(serializer, written),
+          authorization: authorization_of(authorized, json)
+        )
+      end
+
+      # The authorize call whose record a render shows, if any.
+      def authorization_of(authorized, json) = authorized.find { |(record, _, _), _| same_record?(record, json) }&.last
+
+      def rendered_model(walk, json, reach) = classify(walk.controller, json, walk.definition, reach, 0).model
+
+      def collection?(each, json) = !each.nil? || list?(json)
+      def render_key?(key) = RENDER_KEYS.include?(key)
+      def written_serializer(node) = node && constant?(node) ? node.slice : nil
+      def unknown_serializer(serializer, written) = serializer && !written ? "serializer: #{serializer.slice}" : nil
+
+      # A literal payload, or JSON another render already made: no
+      # serializer shows a record there.
+      def payload?(node, locals)
+        case node
+        when Prism::HashNode, Prism::KeywordHashNode, Prism::StringNode, Prism::InterpolatedStringNode,
+             Prism::SymbolNode, Prism::IntegerNode, Prism::TrueNode, Prism::FalseNode, Prism::NilNode then true
+        when Prism::LocalVariableReadNode
+          assigned = locals[node.name.to_s]&.first
+          assigned.is_a?(Prism::CallNode) && %i[render_to_body to_json].include?(assigned.name)
+        else false
+        end
+      end
+
+      # Whether the rendered value is a list: an Array, a relation or list
+      # call, or a variable named after a mapped resource's table.
+      def list?(node)
+        return true if node.is_a?(Prism::ArrayNode) || chain_list?(node)
+
+        root = root_of(node)
+        named = root.is_a?(Prism::InstanceVariableReadNode) || root.is_a?(Prism::LocalVariableReadNode)
+        named && @lists.include?(root.slice.delete_prefix("@"))
+      end
+
+      def chain_list?(node) = node.is_a?(Prism::CallNode) && (LISTS.include?(node.name) || chain_list?(node.receiver))
+
+      # A call chain's first receiver.
+      def root_of(node)
+        receiver = node.is_a?(Prism::CallNode) ? node.receiver : nil
+        receiver ? root_of(receiver) : node
+      end
+
+      # The same variable or receiverless reader.
+      def same_record?(record, node)
+        name = record_name(node)
+        !name.nil? && record.instance_of?(node.class) && record_name(record) == name
+      end
+
+      def record_name(node)
+        case node
+        when Prism::InstanceVariableReadNode, Prism::LocalVariableReadNode then node.name
+        when Prism::CallNode then node.receiver.nil? && node.arguments.nil? ? node.name : nil
+        end
+      end
+
+      # The serialization scope's reader: `serialization_scope :x` in the
+      # controller or an ancestor, nil after `serialization_scope nil`,
+      # else `current_user`.
+      def serialization_scope(controller)
+        call = @index.calls(controller).find { |each| each.name == :serialization_scope }
+        return "current_user" unless call
+
+        first = call.arguments.first
+        first.is_a?(Prism::SymbolNode) ? first.unescaped : nil
+      end
+
+      # `render json: x, scope: current_account` names another reader.
+      def scope_reader(args, scope)
+        given = keyword(args, :scope)
+        given.is_a?(Prism::CallNode) && given.receiver.nil? && given.arguments.nil? ? given.name.to_s : scope
+      end
     end
   end
 end

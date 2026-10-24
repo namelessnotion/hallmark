@@ -9,6 +9,27 @@ module Hallmark
       HALTS = T.let(T.unsafe(nil), T::Array[Symbol])
       ON_RECORD = T.let(T.unsafe(nil), T::Array[Symbol])
       CHECKS = T.let(T.unsafe(nil), T::Array[Symbol])
+      RENDERS = T.let(T.unsafe(nil), T::Array[Symbol])
+      RENDER_KEYS = T.let(T.unsafe(nil), T::Array[String])
+      LISTS = T.let(T.unsafe(nil), T::Array[Symbol])
+
+      class RenderWalk
+        sig { returns(SourceIndex::Method) }
+        def definition; end
+
+        sig { returns(String) }
+        def controller; end
+
+        # [render call, branches, locals]
+        sig { returns(T::Array[[Prism::CallNode, T::Array[Serializers::Branch], Locals]]) }
+        def found; end
+
+        sig do
+          params(definition: SourceIndex::Method, controller: String,
+                 found: T::Array[[Prism::CallNode, T::Array[Serializers::Branch], Locals]]).void
+        end
+        def initialize(definition:, controller:, found:); end
+      end
 
       class Authorization
         # Nil when the record's class is not known
@@ -25,10 +46,19 @@ module Hallmark
         sig { returns(T.nilable(String)) }
         def named_policy; end
 
+        # The reader or variable whose record is checked (Grape)
+        sig { returns(T.nilable(String)) }
+        def subject; end
+
+        # The helper the Grape endpoint called that made the check
+        sig { returns(T.nilable(String)) }
+        def via; end
+
         sig do
-          params(policy: T.nilable(String), rule: String, location: String, named_policy: T.nilable(String)).void
+          params(policy: T.nilable(String), rule: String, location: String, named_policy: T.nilable(String),
+                 subject: T.nilable(String), via: T.nilable(String)).void
         end
-        def initialize(policy:, rule:, location:, named_policy: nil); end
+        def initialize(policy:, rule:, location:, named_policy: nil, subject: nil, via: nil); end
       end
 
       class Load
@@ -76,13 +106,17 @@ module Hallmark
         sig { returns(T::Array[Exit]) }
         def exits; end
 
+        # What it renders as JSON
+        sig { returns(T::Array[Serializers::Rendering]) }
+        def renderings; end
+
         sig do
           params(name: String, loading: T.nilable(Symbol), location: T.nilable(String), verify: T.nilable(Symbol),
                  authorizations: T::Array[Authorization], checked: T::Boolean, records: T::Array[String],
-                 exits: T::Array[Exit]).void
+                 exits: T::Array[Exit], renderings: T::Array[Serializers::Rendering]).void
         end
         def initialize(name:, loading: nil, location: nil, verify: nil, authorizations: [], checked: false,
-                       records: [], exits: []); end
+                       records: [], exits: [], renderings: []); end
 
         sig { returns(T::Boolean) }
         def scoped?; end
@@ -133,6 +167,8 @@ module Hallmark
         @resources = T.let(T.unsafe(nil), T::Array[String])
         @tenant_keys = T.let(T.unsafe(nil), T::Hash[String, String])
         @translator = T.let(T.unsafe(nil), MethodTranslator)
+        @user_reader = T.let(T.unsafe(nil), String)
+        @lists = T.let(T.unsafe(nil), T::Array[String])
         @aliases = T.let(T.unsafe(nil), T::Hash[String, String])
         @cache = T.let(T.unsafe(nil), T::Hash[String, T.nilable(EntryPoint)])
         @checks = T.let(T.unsafe(nil), T::Hash[[String, String], T::Array[Check]])
@@ -147,6 +183,9 @@ module Hallmark
 
       sig { params(entry_point: String, resource: String).returns(T::Array[Check]) }
       def checks(entry_point, resource); end
+
+      sig { params(entry_point: String, branch: Serializers::Branch, resource: String).returns(Guard) }
+      def branch_guard(entry_point, branch, resource); end
 
       private
 
@@ -334,6 +373,78 @@ module Hallmark
 
       sig { params(node: Prism::Node).returns(T::Boolean) }
       def constant?(node); end
+
+      sig do
+        params(controller: String, reach: Methods, authorized: T::Array[[Record, Authorization]])
+          .returns(T::Array[Serializers::Rendering])
+      end
+      def renderings(controller, reach, authorized); end
+
+      sig do
+        params(node: T.nilable(Prism::Node), walk: RenderWalk, branches: T::Array[Serializers::Branch],
+               locals: Locals).void
+      end
+      def render_walk(node, walk, branches, locals); end
+
+      sig do
+        params(node: T.any(Prism::IfNode, Prism::UnlessNode), walk: RenderWalk,
+               branches: T::Array[Serializers::Branch], locals: Locals).void
+      end
+      def render_branches(node, walk, branches, locals); end
+
+      sig { params(node: Prism::CallNode).returns(T::Boolean) }
+      def render_call?(node); end
+
+      sig do
+        params(walk: RenderWalk, call: Prism::CallNode, branches: T::Array[Serializers::Branch], locals: Locals,
+               scope: T.nilable(String), authorized: T::Array[[Record, Authorization]], reach: Methods)
+          .returns(T.nilable(Serializers::Rendering))
+      end
+      def rendering(walk, call, branches, locals, scope:, authorized:, reach:); end
+
+      sig do
+        params(authorized: T::Array[[Record, Authorization]], json: Prism::Node).returns(T.nilable(Authorization))
+      end
+      def authorization_of(authorized, json); end
+
+      sig { params(walk: RenderWalk, json: Prism::Node, reach: Methods).returns(T.nilable(String)) }
+      def rendered_model(walk, json, reach); end
+
+      sig { params(each: T.nilable(Prism::Node), json: Prism::Node).returns(T::Boolean) }
+      def collection?(each, json); end
+
+      sig { params(node: T.nilable(Prism::Node)).returns(T.nilable(String)) }
+      def written_serializer(node); end
+
+      sig { params(serializer: T.nilable(Prism::Node), written: T.nilable(String)).returns(T.nilable(String)) }
+      def unknown_serializer(serializer, written); end
+
+      sig { params(node: Prism::Node, locals: Locals).returns(T::Boolean) }
+      def payload?(node, locals); end
+
+      sig { params(node: Prism::Node).returns(T::Boolean) }
+      def list?(node); end
+
+      sig { params(node: T.nilable(Prism::Node)).returns(T::Boolean) }
+      def chain_list?(node); end
+
+      sig { params(node: Prism::Node).returns(Prism::Node) }
+      def root_of(node); end
+
+      sig { params(key: String).returns(T::Boolean) }
+      def render_key?(key); end
+
+      sig { params(node: Prism::Node).returns(T.nilable(Symbol)) }
+      def record_name(node); end
+
+      sig { params(record: Prism::Node, node: Prism::Node).returns(T::Boolean) }
+      def same_record?(record, node); end
+
+      sig { params(controller: String).returns(T.nilable(String)) }
+      def serialization_scope(controller); end
+
+      sig { params(args: T::Array[Prism::Node], scope: T.nilable(String)).returns(T.nilable(String)) }
+      def scope_reader(args, scope); end
     end
   end
 end

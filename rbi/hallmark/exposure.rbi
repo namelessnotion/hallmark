@@ -34,12 +34,17 @@ module Hallmark
     sig { returns(T.nilable(Symbol)) }
     def kind; end
 
+    # The serializer field a REST field exposure is ("Serializer#field (file:line)"); nil otherwise
+    sig { returns(T.nilable(String)) }
+    def shown_by; end
+
     sig do
       params(action: String, op: Symbol, resource: String, guard: Guard, basis: T.nilable(String),
              locations: T.nilable(T::Array[String]), rules: T.nilable(T::Array[String]),
-             field: T.nilable(String), kind: T.nilable(Symbol)).void
+             field: T.nilable(String), kind: T.nilable(Symbol), shown_by: T.nilable(String)).void
     end
-    def initialize(action:, op:, resource:, guard:, basis: nil, locations: nil, rules: nil, field: nil, kind: nil); end
+    def initialize(action:, op:, resource:, guard:, basis: nil, locations: nil, rules: nil, field: nil, kind: nil,
+                   shown_by: nil); end
 
     sig { returns(T::Boolean) }
     def graphql?; end

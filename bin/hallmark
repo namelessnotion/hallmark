@@ -35,7 +35,8 @@ USAGE = <<~TEXT.freeze
     hallmark model FILE       print the Alloy model generated for FILE
     hallmark extract FILE     print the guard read from each policy rule's code under the app root
                               (FILE's directory, or its parent when FILE is in config/), then each
-                              list scope's guard on the records it lists
+                              list scope's guard on the records it lists, then each REST serializer's
+                              fields and conditions and what each entry point renders
     hallmark rules FILE [POLICY...]
                               check each rule and list scope of the policies (default: every
                               policy read from code) on its own, as the RSpec matchers do, from
@@ -177,6 +178,92 @@ def print_extracted(files)
 
   extractor.rules.each { |rule| puts extracted_lines(rule) }
   extractor.lists.each { |list| puts extracted_lines(list, "list ") }
+  serializers = extractor.serializers
+  puts serializer_lines(extractor, serializers) if serializers
+end
+
+# The REST serializers read under the app root (phase 3 step 8): each one's
+# resource and the fields with a policy, a restriction or a condition
+# (options left as written), then each entry point's renderings.
+def serializer_lines(extractor, serializers)
+  mapping = Hallmark.analyses.last&.mapping || Hallmark.configuration.mapping
+  lines = ["", "Serializers:"]
+  serializers.serializers.each do |name|
+    resource = serializers.resource_of(name)
+    lines << "#{name} (#{serializers.dialect(name)}; #{resource ? "on #{resource}" : "no mapped resource"})"
+    serializers.fields(name, resource).each { |field| lines.concat(serializer_field_lines(field, resource, mapping)) }
+  end
+  lines.concat(rendering_lines(extractor))
+end
+
+def serializer_field_lines(field, resource, mapping)
+  return ["  #{field.name}: a #{field.resource} record (#{field.location})"] if field.nested?
+
+  narrowed = field_narrowing(field, resource, mapping)
+  condition = field.condition
+  return [] if condition.kind == :none && narrowed.empty?
+
+  key = field.key == field.name ? "" : " as #{field.key}"
+  head = "  #{field.name}#{key} (#{field.location})#{narrowed}"
+  return [head] if condition.kind == :none
+
+  [head, *condition_lines(condition)]
+end
+
+# The field's policy and the restrictions naming it, for the head line.
+def field_narrowing(field, resource, mapping)
+  return "" unless resource && mapping
+
+  policy = mapping.field_policy_for(resource, field.name)
+  parts = [("field policy: #{policy.guard}" if policy)]
+  parts += restricting(mapping, resource, field.name).map { |each| "restricted: #{each.name.inspect}" }
+  parts.compact.empty? ? "" : " #{parts.compact.join("; ")}"
+end
+
+def restricting(mapping, resource, field)
+  mapping.restrictions.values.select do |restriction|
+    restriction.denials.any? { |denial| denial.resource == resource && (denial.fields || []).include?(field) }
+  end
+end
+
+def condition_lines(condition)
+  return ["    if #{condition}"] unless condition.opaque?
+
+  ["    lower: #{condition.lower}", "    upper: #{condition.upper}",
+   *condition.opaque_leaves.map do |leaf|
+     "    not read: `#{leaf.operands[0]}`#{" (#{leaf.operands[1]})" if leaf.operands[1]}"
+   end]
+end
+
+def rendering_lines(extractor)
+  rendered = rendered_entry_points(extractor).reject { |_, renderings| renderings.empty? }
+  return [] if rendered.empty?
+
+  ["", "Renderings:"] + rendered.flat_map do |name, renderings|
+    [name, *renderings.map { |rendering| "  #{rendering_text(extractor, rendering)}" }]
+  end
+end
+
+# Rails entry points from config/routes.rb, then Grape endpoints.
+def rendered_entry_points(extractor)
+  rails = extractor.routes.map(&:entry_point).uniq.sort.filter_map do |name|
+    read = extractor.controllers.fetch(name)
+    read && [name, read.renderings]
+  end
+  grape = extractor.grape&.endpoints || []
+  rails + grape.sort_by(&:name).map { |endpoint| [endpoint.name, endpoint.renderings] }
+end
+
+def rendering_text(extractor, rendering)
+  serializer = extractor.serializers&.resolve(rendering) || rendering.unknown || rendering.serializer || "unknown"
+  "#{rendering.text} with #{serializer} (#{rendering.location}; #{rendered_record(rendering)})"
+end
+
+def rendered_record(rendering)
+  authorization = rendering.authorization || rendering.candidates.first
+  return "authorized by #{authorization.policy || "?"}##{authorization.rule}" if authorization
+
+  rendering.collection ? "a list" : "not authorized"
 end
 
 def extracted_lines(rule, kind = "")

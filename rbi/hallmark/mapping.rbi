@@ -186,6 +186,18 @@ module Hallmark
       def initialize(name:, resource:, crosses_tenants:); end
     end
 
+    # The resource a REST serializer shows (`serializer`)
+    class Serializer
+      sig { returns(String) }
+      def name; end
+
+      sig { returns(String) }
+      def resource; end
+
+      sig { params(name: String, resource: String).void }
+      def initialize(name:, resource:); end
+    end
+
     class Tenancy
       sig { returns(String) }
       def name; end
@@ -301,6 +313,9 @@ module Hallmark
     sig { returns(T::Hash[String, GraphqlType]) }
     attr_reader :graphql_types
 
+    sig { returns(T::Hash[String, Serializer]) }
+    attr_reader :serializers
+
     sig { returns(T::Array[Grant]) }
     attr_reader :grants
 
@@ -338,6 +353,7 @@ module Hallmark
       @restrictions = T.let(T.unsafe(nil), T::Hash[String, Restriction])
       @graphql_context = T.let(T.unsafe(nil), T.nilable(GraphqlContext))
       @graphql_types = T.let(T.unsafe(nil), T::Hash[String, GraphqlType])
+      @serializers = T.let(T.unsafe(nil), T::Hash[String, Serializer])
     end
 
     sig do
@@ -419,6 +435,12 @@ module Hallmark
              crosses_tenants: T::Boolean).returns(GraphqlType)
     end
     def graphql_type(name, resource: nil, crosses_tenants: false); end
+
+    sig do
+      params(name: T.any(String, T::Module[T.anything]), resource: T.any(String, T::Module[T.anything]))
+        .returns(Serializer)
+    end
+    def serializer(name, resource:); end
 
     sig { params(names: T.any(String, Symbol)).returns(T::Array[String]) }
     def platform_role(*names); end

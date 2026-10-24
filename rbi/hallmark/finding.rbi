@@ -138,6 +138,9 @@ module Hallmark
     sig { returns(T.nilable(String)) }
     def narrowing_hint; end
 
+    sig { params(shown: String).returns(String) }
+    def serializer_hint(shown); end
+
     sig { returns(String) }
     def listed_across_tenants; end
 

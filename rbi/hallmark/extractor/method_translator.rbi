@@ -53,16 +53,25 @@ module Hallmark
         @resource = T.let(T.unsafe(nil), T.nilable(String))
         @aliases = T.let(T.unsafe(nil), T::Hash[String, String])
         @relation = T.let(T.unsafe(nil), T.nilable(Relation))
+        @resolver = T.let(T.unsafe(nil), T.nilable(Resolver))
+      end
+
+      # Asked first about every call: the call, and a renderer of nodes as
+      # the translator renders them; a guard, or nil to read it as usual.
+      Resolver = T.type_alias do
+        T.proc.params(node: Prism::CallNode, render: T.proc.params(node: Prism::Node).returns(String))
+         .returns(T.nilable(Guard))
       end
 
       sig { params(class_name: String, rule: String, resource: T.nilable(String)).returns(T.nilable(Guard)) }
       def rule(class_name, rule, resource); end
 
       sig do
-        params(node: Prism::Node, method: SourceIndex::Method, class_name: String, resource: T.nilable(String),
-               locals: Locals, aliases: T::Hash[String, String]).returns(Guard)
+        params(node: Prism::Node, method: T.nilable(SourceIndex::Method), class_name: String,
+               resource: T.nilable(String), locals: Locals, aliases: T::Hash[String, String],
+               resolver: T.nilable(Resolver), file: T.nilable(String)).returns(Guard)
       end
-      def expression(node, method, class_name, resource, locals: {}, aliases: {}); end
+      def expression(node, method, class_name, resource, locals: {}, aliases: {}, resolver: nil, file: nil); end
 
       sig do
         params(node: T.nilable(Prism::Node), file: String, class_name: String, resource: T.nilable(String), key: String,

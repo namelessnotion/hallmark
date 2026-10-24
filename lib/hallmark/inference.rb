@@ -40,6 +40,11 @@ module Hallmark
   # :list: a scope's guard is its code's lower bound OR the facts of the
   # records its list stamps showed, and each entry point that listed it
   # gets a list exposure.
+  #
+  # REST serializers (phase 3 step 8, inference_serializers.rb): each field
+  # an entry point's rendering shows that has a field policy, or that a
+  # restriction names, is a field exposure on that entry point, after the
+  # entry points' own exposures and before the GraphQL checks.
   class Inference
     include Guard::DSL
 
@@ -76,6 +81,7 @@ module Hallmark
                               controllers: extractor&.controllers)
       @coverage = Coverage.new(mapping, @stamps, mismatches: stamp_set.mismatches)
       @units = all_units
+      @serializer_notes = nil
       @exposures = build_exposures
       @drift = Drift.find(mapping, @units)
       @unchecked = UncheckedRequests.new(mapping, @stamps, extractor, @coverage).failing(stamp_set.unchecked)
@@ -218,8 +224,17 @@ module Hallmark
     end
 
     def build_exposures
-      links = Hash.new { |hash, key| hash[key] = [] }
       lists, rules = @units.partition(&:list?)
+      links = rule_links(rules)
+      exposures = links.keys.sort.flat_map { |entry_point| exposures_of(entry_point, links.fetch(entry_point)) }
+      exposures += list_exposures(lists) + route_exposures
+      exposures + serializer_exposures(exposures) + graphql_checks
+    end
+
+    # Each entry point's rule units; rules read from code only, or reached
+    # by no entry point, are noted under coverage.
+    def rule_links(rules)
+      links = Hash.new { |hash, key| hash[key] = [] }
       rules.each do |unit|
         unit.entry_points.each { |entry_point| links[entry_point] << unit }
         if unit.stamps.empty?
@@ -228,8 +243,7 @@ module Hallmark
           @coverage.unreached << unit.key
         end
       end
-      exposures = links.keys.sort.flat_map { |entry_point| exposures_of(entry_point, links.fetch(entry_point)) }
-      exposures + list_exposures(lists) + route_exposures + graphql_checks
+      links
     end
 
     def exposures_of(entry_point, units)

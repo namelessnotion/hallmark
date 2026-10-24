@@ -35,7 +35,12 @@ module Hallmark
   # which records the list may hold, each of which must be readable
   # (`list_<Action>_<Resource>`, op read); nil for one record's read or
   # write.
-  Exposure = Struct.new(:action, :op, :resource, :guard, :basis, :locations, :rules, :field, :kind,
+  #
+  # `shown_by` names the serializer field that shows a field exposure read
+  # from a REST serializer (phase 3 step 8), "Serializer#field
+  # (file:line)"; nil otherwise. It is not in the digest: its condition is
+  # already in the guard.
+  Exposure = Struct.new(:action, :op, :resource, :guard, :basis, :locations, :rules, :field, :kind, :shown_by,
                         keyword_init: true) do
     def graphql? = false
     def list? = kind == :list

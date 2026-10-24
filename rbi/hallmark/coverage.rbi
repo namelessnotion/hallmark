@@ -172,6 +172,9 @@ module Hallmark
     sig { params(entry_point: String, guards: T::Array[Guard], certain: T::Boolean).void }
     def observe_checks(entry_point, guards, certain:); end
 
+    sig { params(name: String, guard: Guard).void }
+    def observe_field(name, guard); end
+
     private
 
     sig { void }
