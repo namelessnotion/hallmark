@@ -19,8 +19,10 @@ module Hallmark
   #
   # What counts as new: a counterexample on a check that was not failing in
   # the baseline or an earlier batch (one already failing is counted as
-  # already known, even if its guard widened), an unchecked entry point or
-  # drift the baseline does not list. A failing check that passes again is
+  # already known, even if its guard widened), an unchecked entry point,
+  # drift or stale access the baseline does not list. Live stamps are never
+  # marked after a revocation (the collector runs in test mode only), so
+  # stale access comes from the baseline's own lines, whose keys it lists. A failing check that passes again is
   # reported once as no longer failing. An unknown verdict is printed and
   # retried at the next batch whose new stamps touch the exposure (its entry
   # point or one of its rules); it is never read as no counterexample.
@@ -32,7 +34,7 @@ module Hallmark
   class Watch
     # Everything new since the watch started, for its SARIF log (`Sarif`
     # reads it as it reads a report).
-    Log = Struct.new(:findings, :unchecked, :drift, :lints, :extractor, keyword_init: true)
+    Log = Struct.new(:findings, :unchecked, :drift, :stale_access, :lints, :extractor, keyword_init: true)
 
     attr_reader :events, :log, :solver, :source
 
@@ -51,7 +53,7 @@ module Hallmark
       @sarif_fallback = sarif_fallback
       @on_finding = on_finding
       @events = []
-      @log = Log.new(findings: [], unchecked: [], drift: [], lints: [], extractor: extractor)
+      @log = Log.new(findings: [], unchecked: [], drift: [], stale_access: [], lints: [], extractor: extractor)
       @started = false
       @stamps = Stamps.new(baseline.stamp_set, err: err)
       seed(baseline, baseline.stale_reasons(mapping_digest: mapping_digest))
@@ -71,7 +73,7 @@ module Hallmark
       changed = inference.exposures.select { |exposure| changed?(exposure, fresh) }
       batch = Batch.new(lines: lines.size, stamps: fresh.size, checks: changed.size, events: [], known: 0, none: 0)
       verdicts(batch, changed, check(changed))
-      batch.events.concat(unchecked_events(inference) + drift_events(inference))
+      batch.events.concat(unchecked_events(inference) + drift_events(inference) + stale_events(inference))
       report(batch)
       batch
     end
@@ -114,6 +116,7 @@ module Hallmark
       @failing = Set.new(baseline.failing.map(&:name))
       @known_unchecked = Set.new(baseline.unchecked)
       @known_drift = Set.new(baseline.drift)
+      @known_stale = Set.new(baseline.stale)
       return if stale.empty?
 
       @err.puts "hallmark watch: the baseline is stale (#{stale.join("; ")}); checking every exposure once"
@@ -187,6 +190,14 @@ module Hallmark
         @known_drift << item.key
         @log.drift << item
         Event.drift(item)
+      end
+    end
+
+    def stale_events(inference)
+      inference.stale_access.reject { |item| @known_stale.include?(item.key) }.map do |item|
+        @known_stale << item.key
+        @log.stale_access << item
+        Event.stale(item)
       end
     end
 

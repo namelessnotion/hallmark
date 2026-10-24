@@ -65,8 +65,11 @@ module Hallmark
     # The class whose records are tenants, and how memberships in it are
     # stored. `self_role` is set when the tenant class is the principal class
     # (a Gumroad seller is a User): each tenant then holds that role in itself.
-    # `roles_in` reads a user's roles in one tenant at run time.
-    Tenancy = Struct.new(:name, :membership, :member, :roles, :self_role, :roles_in, keyword_init: true) do
+    # `roles_in` reads a user's roles in one tenant at run time. `within`,
+    # `soft_delete` and `role_names` tell the revocations collector (phase 3
+    # step 9) how a membership row names its tenant, ends, and stores roles.
+    Tenancy = Struct.new(:name, :membership, :member, :roles, :self_role, :roles_in, :within, :soft_delete,
+                         :role_names, keyword_init: true) do
       def principals? = !self_role.nil?
     end
 
@@ -94,7 +97,7 @@ module Hallmark
     attr_reader :principal_name, :principal_source, :principal_roles, :resources, :grants, :tenancy,
                 :current_tenant_source, :current_tenant_controller, :principal_controller, :platform_roles, :rules,
                 :unchecked_allowed, :terms, :public_actions, :field_policies, :restrictions, :graphql_context,
-                :graphql_types, :serializers
+                :graphql_types, :serializers, :caches_ok
 
     def initialize
       @principal_name = "User"
@@ -116,6 +119,7 @@ module Hallmark
       @graphql_context = nil
       @graphql_types = {}
       @serializers = {}
+      @caches_ok = {}
     end
 
     # An intended permission: every holder of `role` may `op` every record of
@@ -260,21 +264,29 @@ module Hallmark
     # roles_in:   for the collectors, a user's roles in one tenant: a lambda
     #             taking the user and the tenant, or a method name on the user
     #             that takes the tenant; the `self:` role is added on its own
+    # within:     association on the membership naming its tenant (Gumroad
+    #             :seller), for the test-mode revocations collector, which
+    #             watches only with `membership:` and this
+    # soft_delete: attribute that, once set, ends the membership (Gumroad
+    #             :deleted_at): every role is revoked, and granted again when
+    #             it is cleared
+    # role_names: a lambda from a stored role value to role names, when the
+    #             attribute holds something else (GitLab's access levels)
     #
     #   tenant "User", membership: "TeamMembership", member: :user, roles: :role, self: :owner,
-    #                  roles_in: ->(user, seller) { user.team_roles_for(seller) }
-    def tenant(name, membership: nil, member: :user, roles: :role, self: nil, roles_in: nil)
+    #                  roles_in: ->(user, seller) { user.team_roles_for(seller) },
+    #                  within: :seller, soft_delete: :deleted_at
+    def tenant(name, membership: nil, member: :user, roles: :role, self: nil, roles_in: nil, within: nil,
+               soft_delete: nil, role_names: nil)
       raise ConfigurationError, "tenant is mapped twice; Hallmark supports one tenant class" if @tenancy
+      if role_names && !role_names.respond_to?(:call)
+        raise ConfigurationError, "tenant `role_names:` must be a lambda from a stored role value to role names"
+      end
 
       self_role = binding.local_variable_get(:self)
-      @tenancy = Tenancy.new(
-        name: Naming.class_name(name),
-        membership: membership && Naming.class_name(membership),
-        member: member,
-        roles: roles,
-        self_role: self_role&.to_s,
-        roles_in: roles_in
-      )
+      @tenancy = Tenancy.new(name: Naming.class_name(name), membership: membership && Naming.class_name(membership),
+                             member: member, roles: roles, self_role: self_role&.to_s, roles_in: roles_in,
+                             within: within, soft_delete: soft_delete, role_names: role_names)
     end
 
     # Where a request's current tenant comes from, such as :seller for a
@@ -433,6 +445,23 @@ module Hallmark
       @terms[source.to_s] = guard
     end
 
+    # A role read kept across requests on purpose (R1, the revocation lint):
+    # the method holding the cached read ("Authorizer#trusted?", or
+    # "UserRole.everyone" for a class method) and why it is fine. The read
+    # moves from the lints to coverage, with the reason; a name the lint's
+    # walk cannot find is an error when the lint runs.
+    #
+    #   cache_ok "Authorizer#trusted?", reason: "expires in 200 hours; trusted users lose little"
+    def cache_ok(method, reason:)
+      key = method.to_s
+      unless key.match?(/\A[A-Z][\w:]*[#.]\w+[?!]?\z/)
+        raise ConfigurationError, "cache_ok needs a method as \"Class#method\" or \"Class.method\", not #{key.inspect}"
+      end
+      raise ConfigurationError, "cache_ok #{key} is declared twice" if @caches_ok.key?(key)
+
+      @caches_ok[key] = reason.to_s
+    end
+
     # Entry points that may finish without an authorization call, such as a
     # public landing page, so they are not flagged as unchecked (threat 10).
     def allow_unchecked(*entry_points)
@@ -494,6 +523,7 @@ module Hallmark
       @restrictions = @restrictions.dup
       @graphql_types = @graphql_types.dup
       @serializers = @serializers.dup
+      @caches_ok = @caches_ok.dup
     end
 
     # `owner_outside_tenant:` as the ops it names; it needs an owner and a

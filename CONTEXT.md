@@ -93,6 +93,10 @@ A combination of facts the app neither allowed nor denied in any stamp; reported
 **Drift**:
 Disagreement between a rule's extracted guard and the decisions stamped at run time: an allow-stamp where the guard's upper bound is false, or a deny-stamp where its lower bound is true.
 
+**Stale access**:
+An allow-stamp made after the user lost a role (marked by the test-mode revocations collector) that neither the rule's code nor any other allow-stamp explains: access that outlived the role behind it.
+_Avoid_: stale stamp (coverage's stale stamps are stamps recorded before their resource's facts were mapped)
+
 ### Results
 
 **Assay**:

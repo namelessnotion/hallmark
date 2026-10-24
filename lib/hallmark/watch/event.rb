@@ -6,13 +6,14 @@ require "json"
 module Hallmark
   class Watch
     # One thing a batch found: `type` is :finding, :unchecked, :drift,
-    # :resolved (a check no longer fails) or :unknown; `data` the fields of
+    # :stale (stale access after revocation), :resolved (a check no longer
+    # fails) or :unknown; `data` the fields of
     # its JSON object; `lines` its text, worded as `hallmark check` words it.
     # `c.on_finding` gets every event but unknown ones.
     Event = Struct.new(:type, :data, :lines, keyword_init: true) do
       def to_h = { "type" => type.to_s }.merge(data)
       def to_json(*) = JSON.generate(to_h)
-      def failure? = %i[finding unchecked drift].include?(type)
+      def failure? = %i[finding unchecked drift stale].include?(type)
 
       # A new counterexample, with the example its live stamps were first
       # seen with, when ids were recorded (docs/adr/0004).
@@ -50,6 +51,12 @@ module Hallmark
         new(type: :drift, data: data, lines: Report.drift_lines(item))
       end
 
+      def self.stale(item)
+        data = { "rule" => item.rule, "resource" => item.resource, "revoked" => item.revoked, "facts" => item.facts,
+                 "tenant" => item.tenant, "location" => item.location, "seen" => item.seen }
+        new(type: :stale, data: data, lines: Report.stale_lines(item))
+      end
+
       def self.exposure_data(exposure)
         data = { "check" => exposure.check_name, "action" => exposure.action, "op" => exposure.op.to_s,
                  "resource" => exposure.resource }
@@ -76,6 +83,7 @@ module Hallmark
                  checks.zero? ? "no check changed" : "#{count(checks, "check")} run: #{verdicts(counts).join(", ")}"]
         parts << count(counts.fetch(:unchecked), "new unchecked entry point") if counts.key?(:unchecked)
         parts << count(counts.fetch(:drift), "new drifting decision") if counts.key?(:drift)
+        parts << "#{count(counts.fetch(:stale), "new stale allow")} after revocation" if counts.key?(:stale)
         "#{Time.now.utc.strftime("%H:%M:%S")} #{parts.join("; ")}."
       end
 

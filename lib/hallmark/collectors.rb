@@ -23,6 +23,9 @@ module Hallmark
   #                      stamping types' `authorized?`
   #   Action Controller  an `around_action` that flags entry points finishing
   #                      without an authorization call (threat 10)
+  #   Active Record      in test mode only, an `after_commit` on the mapped
+  #                      membership class noting revoked roles (threat 9,
+  #                      collectors/revocations.rb)
   #
   # The Railtie installs them in the test environment. A hook never breaks
   # the app: a fact that cannot be read drops the stamp with a warning.
@@ -59,9 +62,11 @@ module Hallmark
       attr_reader :store, :facts
 
       # `sample_rate` is the share of requests (and of decisions outside a
-      # request) whose decisions are stamped, from 0.0 to 1.0.
+      # request) whose decisions are stamped, from 0.0 to 1.0. `revocations`
+      # watches the mapping's membership class for revoked roles; the
+      # Railtie passes true in test mode only.
       def install!(mapping: Hallmark.configuration.mapping, store: StampStore.new(Hallmark.configuration.stamps),
-                   sample_rate: 1.0)
+                   sample_rate: 1.0, revocations: false)
         unless mapping
           raise ConfigurationError,
                 "the collectors need a mapping; declare one with `Hallmark.configure { |c| c.map { ... } }`"
@@ -75,6 +80,7 @@ module Hallmark
         @store = store
         @warned = {}
         install_libraries
+        @facts.revoked = install_revocations(mapping, store, revocations)
         @active = true
         self
       end
@@ -218,6 +224,14 @@ module Hallmark
         rate >= 1.0 || Kernel.rand < rate
       end
 
+      # The noted pairs when revocations are watched, else nil.
+      def install_revocations(mapping, store, revocations)
+        return nil unless defined?(::ActiveSupport.on_load)
+
+        require_relative "collectors/revocations"
+        revocations ? Revocations.install(mapping, store) : Revocations.uninstall
+      end
+
       def install_libraries
         install_policy_libraries
         if defined?(::Grape::Endpoint)
@@ -257,17 +271,23 @@ module Hallmark
     # entry twice.
     class Facts
       attr_reader :mapping
+      # The revocations collector's noted pairs (`Revocations::Noted`), when
+      # it watches; nil otherwise.
+      attr_accessor :revoked
 
       def initialize(mapping)
         @mapping = mapping
         @principal_classes = {}.compare_by_identity
         @resources = {}.compare_by_identity
         @ops = {}
+        @revoked = nil
       end
 
       # Fills the stamp in place rather than merging Hashes of facts, so
       # the Stamp and its role lists are most of what a decision allocates.
       # A list's record (`list`) is read, whatever the scope's name says.
+      # With revocations noted, a record-level allow is checked against
+      # them (`mark`); with none, that costs an ivar read and `empty?`.
       def stamp(policy:, rule:, record:, allowed:, raised:, enforced:, entry_point:, list: false)
         user = principal(policy)
         current = current_tenant(policy)
@@ -277,16 +297,10 @@ module Hallmark
         outside = outside_roles(user, roles)
         stamp = new_stamp(entry_point: entry_point, policy: name, rule: rule, enforced: enforced, allowed: allowed,
                           raised: raised, logged_in: !user.nil?, roles: outside, list: list)
-        # Class-level: a class, a name or nothing stands in for the record.
-        # `Symbol#name` gives the name itself ("dashboard", "global").
-        if recordless?(record)
-          stamp.resource = record&.name
-          stamp.class_level = true
-        else
-          record_facts(stamp, record, user, current, roles, op: op_for(name, rule, list: list), outside: outside)
-          stamp.class_level = false
-        end
+        tenant = fill_record(stamp, record, user, current, roles, name: name, rule: rule, list: list, outside: outside)
         stamp.current_roles = current_roles(stamp, user, current, roles)
+        revoked = @revoked
+        mark(stamp, revoked, user, tenant, current) if revoked && !revoked.empty? && allowed && !stamp.class_level
         stamp
       end
 
@@ -384,22 +398,74 @@ module Hallmark
         raise ConfigurationError, "#{policy.class.name} has no `#{source}` to read the current tenant from"
       end
 
-      # The record's facts, onto the stamp. `op` is the rule's, and
-      # `outside` the roles the user holds outside tenants.
+      # Class-level: a class, a name or nothing stands in for the record.
+      # `Symbol#name` gives the name itself ("dashboard", "global").
+      # Otherwise the record's facts; returns the record's tenant.
+      def fill_record(stamp, record, user, current, roles, name:, rule:, list:, outside:)
+        if recordless?(record)
+          stamp.resource = record&.name
+          stamp.class_level = true
+          return nil
+        end
+        stamp.class_level = false
+        record_facts(stamp, record, user, current, roles, op: op_for(name, rule, list: list), outside: outside)
+      end
+
+      # The record's facts, onto the stamp; returns the record's tenant, nil
+      # when it has none. `op` is the rule's, and `outside` the roles the
+      # user holds outside tenants.
       def record_facts(stamp, record, user, current, roles, op:, outside:)
         resource = mapping_for(record)
         stamp.resource = resource ? resource.name : record.class.name
-        return unless resource
+        return nil unless resource
 
-        held = tenant_facts(stamp, resource, record, user, current, roles: roles)
+        tenant = tenant_facts(stamp, resource, record, user, current, roles: roles)
         stamp.owner = owned_by?(resource, record, user) if resource.owned?
         stamp.public_record = public?(resource, record)
-        stamp.granted = granted?(resource, op, held || outside)
+        stamp.granted = granted?(resource, op, stamp.record_roles || outside)
         stamp.permitted = permitted?(resource, record, user, op) if resource.permits?
+        tenant
       end
 
-      # The tenant facts, onto the stamp; returns the user's roles in the
-      # record's tenant, nil when the record has none.
+      # Marks an allow whose roles, freshly read, lack a role the user was
+      # revoked in the record's tenant or the current tenant. A revoked role
+      # still held is not marked (the reader may go through a cache the
+      # revocation did not clear, or another membership grants it): it is
+      # recorded for coverage instead.
+      # Tenants are named only for a user with noted pairs, and once when
+      # the record lives in the current tenant.
+      def mark(stamp, revoked, user, tenant, current)
+        reference = Revocations.ref(user)
+        tenants = reference && revoked[reference]
+        return unless tenants
+
+        lost = []
+        held = []
+        record_key, current_key = tenant_keys(stamp, tenant, current)
+        split_revoked(record_key && tenants[record_key], stamp.record_roles, lost, held)
+        split_revoked(current_key && tenants[current_key], stamp.current_roles, lost, held)
+        stamp.after_revocation = lost.uniq.sort.freeze if lost.any?
+        Revocations.still_held(stamp, held.uniq.sort) if held.any?
+      end
+
+      # The references of the record's tenant and the current tenant, where
+      # the stamp read roles there; the record's names both when it lives in
+      # the current tenant.
+      def tenant_keys(stamp, tenant, current)
+        record_key = stamp.record_roles && Revocations.ref(tenant)
+        [record_key, tenant.equal?(current) ? record_key : stamp.current_roles && Revocations.ref(current)]
+      end
+
+      # The roles revoked from the user in one tenant, into those its
+      # stamped `roles` lack (`lost`) and those they still hold (`held`).
+      def split_revoked(names, roles, lost, held)
+        return unless names && roles
+
+        names.each { |name| (roles.include?(name) ? held : lost) << name }
+      end
+
+      # The tenant facts, onto the stamp; returns the record's tenant, nil
+      # when it has none (the user's roles there are `record_roles`).
       def tenant_facts(stamp, resource, record, user, current, roles:)
         return nil unless resource.tenanted?
 
@@ -419,7 +485,7 @@ module Hallmark
         stamp.record_roles = held
         # Kept for `current_roles`: the same tenant need not be read twice.
         stamp.current_roles = held if current && tenant.equal?(current)
-        held
+        tenant
       end
 
       def outside_roles(user, roles)

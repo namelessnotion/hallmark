@@ -126,6 +126,30 @@ module Hallmark
     sig { returns(T::Array[String]) }
     attr_reader :lists_unobserved
 
+    # Allows after a revocation that other access explains
+    sig { returns(T::Array[String]) }
+    attr_reader :stale_explained
+
+    # Allows after a revocation Hallmark could not judge
+    sig { returns(T::Array[String]) }
+    attr_reader :stale_unjudged
+
+    # Allows after a revocation whose fresh roles still held the revoked role
+    sig { returns(T::Array[String]) }
+    attr_reader :revoked_reads
+
+    # Why the revocations collector watched no membership
+    sig { returns(T::Array[String]) }
+    attr_reader :unwatched
+
+    # Role reads cached on purpose (`cache_ok`), with the reason
+    sig { returns(T::Array[String]) }
+    attr_reader :caches_accepted
+
+    # Calls the revocation lint could not follow
+    sig { returns(T::Array[String]) }
+    attr_reader :role_reads_unread
+
     # Calls inside rules that the extractor could not read
     sig { returns(T::Array[Opaque]) }
     attr_reader :opaque
@@ -158,6 +182,12 @@ module Hallmark
       @mismatches = T.let(T.unsafe(nil), T::Array[ContextMismatch])
       @cross_tenant_lists = T.let(T.unsafe(nil), T::Array[String])
       @lists_unobserved = T.let(T.unsafe(nil), T::Array[String])
+      @stale_explained = T.let(T.unsafe(nil), T::Array[String])
+      @stale_unjudged = T.let(T.unsafe(nil), T::Array[String])
+      @revoked_reads = T.let(T.unsafe(nil), T::Array[String])
+      @unwatched = T.let(T.unsafe(nil), T::Array[String])
+      @caches_accepted = T.let(T.unsafe(nil), T::Array[String])
+      @role_reads_unread = T.let(T.unsafe(nil), T::Array[String])
     end
 
     sig { params(unit: Inference::Unit).void }
@@ -165,6 +195,9 @@ module Hallmark
 
     sig { returns(T::Boolean) }
     def empty?; end
+
+    sig { params(stamp_set: StampSet, role_reads: T.nilable(Extractor::RoleReads)).void }
+    def observe_revocations(stamp_set, role_reads); end
 
     sig { params(stamps: T::Array[Stamp], resource: Mapping::Resource).returns(T::Array[String]) }
     def not_observed(stamps, resource); end

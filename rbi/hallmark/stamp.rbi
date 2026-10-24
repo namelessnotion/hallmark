@@ -64,6 +64,10 @@ module Hallmark
     sig { returns(T.nilable(T::Boolean)) }
     def list; end
 
+    # The role names revoked and now missing, set by the revocations collector
+    sig { returns(T.nilable(T::Array[String])) }
+    def after_revocation; end
+
     sig do
       params(
         entry_point: T.nilable(String),
@@ -85,14 +89,15 @@ module Hallmark
         roles: T.nilable(T::Array[String]),
         record_roles: T.nilable(T::Array[String]),
         current_roles: T.nilable(T::Array[String]),
-        list: T.nilable(T::Boolean)
+        list: T.nilable(T::Boolean),
+        after_revocation: T.nilable(T::Array[String])
       ).void
     end
     def initialize(
       entry_point: nil, policy: nil, rule: nil, resource: nil, class_level: nil, enforced: nil, decision: nil,
       raised: nil, logged_in: nil, owner: nil, public_record: nil, member: nil, in_current_tenant: nil,
       outside_tenants: nil, granted: nil, permitted: nil, roles: nil, record_roles: nil, current_roles: nil,
-      list: nil
+      list: nil, after_revocation: nil
     ); end
 
     sig { returns(T::Boolean) }
@@ -169,6 +174,50 @@ module Hallmark
     def to_json_line; end
   end
 
+  class RevokedRoleRead
+    sig { returns(T.nilable(String)) }
+    def entry_point; end
+
+    sig { returns(T.nilable(String)) }
+    def policy; end
+
+    sig { returns(T.nilable(String)) }
+    def rule; end
+
+    sig { returns(T.nilable(String)) }
+    def resource; end
+
+    # The revoked role names the fresh read still held
+    sig { returns(T::Array[String]) }
+    def roles; end
+
+    sig do
+      params(entry_point: T.nilable(String), policy: T.nilable(String), rule: T.nilable(String),
+             resource: T.nilable(String), roles: T::Array[String]).void
+    end
+    def initialize(entry_point:, policy:, rule:, resource:, roles:); end
+
+    sig { returns(String) }
+    def to_s; end
+
+    sig { returns(String) }
+    def to_json_line; end
+  end
+
+  class RevocationsUnwatched
+    sig { returns(String) }
+    def reason; end
+
+    sig { params(reason: String).void }
+    def initialize(reason:); end
+
+    sig { returns(String) }
+    def to_s; end
+
+    sig { returns(String) }
+    def to_json_line; end
+  end
+
   class StampSet
     sig { returns(T::Array[Stamp]) }
     attr_reader :stamps
@@ -188,6 +237,14 @@ module Hallmark
     # GraphQL requests whose context's current tenant differed from the controller's (G6)
     sig { returns(T::Array[ContextMismatch]) }
     attr_reader :mismatches
+
+    # Allows after a revocation whose fresh roles still held the revoked role
+    sig { returns(T::Array[RevokedRoleRead]) }
+    attr_reader :revoked_reads
+
+    # Why the revocations collector watched no membership
+    sig { returns(T::Array[RevocationsUnwatched]) }
+    attr_reader :unwatched
 
     sig { params(path: String, run: T.nilable(String)).returns(StampSet) }
     def self.load(path, run: nil); end
@@ -213,7 +270,10 @@ module Hallmark
     sig { params(lines: T::Array[String]).returns(StampSet) }
     def self.parse(lines); end
 
-    sig { params(data: T.untyped).returns(T.nilable(T.any(Stamp, Unchecked, Route, ContextMismatch))) }
+    sig do
+      params(data: T.untyped)
+        .returns(T.nilable(T.any(Stamp, Unchecked, Route, ContextMismatch, RevokedRoleRead, RevocationsUnwatched)))
+    end
     def self.event(data); end
 
     # A parsed JSON line
@@ -225,14 +285,18 @@ module Hallmark
 
     sig do
       params(stamps: T::Array[Stamp], unchecked: T::Array[Unchecked], routes: T::Array[Route],
-             examples: T::Hash[Stamp, Example], mismatches: T::Array[ContextMismatch]).void
+             examples: T::Hash[Stamp, Example], mismatches: T::Array[ContextMismatch],
+             revoked_reads: T::Array[RevokedRoleRead], unwatched: T::Array[RevocationsUnwatched]).void
     end
-    def initialize(stamps = [], unchecked = [], routes = [], examples: {}, mismatches: [])
+    def initialize(stamps = [], unchecked = [], routes = [], examples: {}, mismatches: [], revoked_reads: [],
+                   unwatched: [])
       @stamps = T.let(T.unsafe(nil), T::Array[Stamp])
       @unchecked = T.let(T.unsafe(nil), T::Array[Unchecked])
       @routes = T.let(T.unsafe(nil), T::Array[Route])
       @examples = T.let(T.unsafe(nil), T::Hash[Stamp, Example])
       @mismatches = T.let(T.unsafe(nil), T::Array[ContextMismatch])
+      @revoked_reads = T.let(T.unsafe(nil), T::Array[RevokedRoleRead])
+      @unwatched = T.let(T.unsafe(nil), T::Array[RevocationsUnwatched])
     end
   end
 end

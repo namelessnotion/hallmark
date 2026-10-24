@@ -17,6 +17,8 @@ module Hallmark
         @unchecked = set.unchecked.dup
         @routes = set.routes.dup
         @mismatches = set.mismatches.dup
+        @revoked_reads = set.revoked_reads.dup
+        @unwatched = set.unwatched.dup
         @examples = {}
         add_examples(set)
         @seen = Set.new(@stamps)
@@ -24,7 +26,10 @@ module Hallmark
       end
 
       # Everything folded in so far, as one stamp set for Inference.
-      def set = StampSet.new(@stamps, @unchecked, @routes, examples: @examples, mismatches: @mismatches)
+      def set
+        StampSet.new(@stamps, @unchecked, @routes, examples: @examples, mismatches: @mismatches,
+                                                   revoked_reads: @revoked_reads, unwatched: @unwatched)
+      end
 
       # Adds the lines; returns the stamps new to the watch, in the order read.
       def fold(lines)
@@ -35,6 +40,8 @@ module Hallmark
         @unchecked |= set.unchecked
         @routes |= set.routes
         @mismatches |= set.mismatches
+        @revoked_reads |= set.revoked_reads
+        @unwatched |= set.unwatched
         add_examples(set)
         fresh
       end

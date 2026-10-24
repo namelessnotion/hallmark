@@ -45,6 +45,7 @@ module Hallmark
       UNKNOWN_NOTE = T.let(T.unsafe(nil), String)
       NOT_OBSERVED_NOTE = T.let(T.unsafe(nil), String)
       DRIFT_NOTE = T.let(T.unsafe(nil), String)
+      STALE_NOTE = T.let(T.unsafe(nil), String)
 
       sig { returns(T::Array[RuleCheck::Result]) }
       attr_reader :results
@@ -91,6 +92,9 @@ module Hallmark
       sig { returns(T::Boolean) }
       def drift?; end
 
+      sig { returns(T::Boolean) }
+      def stale?; end
+
       sig { params(actual: T.untyped).returns(T::Array[RuleCheck::Result]) }
       def run(actual); end
 
@@ -105,6 +109,9 @@ module Hallmark
 
       sig { returns(String) }
       def drift_count; end
+
+      sig { returns(String) }
+      def stale_count; end
 
       sig { params(verdict: Symbol, number: Integer).returns(String) }
       def label(verdict, number); end

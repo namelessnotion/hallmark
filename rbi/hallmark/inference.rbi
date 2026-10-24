@@ -96,6 +96,10 @@ module Hallmark
     sig { returns(T::Array[Drift]) }
     attr_reader :drift
 
+    # Allows after a revocation that nothing else explains
+    sig { returns(T::Array[StaleAccess]) }
+    attr_reader :stale_access
+
     sig { returns(Ops) }
     attr_reader :ops
 
@@ -103,12 +107,20 @@ module Hallmark
     sig { returns(StampSet) }
     attr_reader :stamp_set
 
+    sig { params(stamps: T::Array[Stamp]).returns(T::Array[Stamp]) }
+    def without_revoked(stamps); end
+
+    sig { returns(T::Array[StaleAccess]) }
+    def judge_revocations; end
+
     sig { params(mapping: Mapping, stamp_set: StampSet, extractor: T.nilable(Extractor)).void }
     def initialize(mapping, stamp_set, extractor: nil)
       @mapping = T.let(T.unsafe(nil), Mapping)
       @stamp_set = T.let(T.unsafe(nil), StampSet)
       @stamps = T.let(T.unsafe(nil), T::Array[Stamp])
       @list_stamps = T.let(T.unsafe(nil), T::Array[Stamp])
+      @set_aside = T.let(T.unsafe(nil), T::Array[Stamp])
+      @stale_access = T.let(T.unsafe(nil), T::Array[StaleAccess])
       @rule_stamps = T.let(T.unsafe(nil), T::Array[Stamp])
       @routes = T.let(T.unsafe(nil), T::Array[Route])
       @reached = T.let(T.unsafe(nil), T::Array[String])

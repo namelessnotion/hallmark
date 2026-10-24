@@ -11,7 +11,9 @@ module Hallmark
   # ran at, a digest of the mapping file's bytes, the run its stamps came
   # from, every stamp, unchecked and route line of that run, and per check
   # its exposure's digest (`Exposure#digest`) and verdict, plus the
-  # unchecked entry points and drift that failed. Watch seeds its stamps
+  # unchecked entry points, drift and stale access (`StaleAccess#key`;
+  # absent from baselines written before Oct 23, 2026, read as none) that
+  # failed. Watch seeds its stamps
   # from these lines, so its guards start equal to CI's and only live
   # stamps change them.
   #
@@ -32,7 +34,7 @@ module Hallmark
       end
     end
 
-    attr_reader :hallmark, :alloy, :scope, :mapping_digest, :run, :lines, :checks, :unchecked, :drift
+    attr_reader :hallmark, :alloy, :scope, :mapping_digest, :run, :lines, :checks, :unchecked, :drift, :stale
 
     # The baseline of a `hallmark check` run's reports.
     def self.build(reports, mapping_digest:, run:, scope: Hallmark.configuration.scope)
@@ -40,8 +42,12 @@ module Hallmark
           lines: reports.flat_map { |report| lines_of(report.analysis.inference&.stamp_set) }.uniq,
           checks: reports.flat_map { |report| checks_of(report) },
           unchecked: reports.flat_map(&:unchecked).uniq.sort,
-          drift: reports.flat_map { |report| report.drift.map(&:key) }.uniq.sort)
+          drift: keys(reports, &:drift), stale: keys(reports, &:stale_access))
     end
+
+    # The sorted, distinct keys of what each report lists.
+    def self.keys(reports, &list) = reports.flat_map { |report| list.call(report).map(&:key) }.uniq.sort
+    private_class_method :keys
 
     # SHA-256 of the mapping files' bytes, in order.
     def self.digest_files(files) = Digest::SHA256.hexdigest(files.map { |file| File.binread(file) }.join)
@@ -68,7 +74,8 @@ module Hallmark
       end
       new(hallmark: data.fetch("hallmark"), alloy: data.fetch("alloy"), scope: data.fetch("scope"),
           mapping_digest: data.fetch("mapping_digest"), run: data["run"], lines: data.fetch("lines"),
-          checks: checks, unchecked: data.fetch("unchecked"), drift: data.fetch("drift"))
+          checks: checks, unchecked: data.fetch("unchecked"), drift: data.fetch("drift"),
+          stale: data.fetch("stale", []))
     end
 
     # Every exposure of a report with its verdict.
@@ -88,10 +95,11 @@ module Hallmark
     def self.lines_of(set)
       return [] unless set
 
-      [set.stamps, set.unchecked, set.routes, set.mismatches].flat_map { |events| events.map(&:to_json_line) }
+      events = [set.stamps, set.unchecked, set.routes, set.mismatches, set.revoked_reads, set.unwatched]
+      events.flat_map { |each| each.map(&:to_json_line) }
     end
 
-    def initialize(hallmark:, alloy:, scope:, mapping_digest:, run:, lines:, checks:, unchecked:, drift:)
+    def initialize(hallmark:, alloy:, scope:, mapping_digest:, run:, lines:, checks:, unchecked:, drift:, stale: [])
       @hallmark = hallmark
       @alloy = alloy
       @scope = scope
@@ -101,6 +109,7 @@ module Hallmark
       @checks = checks
       @unchecked = unchecked
       @drift = drift
+      @stale = stale
     end
 
     # The stamps the baseline was built from.
@@ -122,7 +131,7 @@ module Hallmark
     def to_h
       { "format" => FORMAT, "hallmark" => hallmark, "alloy" => alloy, "scope" => scope,
         "mapping_digest" => mapping_digest, "run" => run, "checks" => checks.map(&:to_json_object),
-        "unchecked" => unchecked, "drift" => drift, "lines" => lines }
+        "unchecked" => unchecked, "drift" => drift, "stale" => stale, "lines" => lines }
     end
 
     def to_json(*) = JSON.pretty_generate(to_h)

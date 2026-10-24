@@ -47,6 +47,9 @@ module Hallmark
       sig { params(item: Drift).returns(Event) }
       def self.drift(item); end
 
+      sig { params(item: StaleAccess).returns(Event) }
+      def self.stale(item); end
+
       sig { params(exposure: AnyExposure).returns(T::Hash[String, String]) }
       def self.exposure_data(exposure); end
 
@@ -64,6 +67,9 @@ module Hallmark
       sig { returns(T::Array[Drift]) }
       def drift; end
 
+      sig { returns(T::Array[StaleAccess]) }
+      def stale_access; end
+
       # Always empty: policy-DSL hazards are CI's to report
       sig { returns(T::Array[Extractor::DeclarativeTranslator::Lint]) }
       def lints; end
@@ -73,9 +79,10 @@ module Hallmark
 
       sig do
         params(findings: T::Array[Finding], unchecked: T::Array[String], drift: T::Array[Drift],
-               lints: T::Array[Extractor::DeclarativeTranslator::Lint], extractor: T.nilable(Extractor)).void
+               stale_access: T::Array[StaleAccess], lints: T::Array[Extractor::DeclarativeTranslator::Lint],
+               extractor: T.nilable(Extractor)).void
       end
-      def initialize(findings:, unchecked:, drift:, lints:, extractor:); end
+      def initialize(findings:, unchecked:, drift:, stale_access:, lints:, extractor:); end
     end
 
     class Batch
@@ -132,6 +139,8 @@ module Hallmark
         @unchecked = T.let(T.unsafe(nil), T::Array[Unchecked])
         @routes = T.let(T.unsafe(nil), T::Array[Route])
         @mismatches = T.let(T.unsafe(nil), T::Array[ContextMismatch])
+        @revoked_reads = T.let(T.unsafe(nil), T::Array[RevokedRoleRead])
+        @unwatched = T.let(T.unsafe(nil), T::Array[RevocationsUnwatched])
         @examples = T.let(T.unsafe(nil), T::Hash[Stamp, Example])
         @seen = T.let(T.unsafe(nil), T::Set[Stamp])
         @baseline = T.let(T.unsafe(nil), T::Set[Stamp])
@@ -199,6 +208,7 @@ module Hallmark
       @failing = T.let(T.unsafe(nil), T::Set[String])
       @known_unchecked = T.let(T.unsafe(nil), T::Set[String])
       @known_drift = T.let(T.unsafe(nil), T::Set[String])
+      @known_stale = T.let(T.unsafe(nil), T::Set[String])
     end
 
     sig { returns(T.nilable(Batch)) }
@@ -238,6 +248,9 @@ module Hallmark
 
     sig { params(inference: Inference).returns(T::Array[Event]) }
     def drift_events(inference); end
+
+    sig { params(inference: Inference).returns(T::Array[Event]) }
+    def stale_events(inference); end
 
     sig { params(batch: Batch).void }
     def report(batch); end

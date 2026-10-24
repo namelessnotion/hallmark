@@ -61,8 +61,8 @@ module Hallmark
     sig { params(root: T.nilable(String)).returns(T.nilable(GraphqlModel)) }
     def add_graphql(root = Hallmark.configuration.root); end
 
-    sig { params(source: T.any(StampSet, String, Pathname)).returns(Inference) }
-    def add_stamps(source); end
+    sig { params(source: T.any(StampSet, String, Pathname), root: T.nilable(String)).returns(Inference) }
+    def add_stamps(source, root: Hallmark.configuration.root); end
 
     # Inference from code alone: routes from config/routes.rb, no stamps
     sig { params(root: T.nilable(String)).returns(Inference) }
@@ -146,8 +146,8 @@ module Hallmark
       end
       def lists(action, resource, guard:); end
 
-      sig { params(source: T.any(StampSet, String, Pathname)).returns(Inference) }
-      def stamps(source = Hallmark.configuration.stamps); end
+      sig { params(source: T.any(StampSet, String, Pathname), root: T.nilable(String)).returns(Inference) }
+      def stamps(source = Hallmark.configuration.stamps, root: Hallmark.configuration.root); end
 
       sig { params(root: T.nilable(String)).returns(Inference) }
       def from_code(root = Hallmark.configuration.root); end

@@ -67,6 +67,8 @@ module Hallmark
       @routes = T.let(T.unsafe(nil), T.nilable(T::Array[Route]))
       @serializers = T.let(T.unsafe(nil), T.nilable(Serializers))
       @serializers_read = T.let(T.unsafe(nil), T::Boolean)
+      @role_reads = T.let(T.unsafe(nil), T.nilable(RoleReads))
+      @role_reads_read = T.let(T.unsafe(nil), T::Boolean)
       @lists = T.let(T.unsafe(nil), T.nilable(T::Array[Extracted]))
       @list_cache = T.let(T.unsafe(nil), T::Hash[[String, String, T.nilable(String)], T.nilable(Extracted)])
     end
@@ -101,6 +103,10 @@ module Hallmark
 
     sig { returns(T::Array[DeclarativeTranslator::Lint]) }
     def lints; end
+
+    # The revocation lint's reading, on first use; nil with no start point
+    sig { returns(T.nilable(RoleReads)) }
+    def role_reads; end
 
     sig { params(policy: String, rule: String).returns(T.nilable(Extracted)) }
     def fetch(policy, rule); end

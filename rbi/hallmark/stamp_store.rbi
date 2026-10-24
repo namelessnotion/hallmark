@@ -13,9 +13,12 @@ module Hallmark
       def initialize(stamp, example); end
     end
 
-    # A Stamp, Unchecked or Route waiting to be written (a stamp with its
-    # ids), or a queue to signal once everything before it is written
-    Event = T.type_alias { T.any(Stamp, Unchecked, Route, ContextMismatch, Pending, Thread::Queue) }
+    # What the store writes as one JSON line
+    Line = T.type_alias { T.any(Stamp, Unchecked, Route, ContextMismatch, RevokedRoleRead, RevocationsUnwatched) }
+
+    # A line waiting to be written (a stamp with its ids), or a queue to
+    # signal once everything before it is written
+    Event = T.type_alias { T.any(Line, Pending, Thread::Queue) }
 
     sig { returns(String) }
     attr_reader :dir
@@ -56,7 +59,7 @@ module Hallmark
       @pid = T.let(T.unsafe(nil), Integer)
       @queue = T.let(T.unsafe(nil), Thread::Queue)
       @thread = T.let(T.unsafe(nil), T.nilable(Thread))
-      @seen = T.let(T.unsafe(nil), T::Set[T.any(Stamp, Unchecked, Route, ContextMismatch)])
+      @seen = T.let(T.unsafe(nil), T::Set[Line])
     end
 
     # The default file sink's file for this process; nil with another sink
@@ -66,7 +69,7 @@ module Hallmark
     sig { returns(T::Boolean) }
     def ids?; end
 
-    sig { params(event: T.any(Stamp, Unchecked, Route, ContextMismatch), example: T.nilable(Example)).void }
+    sig { params(event: Line, example: T.nilable(Example)).void }
     def record(event, example: nil); end
 
     sig { void }
@@ -83,7 +86,7 @@ module Hallmark
     sig { params(queue: Thread::Queue).void }
     def drain(queue); end
 
-    sig { params(event: T.any(Stamp, Unchecked, Route, ContextMismatch, Pending)).void }
+    sig { params(event: T.any(Line, Pending)).void }
     def write(event); end
 
     sig { params(blk: T.proc.void).void }

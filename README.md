@@ -78,16 +78,25 @@ Pundit, Action Policy and DeclarativePolicy code:
 - the REST shop example, Storefront's domain as a JSON API with Pundit and
   ActiveModel::Serializer, whose revenue field and staff page are found
   from code alone and cleared by its fixed version
+- stale access after revocation, narrowly: a lint (R1) for role reads
+  cached across requests (`Rails.cache`, the session or cookies, token
+  claims, a class-level memo) that no callback clears when a membership
+  changes, and, in test mode, a collector that marks an allow made after
+  the user lost a role; one that nothing else explains fails the check
+- the revocation shop example, Storefront's domain on Active Record, whose
+  team roles are cached across requests: a downgraded admin keeps editing,
+  and the fixed version forgets the role after each membership change
 
 Phase 1 is done: its deliverables are built, and its gate (Hallmark run on
 one real app per authorization library, each with a confirmed real bug)
 passed on Oct 19, 2026. Phase 2 (the extractor) passed its gate on five
 apps on Oct 21, 2026.
 
-Not built yet (phase 3): stale access after revocation, whose model lives
-in `research/models`. Jbuilder views, `render json:` with no serializer,
-and records nested through a serializer's associations are not read yet
-(they are counted or listed under coverage).
+Not built yet: Jbuilder views, `render json:` with no serializer, and
+records nested through a serializer's associations are not read (they are
+counted or listed under coverage); revocation is checked from code and in
+test mode only, with no temporal model (`research/models/revocation.als`
+stays a research model).
 
 ## Requirements
 
@@ -362,6 +371,83 @@ The report then adds:
 - **Not observed**: per rule, the fact combinations no test allowed or denied.
   These are coverage gaps, never findings: a counterexample is only ever
   built from a decision the app actually made.
+
+### Stale access after revocation
+
+A role taken away should stop working on the next request. It keeps
+working when the app reads roles through something that outlives the
+request and nothing clears it when the membership changes (threat 9).
+Hallmark looks for that two ways.
+
+**The lint (R1)** reads code, as `hallmark check` and `hallmark rules` do.
+From the mapping's role readers (`principal ..., roles:`, `tenant ...,
+roles_in:`, a lambda read where it is written), each `term`, and each rule
+and DeclarativePolicy condition read from code, it follows the calls made
+on the user, the tenant, the object itself and the models' `belongs_to`
+associations, up to four calls deep, reading model files under
+`app/models` (and `ee/app/models`) by Zeitwerk's naming as it goes. A role
+read through `Rails.cache.fetch` (or `read`, `read_multi`, `fetch_multi`),
+`session[...]`, `cookies[...]` (signed or encrypted), token claims
+(`JWT.decode`, a `claims["role"]`) or a class-level memo of a parameter
+(`@roles[user.id] ||=` in a class method) is an R1 lint, which fails the
+check, unless a callback on the membership, user or tenant class clears
+it: an `after_commit` (and the other save, destroy and touch callbacks),
+`has_many ..., after_remove:`, or Rolify's `rolify after_remove:`, that
+reaches within four calls a `Rails.cache.delete` (or `delete_multi`,
+`delete_matched`, `write`, `fetch(..., force: true)`) of the same key, or
+resets the memo. A key that interpolates the user's or tenant's
+`updated_at` is fresh when the membership's `belongs_to` toward it has
+`touch: true`. `expires_in:` is printed but never counts: bounded
+staleness is still stale. The session, cookies and token claims hold copies
+no callback can reach. Per-request and per-object stores are not caches:
+instance-variable memos in instance methods, `strong_memoize`,
+`RequestStore`, GitLab's `SafeRequestStore` and `SafeRequestLoader`,
+`Current` attributes, DeclarativePolicy's condition cache, and
+denormalized tables such as GitLab's `project_authorizations`.
+
+A cache kept on purpose is declared, with the method holding the read:
+
+```ruby
+cache_ok "Authorizer#trusted?", reason: "trusted users lose little in an hour"
+```
+
+It moves to coverage with its reason; a name the lint cannot find is an
+error. `hallmark extract` prints a "Role reads" section: each start point,
+the methods walked, each cache and what clears it, and what could not be
+followed (a call into `lib/`, an attribute with no method), which the
+report also lists under coverage.
+
+**The collector** runs in test mode only. Given the membership class and
+how it names its tenant, it adds an `after_commit` to that class and notes,
+in the test process's memory, each user and tenant whose roles shrank:
+
+```ruby
+tenant "User", membership: "TeamMembership", member: :user, roles: :role, self: :owner,
+               roles_in: ->(user, seller) { user.team_roles_for(seller) },
+               within: :seller,          # the membership's association naming its tenant
+               soft_delete: :deleted_at, # set: every role ends; cleared: they are back
+               role_names: nil           # or a lambda, for stored values that are not names (access levels)
+```
+
+It reads only the committed row (the role before and after the save, the
+foreign keys), never the app's own reader. A later allow by that user, in
+that tenant (the record's or the current one), whose freshly read roles
+lack a revoked role is stamped `after_revocation` with the roles lost.
+Inference keeps those stamps out of every guard and judges each against
+what the rule allows without it: its code's lower bound, a hand-written
+guard, or the other allow-stamps. One nothing explains is reported under
+"Stale access after revocation", which fails the check (SARIF rule
+`hallmark/stale`); one other access explains, or one Hallmark cannot judge,
+is listed under coverage. An allow whose fresh roles still hold the revoked
+role is not marked; it is listed under coverage, since the app's own reader
+may be the stale one. Pairs are cleared before each test example
+(`ActiveRecord::TestFixtures#before_setup`, which Rails tests and
+rspec-rails both run), and a membership commit inside a request makes that
+request read roles again. Without `membership:` or `within:` the collector
+is not installed and coverage says why. It does not watch roles kept on the
+user row, Rolify's join table, bulk writes that skip callbacks
+(`update_all`, `delete_all`) or a membership moved to another user or
+tenant by changing its foreign key, and never runs in the live modes.
 
 ## Collecting from live requests
 
@@ -874,12 +960,15 @@ The same settings are available in Ruby through `Hallmark.configure`.
 data/hallmark/catalog.als   the pattern catalog shipped with the gem
 lib/hallmark/               mapping, guards, restrictions, model builder, solver clients, decoder
 solver/src/                 the solver sidecar (Java, built by `hallmark install-sidecar`)
-lib/hallmark/collectors/    runtime hooks for each authorization library and controllers
+lib/hallmark/collectors/    runtime hooks for each authorization library and controllers, and
+                            the test-mode revocations collector (revocations.rb)
+lib/hallmark/stale_access.rb allows after a revocation that nothing else explains
 lib/hallmark/sinks.rb       where stamps go: files, a Redis stream, a callable
 lib/hallmark/baseline.rb    what CI knows, written by `hallmark check --baseline`
 lib/hallmark/watch.rb       `hallmark watch`, with its file and Redis tails in watch/
 lib/hallmark/extractor/     reads policies, controllers, config/routes.rb, app/graphql and REST
-                            serializers (serializers/, grape_presents.rb) with Prism
+                            serializers (serializers/, grape_presents.rb) with Prism, and
+                            role reads for the revocation lint (role_reads/)
 lib/hallmark/graphql_model* the GraphQL reachability model, its Alloy and its witness paths
 lib/hallmark/rspec.rb       the RSpec matchers (`require "hallmark/rspec"`)
 rbi/                        Sorbet signatures for lib/ (no sorbet-runtime needed)
@@ -893,6 +982,8 @@ examples/graphql_shop/      a graphql-ruby schema (app/graphql, fixed/app/graphq
                             G1 to G4, buggy and fixed
 examples/rest_shop/         a JSON API (Pundit, ActiveModel::Serializer, config/routes.rb)
                             checked from code alone, buggy and fixed (fixed/)
+examples/revocation_shop/   a Rails app on Active Record whose cached team roles outlive a
+                            downgrade, run by scenario.rb, buggy and fixed (fixed/)
 research/models/            hand-written models for memberships, GraphQL,
                             DeclarativePolicy, revocation and role config
 test/                       unit tests (no Java) and integration tests

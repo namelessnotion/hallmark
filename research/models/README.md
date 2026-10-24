@@ -42,6 +42,11 @@ Results below are from Alloy 6.2.0 with the default SAT4J solver.
 | `declarative.als` | `D2_OverridesDropPrevent` | Counterexample | `overrides` drops them, so a blocked author passes |
 | `declarative.als` | `D3_CacheScope` | Counterexample | A `scope: :user` condition that reads `@subject` reuses the first project's answer |
 
+`revocation.als` stays a research model: phase 3 step 9 shipped threat 9
+narrowly instead, as a lint for role reads cached across requests that no
+membership callback clears (R1) and a test-mode collector that marks allows
+made after a revocation (docs/PLAN.md, "The shipped revocation").
+
 `graphql.als` was the design for the GraphQL schema walk shipped in phase 3
 step 5 (`GraphqlModel`, docs/PLAN.md "The shipped GraphQL schema walk").
 The shipped encoding departs from it in four ways: checks are guards over

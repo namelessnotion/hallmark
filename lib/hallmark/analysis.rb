@@ -98,13 +98,14 @@ module Hallmark
     # to a JSONL file or a stamp directory, read for the run `c.run` names
     # (HALLMARK_RUN), else the newest. The mapping must be complete
     # first, since inference reads its resources, rules and roles. Guards
-    # read from policy code under `c.root` join in (`Extractor.load`).
-    def add_stamps(source)
+    # read from policy code under `root` (`c.root` by default) join in
+    # (`Extractor.load`).
+    def add_stamps(source, root: Hallmark.configuration.root)
       raise ConfigurationError, "stamps are declared twice in #{name}" if @inference
 
       set = source.is_a?(StampSet) ? source : StampSet.load(source.to_s, run: Hallmark.configuration.run)
       @mapping.validate!
-      infer(set, Extractor.load(@mapping))
+      infer(set, Extractor.load(@mapping, root))
     end
 
     # Adds the exposures inferred from code alone, with no stamps: the
@@ -307,9 +308,10 @@ module Hallmark
       end
 
       # Infers exposures from the stamps a test run recorded; declare it
-      # after the map block.
-      def stamps(source = Hallmark.configuration.stamps)
-        @analysis.add_stamps(source)
+      # after the map block. `root:` is the app whose code the extractor
+      # reads (the app root by default).
+      def stamps(source = Hallmark.configuration.stamps, root: Hallmark.configuration.root)
+        @analysis.add_stamps(source, root: root)
       end
 
       # Infers exposures from code alone, with no stamps: entry points are

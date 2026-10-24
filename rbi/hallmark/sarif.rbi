@@ -31,6 +31,9 @@ module Hallmark
     sig { returns(T::Array[Rule]) }
     def self.graphql_rules; end
 
+    sig { returns(T::Array[Rule]) }
+    def self.revocation_rules; end
+
     # A report, or what `hallmark watch` found new since it started
     Source = T.type_alias { T.any(Report, Watch::Log) }
 
@@ -59,6 +62,9 @@ module Hallmark
 
     sig { params(item: Drift).returns(T::Hash[String, T.untyped]) }
     def drift_result(item); end
+
+    sig { params(report: Source, item: StaleAccess).returns(T::Hash[String, T.untyped]) }
+    def stale_result(report, item); end
 
     sig do
       params(rule: String, text: String, locations: T::Array[String], identity: String)

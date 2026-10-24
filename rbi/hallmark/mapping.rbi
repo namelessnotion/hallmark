@@ -220,6 +220,18 @@ module Hallmark
       sig { returns(Collectors::Source) }
       def roles_in; end
 
+      # The membership's association naming its tenant, for the revocations collector
+      sig { returns(T.nilable(Symbol)) }
+      def within; end
+
+      # The attribute that, once set, ends a membership
+      sig { returns(T.nilable(Symbol)) }
+      def soft_delete; end
+
+      # From a stored role value to role names
+      sig { returns(T.untyped) }
+      def role_names; end
+
       sig do
         params(
           name: String,
@@ -227,10 +239,14 @@ module Hallmark
           member: Symbol,
           roles: Symbol,
           self_role: T.nilable(String),
-          roles_in: Collectors::Source
+          roles_in: Collectors::Source,
+          within: T.nilable(Symbol),
+          soft_delete: T.nilable(Symbol),
+          role_names: T.untyped
         ).void
       end
-      def initialize(name:, membership:, member:, roles:, self_role:, roles_in: nil); end
+      def initialize(name:, membership:, member:, roles:, self_role:, roles_in: nil, within: nil, soft_delete: nil,
+                     role_names: nil); end
 
       sig { returns(T::Boolean) }
       def principals?; end
@@ -316,6 +332,10 @@ module Hallmark
     sig { returns(T::Hash[String, Serializer]) }
     attr_reader :serializers
 
+    # Role reads cached on purpose: "Class#method" to the reason (`cache_ok`)
+    sig { returns(T::Hash[String, String]) }
+    attr_reader :caches_ok
+
     sig { returns(T::Array[Grant]) }
     attr_reader :grants
 
@@ -354,6 +374,7 @@ module Hallmark
       @graphql_context = T.let(T.unsafe(nil), T.nilable(GraphqlContext))
       @graphql_types = T.let(T.unsafe(nil), T::Hash[String, GraphqlType])
       @serializers = T.let(T.unsafe(nil), T::Hash[String, Serializer])
+      @caches_ok = T.let(T.unsafe(nil), T::Hash[String, String])
     end
 
     sig do
@@ -413,10 +434,18 @@ module Hallmark
         member: Symbol,
         roles: Symbol,
         self: T.nilable(T.any(String, Symbol)),
-        roles_in: Collectors::Source
+        roles_in: Collectors::Source,
+        within: T.nilable(Symbol),
+        soft_delete: T.nilable(Symbol),
+        role_names: T.untyped
       ).returns(Tenancy)
     end
-    def tenant(name, membership: nil, member: :user, roles: :role, self: nil, roles_in: nil); end
+    def tenant(name, membership: nil, member: :user, roles: :role, self: nil, roles_in: nil, within: nil,
+               soft_delete: nil, role_names: nil); end
+
+    # Checked at run time: "Class#method" or "Class.method"
+    sig { params(method: T.any(String, Symbol), reason: T.any(String, Symbol)).returns(String) }
+    def cache_ok(method, reason:); end
 
     sig do
       params(

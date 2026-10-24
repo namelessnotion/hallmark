@@ -23,7 +23,9 @@ module Hallmark
   # (`after_routes_loaded`, Rails 7.1 and later): at boot when the app eager
   # loads, as production does, so before a forking server forks; on first
   # use otherwise. Inside `after_initialize` the app is not yet initialized
-  # and cannot load them. Older Rails records them at exit.
+  # and cannot load them. Older Rails records them at exit. In test mode
+  # only, the revocations collector watches the mapping's membership class
+  # (`Collectors::Revocations`).
   class Railtie < ::Rails::Railtie
     # The first Rails with the `after_routes_loaded` load hook.
     ROUTES_LOADED_HOOK = "7.1"
@@ -41,7 +43,7 @@ module Hallmark
       configuration.stamps = app.root.join(configuration.stamps).to_s
       configuration.root = app.root.to_s
       Collectors.install!(store: configuration.stamp_store(mode, app.root),
-                          sample_rate: configuration.sample_rate_for(mode))
+                          sample_rate: configuration.sample_rate_for(mode), revocations: mode == "test")
       if configuration.live?(mode) && ::Rails.gem_version >= Gem::Version.new(ROUTES_LOADED_HOOK)
         ::ActiveSupport.on_load(:after_routes_loaded) { Collectors::Routes.record(app) }
       else

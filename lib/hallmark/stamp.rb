@@ -21,6 +21,13 @@ module Hallmark
   # call alone (its records were not loaded, or not sampled). Its rule is
   # the scope's (`ListScope`). It is never enforced and ties no rule to an
   # entry point; it ties the list to one.
+  #
+  # `after_revocation` (phase 3 step 9) is set by the test-mode
+  # revocations collector on a record-level allow made after the user lost
+  # a role in the record's tenant or the current tenant, and that the
+  # user's freshly read roles there no longer hold: the role names lost,
+  # sorted. Inference sets such stamps aside and judges each as stale
+  # access or not (`StaleAccess`).
   Stamp = Struct.new(
     :entry_point,       # "LinksController#update", or nil outside a request (a policy spec, a service object)
     :policy,            # "LinkPolicy"
@@ -42,17 +49,19 @@ module Hallmark
     :record_roles,      # roles held in the record's tenant
     :current_roles,     # roles held in the current tenant
     :list,              # true for a list scope's record or call; nil otherwise (and in lines before Oct 21, 2026)
+    :after_revocation,  # role names revoked and now missing, sorted; nil otherwise (and in lines before Oct 23, 2026)
     keyword_init: true
   ) do
     def allow? = decision == "allow"
     def rule_key = "#{policy}##{rule}"
 
     # With `example`, the hashed ids it was first seen with, beside its
-    # fields (docs/adr/0004). `list` is written only when set, so other
-    # stamps' lines are as they were.
+    # fields (docs/adr/0004). `list` and `after_revocation` are written
+    # only when set, so other stamps' lines are as they were.
     def to_json_line(example = nil)
       data = { "type" => "stamp" }.merge(to_h.transform_keys(&:to_s))
       data.delete("list") unless list
+      data.delete("after_revocation") unless after_revocation
       data["example"] = example.to_json_object if example
       JSON.generate(data)
     end
@@ -95,11 +104,36 @@ module Hallmark
     end
   end
 
+  # An allow made after a revocation whose roles, as the mapping's
+  # `roles_in:` read them, still held a revoked role (phase 3 step 9): the
+  # reader may go through a cache the revocation did not clear, or another
+  # membership grants the role. Listed under coverage; no ids.
+  RevokedRoleRead = Struct.new(:entry_point, :policy, :rule, :resource, :roles, keyword_init: true) do
+    def to_s
+      "#{policy}##{rule} (#{resource}) at #{entry_point || "outside a request"}: still held #{roles.join(", ")}"
+    end
+
+    def to_json_line
+      JSON.generate({ "type" => "revoked_role_read", "entry_point" => entry_point, "policy" => policy,
+                      "rule" => rule, "resource" => resource, "roles" => roles })
+    end
+  end
+
+  # Why the test-mode revocations collector watched no membership (phase 3
+  # step 9): the mapping names no membership class or no `within:`, or the
+  # class does not load. Listed under coverage.
+  RevocationsUnwatched = Struct.new(:reason, keyword_init: true) do
+    def to_s = reason
+    def to_json_line = JSON.generate({ "type" => "revocations_unwatched", "reason" => reason })
+  end
+
   # The stamps of one run, read back from JSONL, with the hashed example
   # each stamp was first seen with when the collectors recorded ids, and
-  # the GraphQL requests whose two current tenants differed (`mismatches`).
+  # the GraphQL requests whose two current tenants differed (`mismatches`),
+  # and what the revocations collector noted (`revoked_reads`,
+  # `unwatched`).
   class StampSet
-    attr_reader :stamps, :unchecked, :routes, :examples, :mismatches
+    attr_reader :stamps, :unchecked, :routes, :examples, :mismatches, :revoked_reads, :unwatched
 
     # A JSONL file, or a directory of them (`tmp/hallmark`), in which case
     # every file of the latest run (the one with the most recently written
@@ -167,7 +201,9 @@ module Hallmark
         examples[event] ||= example(data["example"]) if event.is_a?(Stamp)
       end
       new(events["stamp"], events["unchecked"], events["route"], examples: examples.compact,
-                                                                 mismatches: events["context_mismatch"])
+                                                                 mismatches: events["context_mismatch"],
+                                                                 revoked_reads: events["revoked_role_read"],
+                                                                 unwatched: events["revocations_unwatched"])
     end
 
     # The event one parsed line holds; nil for a type this version does not know.
@@ -180,6 +216,9 @@ module Hallmark
         Route.new(entry_point: data.fetch("entry_point").to_s, verb: data["verb"].to_s, path: data["path"].to_s)
       when "context_mismatch"
         ContextMismatch.new(**data.slice(*ContextMismatch.members.map(&:to_s)).transform_keys(&:to_sym))
+      when "revoked_role_read"
+        RevokedRoleRead.new(**data.slice(*RevokedRoleRead.members.map(&:to_s)).transform_keys(&:to_sym))
+      when "revocations_unwatched" then RevocationsUnwatched.new(reason: data["reason"].to_s)
       end
     end
 
@@ -193,12 +232,15 @@ module Hallmark
       Example.new(user: data["user"], record: data["record"], tenant: data["tenant"])
     end
 
-    def initialize(stamps = [], unchecked = [], routes = [], examples: {}, mismatches: [])
+    def initialize(stamps = [], unchecked = [], routes = [], examples: {}, mismatches: [], revoked_reads: [],
+                   unwatched: [])
       @stamps = stamps.uniq
       @unchecked = unchecked.uniq
       @routes = routes.uniq
       @examples = examples
       @mismatches = mismatches.uniq
+      @revoked_reads = revoked_reads.uniq
+      @unwatched = unwatched.uniq
     end
   end
 end

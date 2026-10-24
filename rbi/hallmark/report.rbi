@@ -41,6 +41,10 @@ module Hallmark
     sig { returns(T::Array[Drift]) }
     attr_reader :drift
 
+    # Allows after a revocation that nothing else explains
+    sig { returns(T::Array[StaleAccess]) }
+    attr_reader :stale_access
+
     sig { returns(T.nilable(Coverage)) }
     attr_reader :coverage
 
@@ -55,6 +59,7 @@ module Hallmark
       @unknown = T.let(T.unsafe(nil), T::Array[Unknown])
       @unchecked = T.let(T.unsafe(nil), T::Array[String])
       @drift = T.let(T.unsafe(nil), T::Array[Drift])
+      @stale_access = T.let(T.unsafe(nil), T::Array[StaleAccess])
       @coverage = T.let(T.unsafe(nil), T.nilable(Coverage))
       @lints = T.let(T.unsafe(nil), T::Array[Extractor::DeclarativeTranslator::Lint])
     end
@@ -117,6 +122,12 @@ module Hallmark
     def drift_lines; end
 
     sig { returns(T::Array[String]) }
+    def stale_access_lines; end
+
+    sig { params(item: StaleAccess).returns(T::Array[String]) }
+    def self.stale_lines(item); end
+
+    sig { returns(T::Array[String]) }
     def field_lines; end
 
     sig { returns(T::Array[String]) }
@@ -160,6 +171,9 @@ module Hallmark
 
     sig { params(coverage: Coverage).returns(T::Hash[String, T::Array[String]]) }
     def route_lists(coverage); end
+
+    sig { params(coverage: Coverage).returns(T::Hash[String, T::Array[String]]) }
+    def revocation_lists(coverage); end
 
     sig { params(coverage: Coverage).returns(T::Array[String]) }
     def route_lines(coverage); end

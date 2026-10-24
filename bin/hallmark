@@ -180,6 +180,23 @@ def print_extracted(files)
   extractor.lists.each { |list| puts extracted_lines(list, "list ") }
   serializers = extractor.serializers
   puts serializer_lines(extractor, serializers) if serializers
+  role_reads = extractor.role_reads
+  puts role_read_lines(role_reads) if role_reads
+end
+
+# What the revocation lint read (phase 3 step 9): each start point and the
+# methods it walked, each cache found and what clears it, and the calls it
+# could not follow.
+def role_read_lines(role_reads)
+  lines = ["", "Role reads:"]
+  role_reads.starts.each do |start|
+    walked = start.walked.empty? ? "no method walked" : start.walked.join(", ")
+    lines << "#{start.label}: #{walked}"
+  end
+  lines << "Caches:" if role_reads.caches.any?
+  role_reads.caches.each { |cache| lines.push("  #{cache}", "    reached from #{cache.walked}") }
+  lines << "Not followed:" if role_reads.unread.any?
+  lines.concat(role_reads.unread.map { |unread| "  #{unread}" })
 end
 
 # The REST serializers read under the app root (phase 3 step 8): each one's

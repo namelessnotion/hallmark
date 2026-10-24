@@ -5,6 +5,9 @@
 # path differs from the gem name or whose Rails parts load only under Rails.
 require "rails"
 require "action_controller/railtie"
+# The revocations collector's after_commit and TestFixtures (phase 3 step 9).
+require "active_record"
+require "active_record/fixtures"
 require "action_policy"
 require "action_policy/rails/controller"
 require "action_policy/rails/authorizer"

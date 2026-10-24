@@ -85,9 +85,12 @@ module Hallmark
       sig { returns(T.nilable(Facts)) }
       attr_reader :facts
 
-      sig { params(mapping: T.nilable(Mapping), store: StampStore, sample_rate: Numeric).returns(T.self_type) }
+      sig do
+        params(mapping: T.nilable(Mapping), store: StampStore, sample_rate: Numeric, revocations: T::Boolean)
+          .returns(T.self_type)
+      end
       def install!(mapping: Hallmark.configuration.mapping, store: StampStore.new(Hallmark.configuration.stamps),
-                   sample_rate: 1.0); end
+                   sample_rate: 1.0, revocations: false); end
 
       sig { void }
       def uninstall!; end
@@ -123,6 +126,7 @@ module Hallmark
 
       sig { params(mismatch: ContextMismatch).void }
       def context_mismatch!(mismatch); end
+
 
       # Returns what the block returns: a decision, or a library's result object.
       sig do
@@ -164,14 +168,24 @@ module Hallmark
 
       sig { void }
       def install_policy_libraries; end
+
+      sig do
+        params(mapping: Mapping, store: StampStore, revocations: T::Boolean).returns(T.nilable(Revocations::Noted))
+      end
+      def install_revocations(mapping, store, revocations); end
     end
 
     class Facts
       sig { returns(Mapping) }
       attr_reader :mapping
 
+      # The revocations collector's noted pairs, when it watches
+      sig { returns(T.nilable(Revocations::Noted)) }
+      attr_accessor :revoked
+
       sig { params(mapping: Mapping).void }
       def initialize(mapping)
+        @revoked = T.let(T.unsafe(nil), T.nilable(Revocations::Noted))
         @mapping = T.let(T.unsafe(nil), Mapping)
         @principal_classes = T.let(T.unsafe(nil), T::Hash[T::Module[T.anything], T::Boolean])
         @resources = T.let(T.unsafe(nil), T::Hash[T::Module[T.anything], T.any(Mapping::Resource, FalseClass)])
@@ -222,13 +236,33 @@ module Hallmark
 
       sig do
         params(stamp: Stamp, record: T.untyped, user: T.untyped, current: T.untyped, roles: T.nilable(Roles),
-               op: T.nilable(Symbol), outside: T::Array[String]).void
+               op: T.nilable(Symbol), outside: T::Array[String]).returns(T.untyped)
       end
       def record_facts(stamp, record, user, current, roles, op:, outside:); end
 
+      sig { params(stamp: Stamp, revoked: Revocations::Noted, user: T.untyped, tenant: T.untyped, current: T.untyped).void }
+      def mark(stamp, revoked, user, tenant, current); end
+
+      sig do
+        params(names: T.nilable(T::Array[String]), roles: T.nilable(T::Array[String]), lost: T::Array[String],
+               held: T::Array[String]).void
+      end
+      def split_revoked(names, roles, lost, held); end
+
+      sig do
+        params(stamp: Stamp, tenant: T.untyped, current: T.untyped).returns([T.nilable(String), T.nilable(String)])
+      end
+      def tenant_keys(stamp, tenant, current); end
+
+      sig do
+        params(stamp: Stamp, record: T.untyped, user: T.untyped, current: T.untyped, roles: T.nilable(Roles),
+               name: String, rule: String, list: T::Boolean, outside: T::Array[String]).returns(T.untyped)
+      end
+      def fill_record(stamp, record, user, current, roles, name:, rule:, list:, outside:); end
+
       sig do
         params(stamp: Stamp, resource: Mapping::Resource, record: T.untyped, user: T.untyped, current: T.untyped,
-               roles: T.nilable(Roles)).returns(T.nilable(T::Array[String]))
+               roles: T.nilable(Roles)).returns(T.untyped)
       end
       def tenant_facts(stamp, resource, record, user, current, roles:); end
 

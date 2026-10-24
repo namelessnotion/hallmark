@@ -32,6 +32,11 @@
 # decisions); below the table, what each field adds over the bare query,
 # with the tracer on, not sampled and off.
 #
+# The two revocation rows (phase 3 step 9) are the Pundit request with the
+# revocations collector's noted pairs in place: empty, as in every test
+# until a membership loses a role, then holding a revoked role for the
+# deciding user in the current seller, so each allow is checked and marked.
+#
 # Timed loops run with GC off, in batches with a full GC between them, so a
 # pause does not land on one call; allocations are reported instead.
 #
@@ -69,8 +74,9 @@ module HotPath
 
   # One rule call, and the shop mapping's current tenant for it (DeclarativePolicy
   # policies have no `seller`, so its scenarios read the session's); a
-  # GraphQL query also gives the number of fields it resolves.
-  Scenario = Struct.new(:name, :call, :current_tenant, :fields)
+  # GraphQL query also gives the number of fields it resolves, and a
+  # revocation row the noted pairs the collectors check allows against.
+  Scenario = Struct.new(:name, :call, :current_tenant, :fields, :revoked)
 
   # Times per state (`:bare` and STATES), readers' times in the `on` state,
   # and allocations per call per state.
@@ -125,6 +131,7 @@ module HotPath
         results = scenarios.zip(bare).map do |scenario, (bare_times, bare_allocs)|
           mapping = Shop.map(Hallmark::Mapping.new, current_tenant: scenario.current_tenant)
           Hallmark::Collectors.install!(mapping: mapping, store: store)
+          Hallmark::Collectors.facts&.revoked = scenario.revoked&.call
           measure_installed(scenario, bare_times, bare_allocs)
         end
         Hallmark::Collectors.uninstall!
@@ -137,6 +144,8 @@ module HotPath
     def build_scenarios
       seller = Shop::User.new("sam")
       member = Shop::User.new("ann")
+      # Ids, so the revocation rows can name the user and the seller.
+      { seller => 1, member => 2 }.each { |user, id| user.define_singleton_method(:id) { id } }
       Shop.memberships[[member, seller]] = ["admin"]
       link = Shop::Link.new(seller)
       GraphqlShop.links["1"] = link
@@ -157,6 +166,7 @@ module HotPath
         Scenario.new("Pundit request (controller)", lambda {
           Shop.request(PunditShop::LinksController, :edit, user: member, seller: seller, link: link)
         }, :seller),
+        *revocation_scenarios(member, seller, link),
         # A list scope (phase 3 step 7): the call and three of the four
         # records it lists, read when the action loads them.
         Scenario.new("Pundit list in a request", lambda {
@@ -177,6 +187,21 @@ module HotPath
         graphql_scenario("GraphQL query, no decision", Api::QUIET, 31, session),
         graphql_scenario("GraphQL query, 2 decisions", Api::DECIDING, 33, session)
       ]
+    end
+
+    # The Pundit request with no revocation noted, then with one for the
+    # deciding user in the current seller.
+    def revocation_scenarios(member, seller, link)
+      require "hallmark/collectors/revocations"
+      noted = Hallmark::Collectors::Revocations
+      request = -> { Shop.request(PunditShop::LinksController, :edit, user: member, seller: seller, link: link) }
+      revoked = lambda do
+        pairs = noted::Noted.new
+        pairs.update(noted.ref(member), noted.ref(seller), removed: ["marketing"], held: [])
+        pairs
+      end
+      [Scenario.new("Pundit request, revocations, none", request, :seller, nil, -> { noted::Noted.new }),
+       Scenario.new("Pundit request, revocation noted", request, :seller, nil, revoked)]
     end
 
     def graphql_scenario(name, document, fields, session)

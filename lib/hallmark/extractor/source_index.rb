@@ -82,6 +82,13 @@ module Hallmark
         @ancestors.clear
       end
 
+      # Parses one more file into the index, for an index read lazily (the
+      # revocation lint's models, `RoleReads`): ancestors are computed again.
+      def add_file(path)
+        index_file(path)
+        @ancestors.clear
+      end
+
       # The class or module's ancestors inside the app, nearest first: the
       # scope itself, its included modules (last included first), then its
       # superclass's. Memoized: the index does not change once built.
@@ -92,7 +99,7 @@ module Hallmark
         return [] if scope.nil? || seen.include?(name)
 
         seen << name
-        modules = scope.includes.reverse.filter_map { |included| resolve(included, scope.namespace) }
+        modules = scope.includes.reverse.filter_map { |included| resolve_mixin(included, scope) }
         prepended = prepended_modules(scope)
         parent = parent_of(scope)
         [*prepended.flat_map { |mod| collect_ancestors(mod, seen) }, name,
@@ -103,7 +110,14 @@ module Hallmark
       # The modules prepended to a scope that the app defines: EE modules by
       # their full name, `prepend X` resolved as Ruby would.
       def prepended_modules(scope)
-        scope.prepends.filter_map { |mod| @scopes.key?(mod) ? mod : resolve(mod, scope.namespace) }
+        scope.prepends.filter_map { |mod| @scopes.key?(mod) ? mod : resolve_mixin(mod, scope) }
+      end
+
+      # A module a class body includes or prepends: as written in the
+      # class's namespace, else inside the class itself, where Ruby also
+      # looks (`include Team` in `class User` finds `User::Team`).
+      def resolve_mixin(name, scope)
+        resolve(name, scope.namespace) || (resolve(name, scope.name.split("::")) unless name.start_with?("::"))
       end
 
       # Whether the class inherits, at some depth, from Action Policy's base.

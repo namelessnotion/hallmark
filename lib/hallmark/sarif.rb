@@ -7,11 +7,13 @@ require "json"
 module Hallmark
   # A SARIF 2.1.0 log of what fails `hallmark check` (phase 2 step 5), for
   # code scanning: counterexamples, unchecked entry points (threat 10),
-  # drift and DeclarativePolicy hazards. Coverage is left out; it is not a
+  # drift, stale access after revocation (threat 9) and hazards
+  # (DeclarativePolicy's, GraphQL's and the revocation lint's). Coverage is left out; it is not a
   # finding. Each result points at the source lines behind it, relative to
   # the app root: a counterexample at the entry point's authorize call or
   # Grape endpoint, then the rules' code; an unchecked entry point at its
-  # action; drift at the rule; a hazard at its condition or rule. A result
+  # action; drift at the rule; stale access at the rule, else the entry
+  # point; a hazard at its condition, rule or cached read. A result
   # with no line in the app's code (a hand-declared exposure) points at
   # `fallback`, the mapping file. `partialFingerprints` keep a result's
   # identity across runs.
@@ -31,7 +33,7 @@ module Hallmark
     end
 
     # The rules, in the order the log lists them.
-    def self.rules = core_rules + graphql_rules
+    def self.rules = core_rules + graphql_rules + revocation_rules
 
     def self.core_rules
       [
@@ -65,6 +67,20 @@ module Hallmark
       ]
     end
 
+    def self.revocation_rules
+      [
+        Rule.new(id: "hallmark/stale", short: "Allowed after a role was revoked, explained by nothing else",
+                 help: "A test allowed a user after one of their roles was revoked, and neither the rule's code nor " \
+                       "any other allow-stamp allows what they still held: an allow outlived the role behind it, " \
+                       "often through a role read cached across requests."),
+        Rule.new(id: "hallmark/R1", short: "Role read cached across requests and never cleared",
+                 help: "A role read on a reader's, term's or rule's path goes through Rails.cache, the session or " \
+                       "cookies, token claims or a class-level memo, and no callback on the membership, user or " \
+                       "tenant class clears it, so a revoked role keeps working. Clear it in a callback, or " \
+                       "declare `cache_ok` with a reason.")
+      ]
+    end
+
     def initialize(reports, fallback: nil)
       @reports = reports
       @fallback = fallback
@@ -89,8 +105,9 @@ module Hallmark
       findings = report.findings.map { |finding| finding_result(finding) }
       unchecked = report.unchecked.map { |entry_point| unchecked_result(report, entry_point) }
       drift = report.drift.map { |item| drift_result(item) }
+      stale = report.stale_access.map { |item| stale_result(report, item) }
       lints = report.lints.map { |lint| result("hallmark/#{lint.kind}", lint.message, [lint.location], lint.to_s) }
-      findings + unchecked + drift + lints
+      findings + unchecked + drift + stale + lints
     end
 
     def finding_result(finding)
@@ -114,6 +131,14 @@ module Hallmark
     def drift_result(item)
       text = Report.drift_lines(item).map(&:strip).join(" ").delete_prefix("DRIFT ")
       result("hallmark/drift", text, [item.location], item.key)
+    end
+
+    # At the rule's code, else the first entry point's action.
+    def stale_result(report, item)
+      text = Report.stale_lines(item).first(2).map(&:strip).join(" ").delete_prefix("STALE ")
+      first = item.seen.first
+      location = item.location || (first && report.extractor&.controllers&.action_location(first))
+      result("hallmark/stale", "#{text}.", [location].compact, item.key)
     end
 
     # A result at the first location, the rest related.

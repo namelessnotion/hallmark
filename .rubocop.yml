@@ -40,10 +40,12 @@ Metrics/AbcSize:
 # passed 255 with `graphql_type` and the GraphQL checks' section (phase 3
 # step 5, the same day), and 260 with `lists:` and the list checks' tenant
 # conjunct (phase 3 step 7, Oct 22, 2026), and Mapping 275 with
-# `serializer` (phase 3 step 8, the same day). The GraphQL schema reader is
-# one reading of graphql-ruby's DSL, left out like the other readers.
+# `serializer` (phase 3 step 8, the same day) and 285 with the revocations
+# collector's `tenant` options and `cache_ok` (phase 3 step 9, Oct 23,
+# 2026). The GraphQL schema reader is one reading of graphql-ruby's DSL,
+# left out like the other readers.
 Metrics/ClassLength:
-  Max: 275
+  Max: 285
   Exclude: ["test/**/*", "lib/hallmark/extractor/source_index.rb", "lib/hallmark/extractor/method_translator.rb",
             "lib/hallmark/extractor/controllers.rb", "lib/hallmark/extractor/declarative_translator.rb",
             "lib/hallmark/extractor/routes_file.rb", "lib/hallmark/extractor/graphql_schema.rb"]
@@ -60,10 +62,12 @@ Metrics/CyclomaticComplexity:
 # observe, decision, the request in progress); they passed 100 lines with
 # sampling (phase 3 step 1, Oct 21, 2026) and 120 with entry points named on
 # demand, the request's host and a second library group, for GraphQL (phase
-# 3 step 6, the same day). bench/ is one script that sets up scenarios and
-# prints a table; it is left out of the size limits like the tests.
+# 3 step 6, the same day), and 150 with the revocations collector's install
+# (phase 3 step 9, Oct 23, 2026). bench/ is one script that sets up
+# scenarios and prints a table; it is left out of the size limits like the
+# tests.
 Metrics/ModuleLength:
-  Max: 145
+  Max: 150
   Exclude: ["bench/**/*"]
 
 # An analysis block (`Hallmark.analyze`) is a mapping and its exposures,
@@ -82,6 +86,11 @@ Metrics/ParameterLists:
 # Tests assert several facts about one generated model or report.
 Minitest/MultipleAssertions:
   Max: 6
+
+# A child process's Minitest run (test/revocations_test.rb), named so that
+# the test task does not run it in its own process.
+Minitest/TestFileName:
+  Exclude: ["test/support/revocation_fixtures_run.rb"]
 
 # Tests keep a setup line next to the assertion it feeds.
 Minitest/EmptyLineBeforeAssertionMethods:

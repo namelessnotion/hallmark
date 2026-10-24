@@ -25,9 +25,13 @@ end
 group :test do
   gem "actionpack", "~> 8.0"
   gem "action_policy", "~> 0.7"
+  # The revocations collector's after_commit and transactional tests (phase 3
+  # step 9); sqlite3 2.x installs precompiled, so CI needs no compiler.
+  gem "activerecord", "~> 8.0"
   gem "declarative_policy", "~> 2.0"
   gem "grape", "~> 2.0"
   gem "graphql", "~> 2.4"
   gem "pundit", "~> 2.4"
   gem "railties", "~> 8.0"
+  gem "sqlite3", "~> 2.0"
 end

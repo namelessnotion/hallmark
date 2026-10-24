@@ -223,6 +223,9 @@ module Hallmark
         @ancestors = T.let(T.unsafe(nil), T::Hash[String, T::Array[String]])
       end
 
+      sig { params(path: String).void }
+      def add_file(path); end
+
       sig { params(name: String).returns(T::Array[String]) }
       def ancestors(name); end
 
@@ -231,6 +234,9 @@ module Hallmark
 
       sig { params(scope: Scope).returns(T::Array[String]) }
       def prepended_modules(scope); end
+
+      sig { params(name: String, scope: Scope).returns(T.nilable(String)) }
+      def resolve_mixin(name, scope); end
 
       sig { params(name: String).returns(T::Boolean) }
       def action_policy?(name); end

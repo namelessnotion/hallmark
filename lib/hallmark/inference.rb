@@ -45,6 +45,12 @@ module Hallmark
   # an entry point's rendering shows that has a field policy, or that a
   # restriction names, is a field exposure on that entry point, after the
   # entry points' own exposures and before the GraphQL checks.
+  #
+  # Record-level allows the revocations collector marked `after_revocation`
+  # (phase 3 step 9) are set aside before any unit is built: they feed no
+  # guard, no coverage region and no drift, but still reach their entry
+  # point and count as its checks. Each is judged against its unit's guard
+  # (`StaleAccess`); one nothing else explains fails the report.
   class Inference
     include Guard::DSL
 
@@ -67,27 +73,44 @@ module Hallmark
       end
     end
 
-    attr_reader :units, :exposures, :coverage, :unchecked, :drift, :extractor, :ops, :stamp_set, :graphql
+    attr_reader :units, :exposures, :coverage, :unchecked, :drift, :extractor, :ops, :stamp_set, :graphql,
+                :stale_access
 
     def initialize(mapping, stamp_set, extractor: nil)
       @mapping = mapping
       @stamp_set = stamp_set
       @stamps = stamp_set.stamps
-      @list_stamps, @rule_stamps = @stamps.partition(&:list)
+      kept = without_revoked(@stamps)
+      @list_stamps, @rule_stamps = kept.partition(&:list)
       @routes = stamp_set.routes
       @reached = (@stamps.filter_map(&:entry_point) + stamp_set.unchecked.map(&:entry_point)).uniq
       @extractor = extractor
       @ops = Ops.new(mapping, stamps: @rule_stamps, routes: @routes.empty? ? extractor&.routes || [] : @routes,
                               controllers: extractor&.controllers)
-      @coverage = Coverage.new(mapping, @stamps, mismatches: stamp_set.mismatches)
+      @coverage = Coverage.new(mapping, kept, mismatches: stamp_set.mismatches)
       @units = all_units
       @serializer_notes = nil
       @exposures = build_exposures
       @drift = Drift.find(mapping, @units)
+      @stale_access = judge_revocations
       @unchecked = UncheckedRequests.new(mapping, @stamps, extractor, @coverage).failing(stamp_set.unchecked)
     end
 
     private
+
+    # Keeps record-level allows marked after a revocation (`@set_aside`)
+    # out of the stamps the units are built from; returns the rest.
+    def without_revoked(stamps)
+      @set_aside, kept = stamps.partition { |stamp| stamp.after_revocation && !stamp.class_level }
+      kept
+    end
+
+    # The stale access among the set-aside stamps, and what the collector
+    # and the revocation lint add to coverage.
+    def judge_revocations
+      @coverage.observe_revocations(@stamp_set, @extractor&.role_reads)
+      StaleAccess.judge(@mapping, @set_aside, @units, @coverage)
+    end
 
     # Rules from stamps, rules read from code that no stamp shows, and
     # list scopes (inference_lists.rb), in key order.

@@ -60,6 +60,8 @@ module Hallmark
       @routes = nil
       @serializers = nil
       @serializers_read = false
+      @role_reads = nil
+      @role_reads_read = false
     end
 
     # The app's controllers, read on first use (`Controllers`).
@@ -158,8 +160,25 @@ module Hallmark
       @list_cache[key] = read_list(policy, rule, resource)
     end
 
-    # DeclarativePolicy hazards (D3, D4) found in the abilities read so far.
-    def lints = @declarative.lints
+    # The revocation lint's reading of role reads (phase 3 step 9,
+    # `RoleReads`), on first use, from every rule read; nil when nothing
+    # gives it a start point (no role reader, `term` or rule).
+    def role_reads
+      return @role_reads if @role_reads_read
+
+      @role_reads_read = true
+      read = rules
+      tenancy = @mapping.tenancy
+      starts = @mapping.principal_roles || tenancy&.roles_in || @mapping.terms.any? || read.any?
+      @role_reads = starts ? RoleReads.new(@mapping, @root, policies: @index, rules: read) : nil
+    end
+
+    # DeclarativePolicy hazards (D3, D4) found in the abilities read so
+    # far, and the revocation lint's (R1), which reads every rule first.
+    def lints
+      revocation = role_reads&.lints || []
+      @declarative.lints + revocation
+    end
 
     # One rule, also one a policy answers only through Action Policy's
     # default rule; nil when the code has no such policy or rule.
@@ -300,3 +319,4 @@ require_relative "extractor/grape_presents"
 require_relative "extractor/routes_file"
 require_relative "extractor/graphql_schema"
 require_relative "extractor/serializers"
+require_relative "extractor/role_reads"

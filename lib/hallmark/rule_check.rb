@@ -15,7 +15,9 @@ module Hallmark
   #
   # A rule's drift (`Drift`: stamps its code, as the extractor read it,
   # contradicts) rides on its result whatever the verdict, since the guard
-  # checked was built on a reading the stamps disagree with.
+  # checked was built on a reading the stamps disagree with; so does its
+  # stale access (`StaleAccess`: an allow after a revocation that nothing
+  # else explains).
   #
   #   check = Hallmark::RuleCheck.new(mapping, Hallmark::StampSet.load("tmp/hallmark"))
   #   check.check("LinkPolicy", ["update?"]).each { |result| puts result.lines }
@@ -24,23 +26,27 @@ module Hallmark
     # (with `finding`), :none (no counterexample within scope), :unknown (the
     # solver gave no verdict; `reason` says why) or :not_observed (nothing to
     # check; `reason` says why). `exposure` is nil only when not observed.
-    # `drift` is the rule's drift on that kind of record (nil for none).
+    # `drift` is the rule's drift on that kind of record (nil for none), and
+    # `stale` its stale access there.
     #
     # `question` is, for a list scope, what coverage would ask about it
     # (`ListScope.question`): it may show another tenant's records.
-    Result = Struct.new(:policy, :rule, :exposure, :verdict, :finding, :reason, :drift, :question,
+    Result = Struct.new(:policy, :rule, :exposure, :verdict, :finding, :reason, :drift, :question, :stale,
                         keyword_init: true) do
       def key = "#{policy}##{rule}"
       def counterexample? = verdict == :counterexample
       def none? = verdict == :none
       def drifts = drift || []
       def drift? = drifts.any?
+      def stales = stale || []
+      def stale? = stales.any?
 
       # The rule as `hallmark check` would print it: its verdict, then its
-      # drift.
+      # drift and stale access.
       def lines
         asked = question
-        verdict_lines + (asked ? ["      #{asked}"] : []) + drifts.flat_map { |item| Report.drift_lines(item) }
+        verdict_lines + (asked ? ["      #{asked}"] : []) + drifts.flat_map { |item| Report.drift_lines(item) } +
+          stales.flat_map { |item| Report.stale_lines(item) }
       end
 
       private
@@ -64,6 +70,7 @@ module Hallmark
       inference = Inference.new(mapping, stamps, extractor: extractor)
       @units = inference.units
       @drift = inference.drift
+      @stale = inference.stale_access
       @ops = inference.ops
     end
 
@@ -117,8 +124,8 @@ module Hallmark
     end
 
     def from_unit(unit)
-      drift = @drift.select { |item| item.rule == unit.key && item.resource == unit.resource }
-      result = Result.new(policy: unit.policy, rule: unit.rule, drift: drift)
+      result = Result.new(policy: unit.policy, rule: unit.rule, drift: of_unit(@drift, unit),
+                          stale: of_unit(@stale, unit))
       guard = unit.guard
       unless guard
         result.verdict = :not_observed
@@ -137,6 +144,9 @@ module Hallmark
       end
       result
     end
+
+    # The drift or stale access of one unit: its rule on its resource.
+    def of_unit(items, unit) = items.select { |item| item.rule == unit.key && item.resource == unit.resource }
 
     def from_rule(rule, guard)
       resource = rule.resource || convention(rule)

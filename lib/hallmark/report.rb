@@ -7,7 +7,8 @@ module Hallmark
   # gave no verdict for (unknown: out of time or memory), and, when the
   # exposures came from stamps, the entry points that ran with no
   # authorization call (threat 10), the stamps the rule's code contradicts
-  # (drift) and what the stamps did not cover.
+  # (drift), the allows after a revocation that nothing else explains
+  # (stale access, threat 9) and what the stamps did not cover.
   class Report
     # Not-observed combinations printed per rule; the rest are counted.
     COMBINATIONS_SHOWN = 8
@@ -16,10 +17,10 @@ module Hallmark
     # An exposure the solver gave no verdict for, and why.
     Unknown = Struct.new(:exposure, :reason)
 
-    attr_reader :analysis, :findings, :verified, :unknown, :unchecked, :drift, :coverage, :lints
+    attr_reader :analysis, :findings, :verified, :unknown, :unchecked, :drift, :stale_access, :coverage, :lints
 
     # Exit status for several reports: 1 on any counterexample, unchecked
-    # entry point or drift, else 2 on any unknown, else 0.
+    # entry point, drift, stale access or lint, else 2 on any unknown, else 0.
     def self.exit_code(reports)
       codes = reports.map(&:exit_code)
       codes.include?(1) ? 1 : codes.max || 0
@@ -33,6 +34,7 @@ module Hallmark
       inference = analysis.inference
       @unchecked = inference ? inference.unchecked : []
       @drift = inference ? inference.drift : []
+      @stale_access = inference ? inference.stale_access : []
       @lints = Report.lints_of(analysis)
       @coverage = inference&.coverage
       analysis.exposures.each { |exposure| read(exposure, receipt) }
@@ -42,12 +44,14 @@ module Hallmark
     # request the app served with no authorization at all. So does drift,
     # since the guards checked may not be the app's, and so does a
     # DeclarativePolicy hazard (D3, D4), whose policy does not mean what it
-    # reads as. An unknown is not a failure, but it is not clean either.
+    # reads as, and stale access and a revocation hazard (R1), an allow that
+    # outlived the role behind it. An unknown is not a failure, but it is not
+    # clean either.
     # The extractor the analysis's guards were read with, if any; SARIF
     # finds an unchecked entry point's action through it.
     def extractor = analysis.inference&.extractor
 
-    def failed? = findings.any? || unchecked.any? || drift.any? || lints.any?
+    def failed? = findings.any? || unchecked.any? || drift.any? || stale_access.any? || lints.any?
     def clean? = !failed? && unknown.empty?
 
     def exit_code
@@ -66,6 +70,7 @@ module Hallmark
       lines.concat(unknown_lines)
       verified.each { |exposure| lines << Report.ok_line(exposure) }
       lines.concat(drift_lines)
+      lines.concat(stale_access_lines)
       lints.each { |lint| lines << "FAIL  #{lint} (#{Report.hazard(lint)})" }
       lines << ""
       lines << summary
@@ -122,9 +127,13 @@ module Hallmark
                               "#{checks.map(&:check_name).join(", ")}")
     end
 
-    # What kind of hazard a lint is: DeclarativePolicy's D3 and D4, or
-    # GraphQL's G4 and G5.
-    def self.hazard(lint) = lint.kind.start_with?("G") ? "GraphQL hazard" : "policy-DSL hazard"
+    # What kind of hazard a lint is: DeclarativePolicy's D3 and D4,
+    # GraphQL's G4 and G5, or the revocation lint's R1.
+    def self.hazard(lint)
+      return "GraphQL hazard" if lint.kind.start_with?("G")
+
+      lint.kind.start_with?("R") ? "revocation hazard" : "policy-DSL hazard"
+    end
 
     def finding_lines(finding) = Report.finding_lines(finding)
 
@@ -140,6 +149,7 @@ module Hallmark
       out = [verdicts(total)].compact
       out << count(unchecked.size, "unchecked entry point") if unchecked.any?
       out << "#{count(drift.size, "drifting decision")} (stamps the rule's code contradicts)" if drift.any?
+      out << "#{count(stale_access.size, "stale allow")} after revocation" if stale_access.any?
       lints.group_by { |lint| Report.hazard(lint) }.each { |kind, found| out << count(found.size, kind) }
       out << unknown_summary(total) if unknown.any?
       out
@@ -149,7 +159,7 @@ module Hallmark
     # next to an unknown, which is not one.
     def verdicts(total)
       return "#{count(findings.size, "counterexample")} in #{count(total, "check")}" if findings.any?
-      return nil unless unknown.empty? && (unchecked.any? || drift.any? || lints.any?)
+      return nil unless unknown.empty? && (unchecked.any? || drift.any? || stale_access.any? || lints.any?)
 
       "No counterexamples in #{count(total, "check")}"
     end
@@ -174,6 +184,25 @@ module Hallmark
       ["DRIFT #{item.rule} (#{item.resource}) at #{item.location}: #{claim}",
        "      facts: #{item.facts}",
        "      stamped at: #{item.seen.join(", ")}"]
+    end
+
+    # The stale access section: each allow after a revocation that neither
+    # the rule's code nor another allow-stamp explains.
+    def stale_access_lines
+      return [] if stale_access.empty?
+
+      lines = ["", "Stale access after revocation (allows after the user lost a role that nothing else explains):"]
+      stale_access.each { |item| lines.concat(Report.stale_lines(item)) }
+      lines
+    end
+
+    def self.stale_lines(item)
+      at = " at #{item.location}" if item.location
+      ["STALE #{item.rule} (#{item.resource})#{at}: allowed after the user lost #{item.revoked.join(", ")} in " \
+       "#{item.tenant}, but neither its code nor any other allow-stamp allows #{item.facts}",
+       "      stamped at: #{item.seen.join(", ")}",
+       "      look for a role read cached across requests (the R1 lints, or `hallmark extract`'s role reads), " \
+       "or a rule no test exercised with these facts"]
     end
 
     def unknown_lines = unknown.map { |item| Report.unknown_line(item.exposure, item.reason) }
@@ -247,13 +276,27 @@ module Hallmark
         "Lists with no record observed and no scope read from code (nothing to check)" => coverage.lists_unobserved,
         "Lists that may show other tenants' records (declare `lists: :current_tenant` on the resource if they " \
         "should not)" => coverage.cross_tenant_lists
+      }.merge(revocation_lists(coverage))
+    end
+
+    # Revocation's coverage lists (phase 3 step 9).
+    def revocation_lists(coverage)
+      {
+        "Allows after a revocation that other access explains" => coverage.stale_explained,
+        "Allows after a revocation Hallmark could not judge" => coverage.stale_unjudged,
+        "Decisions after a revocation whose roles, as `roles_in:` read them, still held the revoked role" =>
+          coverage.revoked_reads,
+        "Revocations not watched" => coverage.unwatched,
+        "Role reads cached on purpose (`cache_ok`)" => coverage.caches_accepted
       }
     end
 
-    # Routes no test reached, which can be many in a whole app: each list
-    # shows its first ROUTES_SHOWN names and counts the rest.
+    # Routes no test reached, which can be many in a whole app, and the
+    # calls the revocation lint could not follow: each list shows its first
+    # ROUTES_SHOWN names and counts the rest.
     def route_lists(coverage)
       {
+        "Role reads the revocation lint could not follow" => coverage.role_reads_unread,
         "Routes no test reached whose code authorizes a record Hallmark could not resolve to a rule" =>
           coverage.routes_unresolved,
         "Routes no test reached with no authorization call in the code Hallmark reads" =>

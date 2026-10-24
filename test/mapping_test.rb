@@ -230,4 +230,16 @@ class MappingTest < Minitest::Test
     assert_equal %w[Link Shop], second.mapping.resources.keys
     assert_equal ["Link"], Hallmark.configuration.mapping.resources.keys
   end
+
+  # For the revocations collector (phase 3 step 9).
+  def test_tenant_takes_the_revocation_options
+    names = ->(level) { level == 30 ? "developer" : "guest" }
+    mapping = Hallmark::Mapping.new
+    mapping.tenant "Group", membership: "Member", member: :user, roles: :access_level, within: :source,
+                            soft_delete: :deleted_at, role_names: names
+    tenancy = mapping.tenancy
+
+    assert_equal [:source, :deleted_at, names], [tenancy.within, tenancy.soft_delete, tenancy.role_names]
+    assert_raises(Hallmark::ConfigurationError) { Hallmark::Mapping.new.tenant("Group", role_names: "developer") }
+  end
 end

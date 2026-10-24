@@ -30,8 +30,9 @@ two false-positive sources (op errors, two catalog gaps) were fixed Oct 21,
 2026 (Phase 2 step 7 below). Phase 3 steps 1 (hot path and benchmark),
 2 (live modes, sinks, hashed ids), 3 (baseline and `hallmark watch`),
 4 (field policies and restrictions), 6 (GraphQL runtime tracing, ahead
-of step 5) and 5 (GraphQL schema walk) were done Oct 21, 2026, and steps 7 (list scopes)
-and 8 (REST serializer fields) on Oct 22, 2026. The phase 1 gate's record is in
+of step 5) and 5 (GraphQL schema walk) were done Oct 21, 2026, steps 7 (list scopes)
+and 8 (REST serializer fields) on Oct 22, 2026, and step 9 (revocation, narrow) on
+Oct 24, 2026. The phase 1 gate's record is in
 "Phase 1 (core gem): the gate" below. The first real-app run (original Gumroad on Pundit, Oct 16, 2026, not
 a gate app) is in "First run on original Gumroad" below. Gate runs so far:
 GitLab (DeclarativePolicy, Oct 17, 2026) and Forem (Pundit, Oct 18, 2026),
@@ -314,11 +315,43 @@ Built:
   prints serializers and renderings. `examples/rest_shop`. Nested mapped
   records, Jbuilder and other renderers are coverage only (decided Oct 22,
   2026). `docs/PLAN.md` ("The shipped serializer fields").
+- Revocation, narrow (phase 3 step 9, Oct 24, 2026; threat 9;
+  `extractor/role_reads.rb` and `role_reads/{starts,caches,clearing,delegation}.rb`,
+  `collectors/revocations.rb`, `stale_access.rb`): the R1 lint,
+  `Extractor#role_reads`, walks call graphs (not guards) from the mapping's
+  role readers (a lambda read where it is written), its `term`s and the
+  rules and DeclarativePolicy conditions read, through the user, the
+  tenant, `self`, `belongs_to` associations, class methods and `delegate`,
+  4 calls deep, over model files read lazily by Zeitwerk's naming
+  (`app/models`, concerns, `ee/`), to `Rails.cache` reads, the session or
+  cookies, token claims and class-level memos of a parameter; a membership,
+  principal or tenant callback (`after_commit` and kin, `after_add:` and
+  `after_remove:`, Rolify's `rolify`) deleting the same key template, a
+  `touch: true` toward a versioned key, or a memo reset clears one; an
+  uncleared one is a Lint of kind R1 that fails the check (SARIF
+  `hallmark/R1`) unless `cache_ok "Class#method", reason:` accepts it.
+  `hallmark extract` prints "Role reads". The test-mode collector
+  (`Collectors.install!(revocations:)`, the Railtie in test mode only;
+  `tenant ..., within:, soft_delete:, role_names:`) adds an `after_commit`
+  to the membership class, notes in process memory the roles a user lost
+  in a tenant (from the committed row and foreign keys only), clears the
+  pairs before each example (`ActiveRecord::TestFixtures#before_setup`)
+  and the request's role reads on each commit, and marks a later allow
+  whose fresh roles lack one `after_revocation` (role names; a revoked role
+  still held is a `revoked_role_read` line). Inference sets marked stamps
+  aside (no guard, coverage region or drift; they still reach their entry
+  point) and `StaleAccess` judges each against the unit's guard: false is
+  "Stale access after revocation", which fails the check (SARIF
+  `hallmark/stale`, baseline `"stale"` keys, watch event `stale`,
+  `RuleCheck::Result#stale`, the matchers); explained and unjudged ones go
+  to coverage. `examples/revocation_shop` (Active Record on SQLite, Pundit,
+  `scenario.rb`). `docs/PLAN.md` ("The shipped revocation").
 
 Not built yet, but designed and validated as hand-written models in
 `research/models` (see its README for each check's expected result):
-tenancy flaws M4 and M6 (invitations, Rolify grants),
-stale access after revocation, role-configuration checks.
+tenancy flaws M4 and M6 (invitations, Rolify grants), role-configuration
+checks. Revocation shipped narrowly (above); `revocation.als` stays a
+research model.
 
 Parts of the `docs/PLAN.md` "Ruby API sketch" are still design only:
 `role_hierarchy` and `conflicts` (`c.solver` is built, with `:cli` and
@@ -332,7 +365,7 @@ built, Oct 21, 2026).
 bundle install
 bin/hallmark install-alloy                 # Alloy 6.2.0 to ~/.cache/hallmark, SHA-256 verified; needs Java 17+
 bin/hallmark install-sidecar               # also builds the sidecar jar (javac + jar from a JDK 17+); no extra download
-bundle exec rake test                      # 548 tests; the 39 integration tests skip without the jar or sidecar
+bundle exec rake test                      # 611 tests; the 41 integration tests skip without the jar or sidecar
 bundle exec rake bench                     # what the collectors add per decision (p50, p99, objects); about 2 min
 bundle exec rubocop                        # lint
 bundle exec srb tc                         # type-check lib/ against rbi/; `rake` runs tests, rubocop, then this
@@ -344,6 +377,10 @@ bin/hallmark check examples/graphql_shop/hallmark.rb    # exits 1 (G1 to G3 and 
 bin/hallmark check examples/graphql_shop/hallmark_fixed.rb
 bin/hallmark check examples/rest_shop/hallmark.rb       # exits 1 (a field policy and a restriction, from code alone)
 bin/hallmark check examples/rest_shop/hallmark_fixed.rb
+bundle exec ruby -Ilib examples/revocation_shop/scenario.rb           # boots the shop (Rails, SQLite), writes its tmp/hallmark
+bin/hallmark check examples/revocation_shop/hallmark.rb               # exits 1 (one R1 lint, one stale access, expected)
+bundle exec ruby -Ilib examples/revocation_shop/scenario.rb fixed     # also `soft_delete` (run "softdelete")
+bin/hallmark check examples/revocation_shop/hallmark_fixed.rb
 HALLMARK_SOLVER=sidecar bin/hallmark check examples/storefront/hallmark.rb   # same findings via the sidecar
 bundle exec rspec examples/storefront/link_policy_spec.rb   # the matchers, buggy and fixed; passes (sidecar if built)
 bin/hallmark model FILE                    # print the generated Alloy model; the fastest way to debug
@@ -352,7 +389,7 @@ bin/hallmark rules FILE [POLICY...]        # check each rule on its own, from co
 bin/hallmark check --sarif OUT FILE        # also write what fails as SARIF 2.1.0
 bin/hallmark check --baseline OUT FILE     # also write what CI knows (stamps, check digests, verdicts) for watch
 bin/hallmark watch --baseline B FILE       # tail live stamps, report what B lacks; --once, --json, --sarif, --redis URL
-bundle exec rake fixtures:regenerate       # refresh test/fixtures/{medium_clone,storefront,graphql_shop,rest_shop} from a real run
+bundle exec rake fixtures:regenerate       # refresh test/fixtures/{medium_clone,storefront,graphql_shop,rest_shop,revocation_shop} from a real run
 java -jar ~/.cache/hallmark/alloy-6.2.0.jar exec -c '*' research/models/tenancy.als
 ```
 
@@ -386,11 +423,14 @@ darwin/arm64), with either backend; the default is SAT4J, pure Java.
 ```text
 Test suite, Railtie installs collectors              lib/hallmark/railtie.rb, collectors.rb, collectors/*
   (GraphQL: GraphqlHook names field-path entry points, stamps types' authorized?)   collectors/graphql*.rb
+  (test mode: Revocations' after_commit notes lost roles; Facts#mark stamps after_revocation)   collectors/revocations.rb
   -> each decision: Collectors::Facts reads facts via the mapping -> Stamp
   -> StampStore: queue, flusher thread, tmp/hallmark/*.jsonl  stamp_store.rb, stamp.rb
 Hallmark.analyze block (`stamps` loads a StampSet: Inference builds the exposures and Coverage)
   + Extractor: app/policies parsed with Prism, rules as guards   extractor.rb, extractor/*
+    (R1: role reads walked into app/models, cached reads no callback clears)   extractor/role_reads*
   -> StampFacts reads each stamp as guard leaves: Inference's literals, Drift's evaluation   stamp_facts.rb, drift.rb
+     (after_revocation stamps set aside, judged by StaleAccess)   stale_access.rb
   + Ops: each rule's op from the mapping, its name, the routes' verbs   ops.rb, extractor/routes_file.rb
   + GraphqlSchema (app/graphql) -> GraphqlModel -> GraphqlChecks   extractor/graphql_schema.rb, graphql_model*.rb, graphql_check.rb
   + list scopes: scope bodies read (scope_reader.rb), list stamps -> list units -> list exposures   inference_lists.rb
@@ -552,8 +592,10 @@ the quantified variables named `p`, `r` and `cur`.
   constants.
 - A prepended hook module calls methods its host provides (`record`,
   `action_name`, `pundit_user`); declare those in the module's RBI.
-- The authorization libraries, Grape (added Oct 19, 2026), actionpack and
-  railties are test dependencies only (Gemfile `:test` group). `lib/hallmark/collectors.rb`
+- The authorization libraries, Grape (added Oct 19, 2026), actionpack,
+  railties, and activerecord and sqlite3 (added Oct 23, 2026, for the
+  revocations collector; sqlite3 2.x installs precompiled) are test
+  dependencies only (Gemfile `:test` group), never the gemspec. `lib/hallmark/collectors.rb`
   requires each hook file only when `defined?` finds its library, and
   `lib/hallmark.rb` requires the Railtie only when `Rails::Railtie` exists.
 - Collector tests use `test/support/shop.rb` (a Gumroad-shaped shop with the
@@ -716,6 +758,16 @@ phase, which stretches it to about 7 weeks. Steps, in order:
    (a later step), a mapping-error field finding counts for step 10's
    field item, and Jbuilder and other renderers wait for phase 4.
 9. Revocation, narrow: cached role reads lint; `after_revocation` stamps.
+   Done Oct 24, 2026: the revocation shop's cached team role found by the
+   R1 lint and as stale access, both gone with its fix, on both backends;
+   no R1 on the five gate apps, Forem's four role caches seen cleared
+   through Rolify's callbacks; GitLab's !257244/!258088 classified as
+   policy logic (M3's family) and reproduced through a restriction at
+   `7ce3a7d` and at the 2026 pre-fix commit, gone at !257244's merge (the
+   EE Grape endpoints are not read: a follow-up). Mappings and logs
+   private: `gitlab-7ce3a7d/step9/`, `{forem,hcb,mastodon}/step9/`,
+   `gumroad-b6c62aa/step9/`, logs "Phase 3 step 9". Decided by Anthony
+   Oct 23, 2026: the five questions in `docs/PLAN.md` "Phase 3 plan" step 9.
 10. Gate (proposed, Anthony decides): budget met on the shop and Gumroad;
     F9 from live traffic in shadow mode at upstream `f3ef06a69`, gone on
     the fix branch; a GitLab historical GraphQL fix found and cleared; one

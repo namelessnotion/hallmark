@@ -42,6 +42,16 @@ module Hallmark
       sig { returns(T::Array[Drift]) }
       def drifts; end
 
+      # The rule's stale access on this kind of record; nil or empty for none
+      sig { returns(T.nilable(T::Array[StaleAccess])) }
+      def stale; end
+
+      sig { returns(T::Array[StaleAccess]) }
+      def stales; end
+
+      sig { returns(T::Boolean) }
+      def stale?; end
+
       # For a list scope: it may show another tenant's records
       sig { returns(T.nilable(String)) }
       def question; end
@@ -52,10 +62,10 @@ module Hallmark
       sig do
         params(policy: String, rule: String, exposure: T.nilable(Exposure), verdict: T.nilable(Symbol),
                finding: T.nilable(Finding), reason: T.nilable(String), drift: T.nilable(T::Array[Drift]),
-               question: T.nilable(String)).void
+               question: T.nilable(String), stale: T.nilable(T::Array[StaleAccess])).void
       end
       def initialize(policy:, rule:, exposure: nil, verdict: nil, finding: nil, reason: nil, drift: nil,
-                     question: nil); end
+                     question: nil, stale: nil); end
 
       sig { returns(String) }
       def key; end
@@ -84,12 +94,19 @@ module Hallmark
     sig { returns(StampSet) }
     attr_reader :stamps
 
+    sig do
+      type_parameters(:Item).params(items: T::Array[T.all(T.type_parameter(:Item), T.any(Drift, StaleAccess))],
+                                    unit: Inference::Unit).returns(T::Array[T.type_parameter(:Item)])
+    end
+    def of_unit(items, unit); end
+
     sig { params(mapping: Mapping, stamps: StampSet, extractor: T.nilable(Extractor)).void }
     def initialize(mapping, stamps = StampSet.new, extractor: nil)
       @mapping = T.let(T.unsafe(nil), Mapping)
       @stamps = T.let(T.unsafe(nil), StampSet)
       @units = T.let(T.unsafe(nil), T::Array[Inference::Unit])
       @drift = T.let(T.unsafe(nil), T::Array[Drift])
+      @stale = T.let(T.unsafe(nil), T::Array[StaleAccess])
       @ops = T.let(T.unsafe(nil), Ops)
     end
 

@@ -130,6 +130,9 @@ module Hallmark
       DRIFT_NOTE = "Drift means a stamped decision contradicts the rule's code as Hallmark read it, so the guard " \
                    "checked is suspect: fix the `term` for the call it misreads (or report an extractor bug), or " \
                    "declare `rule POLICY, NAME, guard: ...` in the map block."
+      STALE_NOTE = "Stale access means an allow after the user lost a role that neither the rule's code nor any " \
+                   "other allow-stamp explains: look for a role read cached across requests (`hallmark extract`'s " \
+                   "role reads)."
 
       attr_reader :results
 
@@ -146,14 +149,14 @@ module Hallmark
 
       def matches?(actual)
         @results = run(actual)
-        @results.any? && @results.all?(&:none?) && !drift?
+        @results.any? && @results.all?(&:none?) && !drift? && !stale?
       end
 
-      # `not_to` passes only on a counterexample with no drift; an unknown or
-      # a rule with nothing to check fails it too.
+      # `not_to` passes only on a counterexample with no drift and no stale
+      # access; an unknown or a rule with nothing to check fails it too.
       def does_not_match?(actual)
         @results = run(actual)
-        @results.any?(&:counterexample?) && !drift?
+        @results.any?(&:counterexample?) && !drift? && !stale?
       end
 
       def failure_message
@@ -171,6 +174,7 @@ module Hallmark
       def expectation = "have no counterexample within scope #{scope}"
       def rule_names = nil
       def drift? = @results.any?(&:drift?)
+      def stale? = @results.any?(&:stale?)
 
       def run(actual)
         @policy = policy_name(actual)
@@ -205,7 +209,12 @@ module Hallmark
           number = @results.count { |result| result.verdict == verdict }
           "#{number} #{label(verdict, number)}" if number.positive?
         end
-        "#{counts.join(", ")} in #{@results.size} rule#{"s" unless @results.size == 1}#{drift_count}"
+        "#{counts.join(", ")} in #{@results.size} rule#{"s" unless @results.size == 1}#{drift_count}#{stale_count}"
+      end
+
+      def stale_count
+        stale = @results.sum { |result| result.stales.size }
+        stale.zero? ? "" : ", #{stale} stale allow#{"s" unless stale == 1} after revocation"
       end
 
       # Worded as `hallmark check`'s summary words it.
@@ -235,7 +244,7 @@ module Hallmark
                         .flat_map(&:lines)
         notes = { UNKNOWN_NOTE => verdicts.include?(:unknown),
                   NOT_OBSERVED_NOTE => verdicts.empty? || verdicts.include?(:not_observed),
-                  DRIFT_NOTE => drift? }
+                  DRIFT_NOTE => drift?, STALE_NOTE => stale? }
         notes.each { |note, due| lines << "" << note if due }
         lines.join("\n")
       end

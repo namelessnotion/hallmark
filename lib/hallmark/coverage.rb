@@ -41,6 +41,15 @@ module Hallmark
   # showed no record and have no scope read from code, so there is nothing
   # to check, and `cross_tenant_lists` are lists that may show another
   # tenant's records on a resource not mapped `lists: :current_tenant`.
+  #
+  # Of revocation (phase 3 step 9; not `stale`, which is stamps recorded
+  # before their resource's facts were mapped): `stale_explained` are allows
+  # after a revocation that other access explains, `stale_unjudged` those
+  # Hallmark could not judge, `revoked_reads` allows whose freshly read
+  # roles still held the revoked role, `unwatched` why the collector watched
+  # no membership, `caches_accepted` role reads cached on purpose
+  # (`cache_ok`, with the reason) and `role_reads_unread` calls the
+  # revocation lint could not follow.
   class Coverage
     # One fact a stamp records, as a dimension of the fact space: a boolean,
     # or the set of roles held in one place (`roles` is true).
@@ -60,7 +69,8 @@ module Hallmark
 
     attr_reader :gaps, :never_allowed, :unreached, :class_level, :without_op, :unmapped, :redirected, :opaque,
                 :code_only, :exempt, :routes_unread, :routes_unchecked, :routes_unresolved, :checks_unread, :stale,
-                :mismatches, :cross_tenant_lists, :lists_unobserved
+                :mismatches, :cross_tenant_lists, :lists_unobserved, :stale_explained, :stale_unjudged,
+                :revoked_reads, :unwatched, :caches_accepted, :role_reads_unread
 
     def initialize(mapping, stamps, mismatches: [])
       @mapping = mapping
@@ -90,6 +100,12 @@ module Hallmark
       @routes_unresolved = []
       @cross_tenant_lists = []
       @lists_unobserved = []
+      @stale_explained = []
+      @stale_unjudged = []
+      @revoked_reads = []
+      @unwatched = []
+      @caches_accepted = []
+      @role_reads_unread = []
     end
 
     def observe(unit)
@@ -111,8 +127,20 @@ module Hallmark
     def empty?
       [@gaps, @never_allowed, @unreached, @class_level, @without_op, @unmapped, @redirected, @opaque,
        @code_only, @exempt, @stale, @routes_unread, @routes_unchecked, @routes_unresolved,
-       @checks_unread, @mismatches, @cross_tenant_lists,
-       @lists_unobserved].all?(&:empty?)
+       @checks_unread, @mismatches, @cross_tenant_lists, @lists_unobserved, @stale_explained, @stale_unjudged,
+       @revoked_reads, @unwatched, @caches_accepted, @role_reads_unread].all?(&:empty?)
+    end
+
+    # What the revocations collector noted beside its marks, and what the
+    # revocation lint accepted or could not follow (`role_reads`, nil
+    # without an extractor).
+    def observe_revocations(stamp_set, role_reads)
+      @revoked_reads.concat(stamp_set.revoked_reads.map(&:to_s).uniq.sort)
+      @unwatched.concat(stamp_set.unwatched.map(&:to_s).uniq.sort)
+      return unless role_reads
+
+      @caches_accepted.concat(role_reads.accepted.map(&:to_s))
+      @role_reads_unread.concat(role_reads.unread.map(&:to_s).uniq)
     end
 
     # Fact combinations, as conjunctions, that none of `stamps` covers.

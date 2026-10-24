@@ -68,6 +68,10 @@ module Hallmark
     sig { returns(T::Array[String]) }
     attr_reader :unchecked
 
+    # StaleAccess#key of each stale access that failed; empty in older baselines
+    sig { returns(T::Array[String]) }
+    attr_reader :stale
+
     # Drift#key of each drift that failed
     sig { returns(T::Array[String]) }
     attr_reader :drift
@@ -93,9 +97,10 @@ module Hallmark
     sig do
       params(hallmark: String, alloy: String, scope: Integer, mapping_digest: String, run: T.nilable(String),
              lines: T::Array[String], checks: T::Array[Check], unchecked: T::Array[String],
-             drift: T::Array[String]).void
+             drift: T::Array[String], stale: T::Array[String]).void
     end
-    def initialize(hallmark:, alloy:, scope:, mapping_digest:, run:, lines:, checks:, unchecked:, drift:)
+    def initialize(hallmark:, alloy:, scope:, mapping_digest:, run:, lines:, checks:, unchecked:, drift:, stale: [])
+      @stale = T.let(T.unsafe(nil), T::Array[String])
       @hallmark = T.let(T.unsafe(nil), String)
       @alloy = T.let(T.unsafe(nil), String)
       @scope = T.let(T.unsafe(nil), Integer)
@@ -106,6 +111,12 @@ module Hallmark
       @unchecked = T.let(T.unsafe(nil), T::Array[String])
       @drift = T.let(T.unsafe(nil), T::Array[String])
     end
+
+    sig do
+      params(reports: T::Array[Report], list: T.proc.params(report: Report).returns(T::Array[T.any(Drift, StaleAccess)]))
+        .returns(T::Array[String])
+    end
+    def self.keys(reports, &list); end
 
     sig { returns(StampSet) }
     def stamp_set; end
