@@ -1117,4 +1117,5 @@ Railtie lands.
 ## Open questions (Anthony decides; do not choose)
 
 - Reserving the `hallmark` name on RubyGems.
-- Whether any target app needs JRuby, and whether any uses schema-per-tenant.
+- Whether any target app uses schema-per-tenant. (JRuby: decided Oct 24, 2026,
+  no target app needs it, so there is no JRuby backend; CRuby only.)
